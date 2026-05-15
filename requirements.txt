@@ -2,3 +2,5 @@ langsmith
 python-dotenv
 httpx>=0.25.0
 "mcp[cli]"
+requests
+yfinance
