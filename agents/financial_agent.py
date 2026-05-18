@@ -74,6 +74,55 @@ log = logging.getLogger("financial-analyst-agent")
 
 
 
+
+# ---------------------------------------------------------------------------
+# Checker system prompt — Claude-powered financial data critic
+# ---------------------------------------------------------------------------
+_CHECKER_SYSTEM_PROMPT = """You are the Financial Data Critic for the Alpha-Agent Node platform.
+
+Your role: Perform a rigorous audit of the extracted financial data and \
+computed ratios to decide whether the dataset is complete, consistent, and \
+sufficient for the Manager Agent to make high-quality investment decisions.
+
+You will receive:
+  - TASK QUERY       : The original research objective.
+  - RAW DATA SUMMARY : Key fields extracted from Yahoo Finance and SEC EDGAR.
+  - CALCULATED RATIOS: Computed metrics (P/E, ROE, Net Margin, D/E, CAGR, Score).
+
+Audit criteria (ALL must pass for is_complete = true):
+  1. DATA PRESENCE      : Yahoo Finance ratios payload is non-empty and error-free.
+  2. REVENUE HISTORY    : At least 2 years of annual revenue data exist for CAGR.
+  3. CORE RATIO COVERAGE: No more than 1 of the 5 core ratios (pe, roe,
+                          net_margin, de_ratio, cagr) may be null or missing.
+  4. VALUATION SANITY   : P/E ratio is present and numerically plausible
+                          (positive, below 1000) for the company's sector.
+  5. COMPOSITE SCORE    : Weighted composite health score (0-100) is computable
+                          and not None.
+  6. INTERNAL CONSISTENCY: Computed ratios are mathematically consistent with
+                          the raw data (e.g. net_margin aligns with net_income /
+                          revenue, CAGR direction matches revenue trend).
+  7. MANAGER READINESS  : The dataset as a whole is rich enough for the Manager
+                          Agent to draw actionable conclusions about the company's
+                          financial health, valuation, and growth trajectory.
+
+Output format (strict JSON — no markdown fences, no preamble):
+{
+  "is_complete"  : true | false,
+  "score"        : <int 0-100, overall data quality score>,
+  "passed"       : ["<criterion name>", ...],
+  "failed"       : ["<criterion name>", ...],
+  "issues"       : ["<specific problem description>", ...],
+  "feedback"     : "<actionable re-extraction instructions for the Brain, or empty string if is_complete is true>"
+}
+
+Rules:
+- Output ONLY valid JSON. No explanation outside the JSON object.
+- Be strict: partial or inconsistent data must NOT pass.
+- If is_complete is true, feedback MUST be an empty string "".
+- feedback must be specific and actionable — name the exact tools to re-call
+  and what data is missing, so the Brain can plan the next iteration precisely.
+"""
+
 # ══════════════════════════════════════════════════════════════════════════════
 # FinancialAnalystAgent
 # ══════════════════════════════════════════════════════════════════════════════
@@ -450,92 +499,192 @@ class FinancialAnalystAgent:
 
     def _check_data_quality(self, state: FinancialAgentState) -> dict[str, Any]:
         """
-        CHECKER — Data Integrity Audit and Quality Control.
+        CHECKER — Claude-Powered Financial Data Critic.
 
-        Acts as the Financial Critic: audits the contents of
-        ``state["raw_numerical_data"]`` and ``state["calculated_ratios"]``
-        against a set of data integrity constraints.
+        Delegates the full audit to Claude (``self._llm``) using
+        ``_CHECKER_SYSTEM_PROMPT``, which instructs the model to evaluate
+        7 financial data quality criteria and return a structured JSON verdict.
 
-        Integrity Constraints Enforced
-        --------------------------------
-        1. ``raw_numerical_data["yahoo_ratios"]`` must be non-empty and error-free.
-        2. ``raw_numerical_data["revenue_growth"]["annual_revenue"]`` must contain
-           at least 2 data points (required for CAGR calculation).
-        3. ``calculated_ratios["pe"]["pe_ratio"]`` must be a finite non-None number.
-        4. ``calculated_ratios["composite_score"]["score"]`` must be non-None.
-        5. No more than 2 of the 5 core ratios (pe, roe, net_margin, de_ratio,
-           cagr) may have a ``None`` value.
+        This replaces the previous rule-based implementation with an LLM critic
+        that can detect semantic issues beyond simple null-checks — such as
+        valuation implausibility, internal ratio inconsistencies, and whether
+        the dataset is genuinely sufficient for Manager Agent decision-making.
+
+        Audit Criteria (evaluated by Claude)
+        -------------------------------------
+        1. DATA PRESENCE       : Yahoo Finance payload non-empty and error-free.
+        2. REVENUE HISTORY     : >= 2 years of annual revenue for valid CAGR.
+        3. CORE RATIO COVERAGE : <= 1 of 5 core ratios (pe, roe, net_margin,
+                                 de_ratio, cagr) may be null.
+        4. VALUATION SANITY    : P/E present, positive, and sector-plausible.
+        5. COMPOSITE SCORE     : Weighted health score (0-100) is computable.
+        6. INTERNAL CONSISTENCY: Ratios mathematically consistent with raw data.
+        7. MANAGER READINESS   : Dataset rich enough for actionable conclusions.
+
+        Hard-coded pre-flight guard
+        ---------------------------
+        Before calling Claude, a lightweight pre-flight check verifies that
+        at least some raw data exists. If both ``raw_numerical_data`` and
+        ``calculated_ratios`` are empty (i.e. the Executor produced nothing),
+        the method returns immediately with ``is_complete=False`` to avoid
+        wasting an API call on an obviously empty state.
 
         Parameters
         ----------
         state : FinancialAgentState
-            Current mutable agent-local state (read-only in this method).
+            Current agent-local state. Read fields:
+            - ``state["raw_numerical_data"]``  : Yahoo + SEC EDGAR extractions.
+            - ``state["calculated_ratios"]``   : MCP-computed ratio results.
+            - ``state["shared_manager_ref"]``  : For task_query context.
+            - ``state["loop_counter"]``        : For audit context logging.
 
         Returns
         -------
         dict[str, Any]
-            Structured validation result with keys:
-            - ``"is_complete"`` (bool)  : True if all constraints pass.
-            - ``"feedback"``    (str)   : Actionable critique for the Brain node.
-                                          Empty string when ``is_complete`` is True.
-            - ``"missing"``     (list)  : List of failed constraint descriptions.
+            Structured verdict with keys:
+            - ``"is_complete"`` (bool)       : True if all 7 criteria pass.
+            - ``"score"``       (int)        : Claude's data quality score 0-100.
+            - ``"passed"``      (list[str])  : Criteria names that passed.
+            - ``"failed"``      (list[str])  : Criteria names that failed.
+            - ``"issues"``      (list[str])  : Specific problem descriptions.
+            - ``"feedback"``    (str)        : Actionable Brain re-plan instructions.
+                                               Empty string when is_complete=True.
         """
         raw  = state["raw_numerical_data"]
         calc = state["calculated_ratios"]
-        issues: list[str] = []
+        loop = state["loop_counter"]
+        task_query = state["shared_manager_ref"].get("task_query", "")
 
-        # Constraint 1: Yahoo ratios must be present and error-free
-        yahoo = raw.get("yahoo_ratios", {})
-        if not yahoo or yahoo.get("error"):
-            issues.append(
-                f"Yahoo Finance ratios are missing or errored: {yahoo.get('error', 'empty response')}."
-            )
+        log.info("[Checker] Auditing iteration %d data with Claude...", loop)
 
-        # Constraint 2: At least 2 annual revenue data points for CAGR
-        rev_history = raw.get("revenue_growth", {}).get("annual_revenue", [])
-        if len(rev_history) < 2:
-            issues.append(
-                f"Insufficient revenue history for CAGR: {len(rev_history)} year(s) found, minimum 2 required."
-            )
+        # -- Pre-flight guard: skip Claude call if state is obviously empty ---
+        if not raw and not calc:
+            log.warning("[Checker] Pre-flight: both raw_numerical_data and "
+                        "calculated_ratios are empty — skipping Claude call.")
+            return {
+                "is_complete": False,
+                "score":       0,
+                "passed":      [],
+                "failed":      ["DATA PRESENCE", "REVENUE HISTORY",
+                                "CORE RATIO COVERAGE", "VALUATION SANITY",
+                                "COMPOSITE SCORE", "INTERNAL CONSISTENCY",
+                                "MANAGER READINESS"],
+                "issues":      ["No data was extracted. The Executor produced "
+                                "empty raw_numerical_data and calculated_ratios."],
+                "feedback":    (
+                    "No data was retrieved in this iteration. Re-call "
+                    "tool_get_financial_ratios, tool_get_revenue_growth, and "
+                    "tool_get_xbrl_financials with the correct ticker symbol."
+                ),
+            }
 
-        # Constraint 3: P/E ratio must be a finite number
-        pe_val = calc.get("pe", {}).get("pe_ratio")
-        if pe_val is None:
-            issues.append("P/E ratio is None — price or EPS data could not be resolved.")
+        # -- Assemble the audit payload for Claude ----------------------------
+        yahoo   = raw.get("yahoo_ratios", {})
+        growth  = raw.get("revenue_growth", {})
+        xbrl    = raw.get("xbrl_financials", {})
 
-        # Constraint 4: Composite score must be computable
-        score_val = calc.get("composite_score", {}).get("score")
-        if score_val is None:
-            issues.append(
-                "Composite financial score is None — insufficient sub-metrics available."
-            )
-
-        # Constraint 5: No more than 2 of the 5 core ratio fields may be None
-        core_ratios = {
-            "pe":          calc.get("pe", {}).get("pe_ratio"),
-            "roe":         calc.get("roe", {}).get("roe_pct"),
-            "net_margin":  calc.get("net_margin", {}).get("net_margin_pct"),
-            "de_ratio":    calc.get("de_ratio", {}).get("de_ratio"),
-            "cagr":        calc.get("cagr", {}).get("cagr_pct"),
+        raw_summary = {
+            "ticker":            raw.get("ticker"),
+            "yahoo_error":       yahoo.get("error"),
+            "current_price":     yahoo.get("current_price"),
+            "eps_trailing":      yahoo.get("eps_trailing"),
+            "pe_ratio_yahoo":    yahoo.get("pe_ratio"),
+            "market_cap":        yahoo.get("market_cap"),
+            "sector":            yahoo.get("sector"),
+            "annual_revenue_count": len(growth.get("annual_revenue", [])),
+            "annual_revenue_sample": growth.get("annual_revenue", [])[:3],
+            "revenue_growth_ttm":   growth.get("revenue_growth_ttm"),
+            "xbrl_assets_available":      bool(xbrl.get("total_assets")),
+            "xbrl_liabilities_available": bool(xbrl.get("total_liabilities")),
+            "extraction_errors": raw.get("extraction_errors", []),
         }
-        null_count = sum(1 for v in core_ratios.values() if v is None)
-        if null_count > 2:
-            null_fields = [k for k, v in core_ratios.items() if v is None]
-            issues.append(
-                f"Too many null core ratios ({null_count}/5). Null fields: {null_fields}. "
-                "Re-extraction or alternative data sources required."
+
+        ratio_summary = {
+            "pe":             calc.get("pe", {}),
+            "roe":            calc.get("roe", {}),
+            "net_margin":     calc.get("net_margin", {}),
+            "de_ratio":       calc.get("de_ratio", {}),
+            "cagr":           calc.get("cagr", {}),
+            "composite_score": calc.get("composite_score", {}),
+        }
+
+        user_content = (
+            f"TASK QUERY:\n{task_query}\n\n"
+            f"LOOP ITERATION: {loop}\n\n"
+            f"RAW DATA SUMMARY:\n{json.dumps(raw_summary, indent=2)}\n\n"
+            f"CALCULATED RATIOS:\n{json.dumps(ratio_summary, indent=2)}\n\n"
+            "Audit the above and return your JSON verdict."
+        )
+
+        # -- Call Claude as the Financial Critic ------------------------------
+        try:
+            response = self._llm.messages.create(
+                model=self._model,
+                max_tokens=768,
+                system=_CHECKER_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            verdict_text = response.content[0].text.strip()
+
+            # Strip markdown fences if Claude wraps output
+            verdict_text = verdict_text.replace("```json", "").replace("```", "").strip()
+            verdict = json.loads(verdict_text)
+
+        except json.JSONDecodeError as exc:
+            log.warning("[Checker] Claude returned non-JSON verdict: %s | raw=%s",
+                        exc, verdict_text[:300])
+            # Treat JSON parse failure as incomplete — loop will retry
+            return {
+                "is_complete": False,
+                "score":       0,
+                "passed":      [],
+                "failed":      ["CHECKER PARSE ERROR"],
+                "issues":      [f"Claude Checker returned malformed JSON: {exc}"],
+                "feedback":    "Checker could not parse its own verdict. "
+                               "Re-run full extraction with tool_get_financial_ratios, "
+                               "tool_get_revenue_growth, and tool_get_xbrl_financials.",
+            }
+
+        except Exception as exc:
+            log.exception("[Checker] Claude API call failed: %s", exc)
+            # Treat API failure as incomplete — loop will retry with Brain replanning
+            return {
+                "is_complete": False,
+                "score":       0,
+                "passed":      [],
+                "failed":      ["CHECKER API ERROR"],
+                "issues":      [f"Claude Checker API call failed: {exc}"],
+                "feedback":    "Checker API call failed. Retry full data extraction "
+                               "on the next iteration.",
+            }
+
+        # -- Parse and log the verdict ----------------------------------------
+        is_complete = bool(verdict.get("is_complete", False))
+        score       = int(verdict.get("score", 0))
+        passed      = verdict.get("passed", [])
+        failed      = verdict.get("failed", [])
+        issues      = verdict.get("issues", [])
+        feedback    = str(verdict.get("feedback", "")) if not is_complete else ""
+
+        if is_complete:
+            log.info(
+                "[Checker] PASS — score=%d | criteria passed=%d | iteration=%d",
+                score, len(passed), loop,
+            )
+        else:
+            log.warning(
+                "[Checker] FAIL — score=%d | failed=%s | issues=%s",
+                score, failed, issues,
             )
 
-        if issues:
-            feedback = (
-                "DATA QUALITY ISSUES DETECTED — re-extraction required:\n"
-                + "\n".join(f"  [{i+1}] {issue}" for i, issue in enumerate(issues))
-            )
-            log.warning("Checker: %d quality issue(s) found.", len(issues))
-            return {"is_complete": False, "feedback": feedback, "missing": issues}
-
-        log.info("Checker: all data quality constraints passed — loop can exit.")
-        return {"is_complete": True, "feedback": "", "missing": []}
+        return {
+            "is_complete": is_complete,
+            "score":       score,
+            "passed":      passed,
+            "failed":      failed,
+            "issues":      issues,
+            "feedback":    feedback,
+        }
 
     # =========================================================================
     # LAYER 3 — BRAIN / ORCHESTRATOR (Lifecycle & Loop Gateway)
@@ -731,22 +880,26 @@ class FinancialAnalystAgent:
                     # Layer 1b: Compute financial ratios
                     await self._execute_ratio_computation(session, state)
 
-                    # Layer 2: Check data quality
+                    # Layer 2: Claude-powered Checker audits the extracted data
                     check_result = self._check_data_quality(state)
                     state["is_complete"]         = check_result["is_complete"]
                     state["validation_feedback"] = check_result["feedback"]
 
                     if state["is_complete"]:
                         log.info(
-                            "Checker passed — exiting loop after %d iteration(s).",
+                            "[Loop] Checker PASSED (score=%s) — exiting after %d iteration(s).",
+                            check_result.get("score"),
                             state["loop_counter"],
                         )
                         break
                     else:
                         log.warning(
-                            "Checker failed on iteration %d. Feedback: %s",
+                            "[Loop] Checker FAILED on iteration %d "
+                            "(score=%s, failed=%s). Feedback: %s",
                             state["loop_counter"],
-                            state["validation_feedback"],
+                            check_result.get("score"),
+                            check_result.get("failed", []),
+                            state["validation_feedback"][:120],
                         )
 
                 if not state["is_complete"]:
