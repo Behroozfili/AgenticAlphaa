@@ -1,6 +1,12 @@
-langsmith
+﻿langsmith
 python-dotenv
 httpx>=0.25.0
-"mcp[cli]"
 requests
-yfinance
+yfinance>=0.2.40
+feedparser>=6.0.10
+langchain-text-splitters>=0.2.0
+sentence-transformers>=3.0.0
+torch>=2.2.0
+supabase>=2.5.0
+anthropic>=0.30.0
+numpy>=1.26.0
