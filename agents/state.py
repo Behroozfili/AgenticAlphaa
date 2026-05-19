@@ -19,6 +19,7 @@ Alpha-Agent Node platform.
 
       ResearchAgentState     → private memory for the Research Agent loop.
       FinancialAgentState    → private memory for the Financial Analyst Agent loop.
+      SentimentAgentState    → private memory for the Sentiment Agent loop.
 
 Design principle (Contract-Based Design):
     Manager passes SharedManagerState in
@@ -37,6 +38,7 @@ Field Ownership Map
     manager_directives           Manager (writes), all (read)
     aggregated_research_context  ResearchAgent
     financial_metrics_summary    FinancialAnalystAgent
+    sentiment_analysis_summary   SentimentAgent
 """
 
 from __future__ import annotations
@@ -139,12 +141,38 @@ class SharedManagerState(TypedDict, total=False):
 
         Owner  : Financial Analyst Agent
         Readers: Sentiment Agent, Report Writer Agent, Manager Agent
+
+    sentiment_analysis_summary : dict[str, Any]
+        Structured dictionary of market sentiment signals produced by the
+        SentimentAgent after running its Brain → Executor pipeline.
+
+        Guaranteed top-level keys (present even if value is None):
+            "ticker"              (str | None)  : Ticker analysed.
+            "fear_greed_score"    (float | None): Composite score [-1.0, +1.0].
+            "fear_greed_label"    (str | None)  : "Extreme Fear" … "Extreme Greed".
+            "fear_greed_confidence" (float)     : |score| heuristic [0, 1].
+            "finbert_label"       (str | None)  : "Bullish" | "Bearish" | "Neutral".
+            "finbert_bullish_prob" (float)      : Mean bullish probability [0, 1].
+            "finbert_bearish_prob" (float)      : Mean bearish probability [0, 1].
+            "finbert_neutral_prob" (float)      : Mean neutral probability [0, 1].
+            "vader_compound"      (float)       : Mean VADER compound [-1, +1].
+            "vader_label"         (str | None)  : "Bullish" | "Bearish" | "Neutral".
+            "total_chunks_analyzed" (int)       : Social/news chunks processed.
+            "sources_metadata"    (list[dict])  : Source metadata for each chunk.
+            "brain_reasoning"     (str)         : Claude's final interpretation
+                                                   of the combined signals.
+            "loop_iterations_used" (int)        : Executor loop iterations run.
+            "extraction_errors"   (list[str])   : Per-tool error messages, if any.
+
+        Owner  : Sentiment Agent
+        Readers: Report Writer Agent, Manager Agent
     """
 
     task_query:                   str
     manager_directives:           dict[str, Any]
     aggregated_research_context:  list[str]
     financial_metrics_summary:    dict[str, Any]
+    sentiment_analysis_summary:   dict[str, Any]
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -297,3 +325,104 @@ class FinancialAgentState(TypedDict):
     validation_feedback: str
     is_complete:         bool
     shared_manager_ref:  SharedManagerState
+
+
+# ══════════════════════════════════════════════════════════════════
+# Level 2 — Private memory: Sentiment Agent internal loop
+# ══════════════════════════════════════════════════════════════════
+
+class SentimentAgentState(TypedDict):
+    """
+    Isolated private memory for the SentimentAgent's internal
+    two-tiered execution loop (Brain → Executor).
+
+    This state is instantiated fresh at the start of each ``run()`` call
+    from the contents of SharedManagerState, and destroyed after the loop
+    completes. It is NEVER passed back to the Manager directly.
+
+    On loop completion, the agent distils its findings into a clean
+    ``sentiment_analysis_summary`` dict and writes it into SharedManagerState.
+
+    Note: SentimentAgent uses a Brain → Executor two-tier architecture
+    (no dedicated Checker layer). The Brain performs both planning and
+    final interpretation of the aggregated sentiment signals.
+
+    Fields
+    ------
+    messages : list[dict]
+        Running conversational log between the Brain and Claude across
+        loop iterations. Used for multi-turn reasoning where the Brain
+        evaluates Executor results and decides follow-up actions.
+        Each entry is a dict with keys:
+            "role"    : "user" | "assistant"
+            "content" : str
+        Not annotated with operator.add — the Brain manages appending
+        manually to allow system-level context injection at any position.
+
+    retrieved_chunks : list[str]
+        Accumulates raw social and news text chunks fetched from the
+        RAG pipeline via the ``retrieve_social_data`` MCP tool call.
+        Populated by the Executor and consumed by both FinBERT and VADER.
+
+    sources_metadata : list[dict]
+        Parallel list of source metadata dicts for each entry in
+        ``retrieved_chunks``. Forwarded into the final summary for
+        downstream auditability.
+        Keys per entry: ticker, source_type, published_at, url, title,
+        rrf_score.
+
+    finbert_result : dict[str, Any]
+        Raw JSON payload returned by the ``analyze_finbert`` MCP tool.
+        Populated by the Executor.
+        Expected keys: bullish_prob, bearish_prob, neutral_prob, label,
+        total_chunks, skipped_chunks.
+
+    vader_result : dict[str, Any]
+        Raw JSON payload returned by the ``score_vader`` MCP tool.
+        Populated by the Executor.
+        Expected keys: compound, positive_mean, negative_mean,
+        neutral_mean, label, total_chunks, skipped_chunks.
+
+    fear_greed_result : dict[str, Any]
+        Raw JSON payload returned by the ``calculate_fear_greed`` MCP tool.
+        Populated by the Executor after both FinBERT and VADER have run.
+        Expected keys: score, label, finbert_score, vader_score,
+        weights, confidence, diagnostics.
+
+    brain_reasoning : str
+        Claude's final narrative interpretation of the aggregated
+        sentiment signals, written during the Brain's analysis pass.
+        Committed into ``sentiment_analysis_summary["brain_reasoning"]``.
+        Empty string before the Brain's final pass runs.
+
+    loop_counter : int
+        Monotonically increasing counter incremented once per Executor
+        cycle. Used to enforce the ``max_loops`` safety guardrail
+        inside ``run()``. Unlike ResearchAgent and FinancialAgent, the
+        Sentiment Agent loop is typically single-pass (loop_counter
+        reaches 1 on a clean run).
+
+    extraction_errors : list[str]
+        Accumulates per-tool error strings recorded by the Executor
+        when an MCP tool call fails or returns an error payload.
+        Forwarded into ``sentiment_analysis_summary["extraction_errors"]``.
+
+    shared_manager_ref : SharedManagerState
+        A read-only structured reference to the original SharedManagerState
+        passed in by the Manager Agent at the start of ``run()``.
+        Stored here so both the Brain and Executor can access
+        ``task_query``, ``manager_directives``, and
+        ``aggregated_research_context`` without separate parameter passing.
+        Must NOT be mutated by any internal layer.
+    """
+
+    messages:           list[dict]
+    retrieved_chunks:   list[str]
+    sources_metadata:   list[dict]
+    finbert_result:     dict[str, Any]
+    vader_result:       dict[str, Any]
+    fear_greed_result:  dict[str, Any]
+    brain_reasoning:    str
+    loop_counter:       int
+    extraction_errors:  list[str]
+    shared_manager_ref: SharedManagerState
