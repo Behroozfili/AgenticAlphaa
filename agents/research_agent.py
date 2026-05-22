@@ -48,6 +48,9 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 from agents.state import ResearchAgentState, SharedManagerState
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +60,7 @@ _DEFAULT_MAX_LOOPS: int = 3
 # ── MCP Server launch parameters ────────────────────────────────
 _MCP_SERVER_PARAMS = StdioServerParameters(
     command="python",
-    args=[os.path.join(os.path.dirname(__file__), "..", "research_server.py")],
+    args=[os.path.join(os.path.dirname(__file__), "..","tools","research_tools" ,"research_server.py")],
     env=None,   # inherits current environment (API keys etc.)
 )
 

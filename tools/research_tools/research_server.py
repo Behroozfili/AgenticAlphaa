@@ -25,7 +25,7 @@ from mcp.types import Tool, TextContent, CallToolResult, ListToolsResult
 from tavily_search import tavily_search
 from news_search   import news_search
 from sec_edgar     import sec_edgar_search, sec_edgar_filing
-from hybrid_rag    import rag_vector_search, rag_graph_traverse, rag_hybrid_query
+from rag.hybrid_rag import rag_vector_search, rag_graph_traverse, rag_hybrid_query
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -203,15 +203,10 @@ async def list_tools() -> ListToolsResult:
                         "type": "string",
                         "description": "Filter results to a specific ticker (optional)"
                     },
-                    "doc_type": {
-                        "type": "string",
-                        "enum": ["10-K", "10-Q", "research_report", "news", "all"],
-                        "default": "all"
-                    },
                     "threshold": {
                         "type": "number",
-                        "description": "Minimum cosine similarity (0-1, default: 0.7)",
-                        "default": 0.7
+                        "description": "Minimum RRF score (default: 0.01)",
+                        "default": 0.01
                     },
                 },
             },
@@ -220,7 +215,7 @@ async def list_tools() -> ListToolsResult:
         # ── 6. RAG — Graph Traversal ───────────────────────────────
         Tool(
             name="rag_graph_traverse",
-            description="Traverse Neo4j knowledge graph to discover entity relationships. Finds competitors, suppliers, geopolitical impacts. Relations: COMPETES_WITH, SUPPLIES_TO, AFFECTED_BY, REPORTS_TO.",
+            description="Traverse Neo4j knowledge graph to discover entity relationships. Finds competitors, suppliers, geopolitical impacts. Relations: COMPETES_WITH, SUPPLIES_TO, AFFECTED_BY, LED_BY, PART_OF, RELATED_TO, ACQUIRED_BY.",
             inputSchema={
                 "type": "object",
                 "required": ["entity"],
@@ -233,7 +228,7 @@ async def list_tools() -> ListToolsResult:
                         "type": "array",
                         "items": {
                             "type": "string",
-                            "enum": ["COMPETES_WITH", "SUPPLIES_TO", "AFFECTED_BY", "REPORTS_TO", "ALL"]
+                            "enum": ["COMPETES_WITH", "SUPPLIES_TO", "AFFECTED_BY", "LED_BY", "PART_OF", "RELATED_TO", "ACQUIRED_BY", "ALL"]
                         },
                         "default": ["ALL"]
                     },
@@ -342,8 +337,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     query=arguments["query"],
                     top_k=arguments.get("top_k", 5),
                     ticker_filter=arguments.get("ticker_filter"),
-                    doc_type=arguments.get("doc_type", "all"),
-                    threshold=arguments.get("threshold", 0.7),
+                    threshold=arguments.get("threshold", 0.01),
                 )
 
             case "rag_graph_traverse":

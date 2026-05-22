@@ -21,6 +21,10 @@ Alpha-Agent Node platform.
       FinancialAgentState    → private memory for the Financial Analyst Agent loop.
       SentimentAgentState    → private memory for the Sentiment Agent loop.
 
+  Level 3 — Manager-Owned Orchestration State (in SharedManagerState):
+      Fields added for the ManagerAgent are marked with Owner: ManagerAgent
+      and are NEVER written by specialist agents.
+
 Design principle (Contract-Based Design):
     Manager passes SharedManagerState in
         → Specialist Agent hydrates its private state from SharedManagerState
@@ -39,6 +43,12 @@ Field Ownership Map
     aggregated_research_context  ResearchAgent
     financial_metrics_summary    FinancialAnalystAgent
     sentiment_analysis_summary   SentimentAgent
+    agent_execution_history      ManagerAgent
+    orchestrator_logs            ManagerAgent
+    final_report                 ManagerAgent
+
+  Level 3 — LangGraph Internal State:
+      ManagerGraphState      → private LangGraph state for ManagerAgent graph
 """
 
 from __future__ import annotations
@@ -166,6 +176,41 @@ class SharedManagerState(TypedDict, total=False):
 
         Owner  : Sentiment Agent
         Readers: Report Writer Agent, Manager Agent
+
+    agent_execution_history : list[dict[str, Any]]
+        Ordered log of every specialist-agent dispatch during the current
+        orchestration session. Written exclusively by the ManagerAgent
+        after each specialist agent's ``run()`` call completes.
+
+        Each entry is a dict with keys:
+            "agent_name"    (str)        : Class name of the dispatched agent.
+            "dispatched_at" (float)      : Unix timestamp of dispatch.
+            "outcome"       (str)        : "success" | "partial" | "error".
+            "duration_s"    (float|None) : Wall-clock seconds for run().
+            "result_keys"   (list[str])  : Keys written into SharedManagerState.
+            "error_message" (str|None)   : Exception text on failure.
+
+        Owner  : Manager Agent
+        Readers: All agents (read-only reference)
+
+    orchestrator_logs : list[str]
+        Free-text chronological log lines written by the ManagerAgent's
+        Brain at each routing decision point.
+        Format: ``"[ISO-timestamp] [DECISION] <action taken>"``.
+        Useful for audit trails, debugging, and final report generation.
+
+        Owner  : Manager Agent
+        Readers: Report Writer Agent (for audit section)
+
+    final_report : str
+        The Manager Agent's synthesised final output string, written at
+        the conclusion of the orchestration loop.
+        Contains the complete human-readable analysis combining research,
+        financial metrics, and sentiment signals.
+        Empty string until the ManagerAgent's finalisation step.
+
+        Owner  : Manager Agent
+        Readers: Caller / end user
     """
 
     task_query:                   str
@@ -173,6 +218,9 @@ class SharedManagerState(TypedDict, total=False):
     aggregated_research_context:  list[str]
     financial_metrics_summary:    dict[str, Any]
     sentiment_analysis_summary:   dict[str, Any]
+    agent_execution_history:      list[dict[str, Any]]
+    orchestrator_logs:            list[str]
+    final_report:                 str
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -426,3 +474,67 @@ class SentimentAgentState(TypedDict):
     loop_counter:       int
     extraction_errors:  list[str]
     shared_manager_ref: SharedManagerState
+
+
+# ══════════════════════════════════════════════════════════════════
+# Level 3 — Private memory: Manager Agent LangGraph internal state
+# ══════════════════════════════════════════════════════════════════
+
+class ManagerGraphState(TypedDict):
+    """
+    Private LangGraph state for the ManagerAgent's internal StateGraph.
+
+    This TypedDict is used exclusively by the ManagerAgent's compiled
+    LangGraph graph. It is instantiated inside ``run()`` from the user's
+    task_query and manager_directives, driven through the graph nodes,
+    and the final SharedManagerState is extracted from it at the end.
+
+    It is NEVER passed to specialist agents directly — they receive only
+    SharedManagerState via the ``_dispatch`` node.
+
+    Fields
+    ------
+    shared_state : SharedManagerState
+        The live SharedManagerState that flows through the orchestration
+        graph. Every dispatch node mutates this in-place and returns it.
+        All specialist agent outputs accumulate here across iterations.
+
+    loop_counter : int
+        Monotonically increasing counter incremented by the ``brain_route``
+        node at the start of each routing iteration.
+        Used by ``_should_route()`` to enforce the max_routing_loops guardrail.
+
+    last_action : str
+        The most recent routing action returned by ``_brain_route()``.
+        Used by ``_should_route()`` to determine the conditional edge target:
+        one of the 8 valid action strings or empty string on first entry.
+
+    last_agent_key : str
+        The agent key (``"research"`` | ``"financial"`` | ``"sentiment"``)
+        from the most recently dispatched agent. Used by the ``evaluate``
+        and ``persist`` nodes to know which agent just ran.
+        Empty string before any agent has been dispatched.
+
+    evaluation_passed : bool
+        Whether the most recent ``brain_evaluate`` call returned passed=True.
+        Read by ``_should_route()`` after ``persist`` to decide whether to
+        loop back to ``brain_route`` or exit to END.
+
+    ticker : str | None
+        Resolved ticker symbol for the current session. Extracted from
+        manager_directives once and cached here to avoid repeated lookups
+        across routing iterations.
+
+    session_id : str
+        Unique session identifier (8-char UUID prefix) for this run.
+        Written once by the ``hydrate`` node and read by ``persist`` for
+        ManagerMemory heuristic keys.
+    """
+
+    shared_state:      SharedManagerState
+    loop_counter:      int
+    last_action:       str
+    last_agent_key:    str
+    evaluation_passed: bool
+    ticker:            str | None
+    session_id:        str

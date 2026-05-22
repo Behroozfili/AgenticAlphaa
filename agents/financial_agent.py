@@ -51,6 +51,7 @@ from typing import Any
 import anthropic
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+import os
 
 # ---------------------------------------------------------------------------
 # State contract imports
@@ -72,7 +73,11 @@ logging.basicConfig(
 log = logging.getLogger("financial-analyst-agent")
 
 
-
+_MCP_SERVER_PARAMS = StdioServerParameters(
+    command="python",
+    args=[os.path.join(os.path.dirname(__file__), "..","tools","financial_tools" ,"financial_server.py")],
+    env=None,   # inherits current environment (API keys etc.)
+)
 
 
 # ---------------------------------------------------------------------------
@@ -167,22 +172,18 @@ class FinancialAnalystAgent:
 
     def __init__(
         self,
-        server_script_path: str,
+       
         model: str = "claude-sonnet-4-20250514",
         max_loops: int = 3,
+        mcp_server_params: StdioServerParameters | None = None,
     ) -> None:
         self._llm    = anthropic.Anthropic()
         self._model  = model
         self._default_max_loops = max_loops
-        self._server_params = StdioServerParameters(
-            command="python",
-            args=[server_script_path],
-            env=None,  # inherits the current process environment
-        )
+        self._server_params = mcp_server_params or _MCP_SERVER_PARAMS
         log.info(
             "FinancialAnalystAgent initialised — model=%s, server=%s",
-            model,
-            server_script_path,
+            model
         )
 
     # =========================================================================
