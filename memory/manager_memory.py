@@ -56,14 +56,17 @@ Usage
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import time
 from copy import deepcopy
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Any
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+
+
+from supabase import create_client, Client
 
 log = logging.getLogger("manager-memory")
 
@@ -362,43 +365,70 @@ class LongTermMemory:
 
     Persistence
     -----------
-    When ``persistence_path`` is provided, the memory is loaded from and
-    saved to a JSON file on disk. When absent, it operates in-memory only.
-    The ``load()`` and ``persist()`` interface is designed to be swapped
-    for a vector store or SQLite backend without changing the ManagerAgent.
+    Backed by a ``long_term_memory`` table in Supabase (PostgreSQL + JSONB).
+    ``load()`` reads the row for the given ``user_id``; ``persist()`` upserts it.
+    The interface is intentionally minimal so the ManagerAgent never needs
+    to change when the storage backend changes.
+
+    Required Supabase table
+    -----------------------
+    Run once in the Supabase SQL Editor::
+
+        CREATE TABLE long_term_memory (
+            user_id                 TEXT PRIMARY KEY,
+            operational_heuristics  JSONB DEFAULT '{}',
+            ticker_insights         JSONB DEFAULT '{}',
+            user_preferences        JSONB DEFAULT '{}',
+            updated_at              TIMESTAMPTZ DEFAULT NOW()
+        );
 
     Parameters
     ----------
-    persistence_path : str | None
-        Path to a JSON file for persistent storage.
-        If None, memory is in-memory only (lost when process exits).
+    user_id : str
+        Identifier for the user whose memory is being managed.
+        Supplied by the API layer from the incoming request; falls back
+        to the ``DEFAULT_USER_ID`` env var for CLI / test usage.
+    supabase_client : supabase.Client | None
+        An already-initialised Supabase client. When None the class
+        creates one from ``SUPABASE_URL`` / ``SUPABASE_KEY`` env vars.
     max_heuristics : int
-        Maximum number of heuristic entries to retain.
-        Oldest entries are evicted when the cap is reached. Default: 100.
+        Maximum heuristic entries retained in memory. Default: 100.
     max_ticker_insights : int
-        Maximum number of tickers to cache. Default: 200.
+        Maximum ticker entries retained in memory. Default: 200.
     """
 
     def __init__(
         self,
-        persistence_path: str | None = None,
+        user_id:          str            = "",
+        supabase_client:  Client | None  = None,
         max_heuristics:     int = 100,
         max_ticker_insights: int = 200,
     ) -> None:
-        self._path:               Path | None = Path(persistence_path) if persistence_path else None
-        self._max_heuristics:     int         = max_heuristics
-        self._max_ticker_insights: int        = max_ticker_insights
+        # Resolve user_id — API passes it explicitly; CLI falls back to env var
+        self._user_id: str = user_id or os.getenv("DEFAULT_USER_ID", "default_user")
 
-        # In-memory stores
-        self.operational_heuristics: dict[str, Any]        = {}
-        self.ticker_insights:        dict[str, dict]       = {}
-        self.user_preferences:       dict[str, Any]        = {}
+        self._max_heuristics:      int = max_heuristics
+        self._max_ticker_insights: int = max_ticker_insights
 
-        # Load from disk if path exists
-        if self._path and self._path.exists():
-            self.load()
+        # Supabase client — reuse injected client or create from env vars
+        if supabase_client is not None:
+            self._db: Client = supabase_client
         else:
-            log.info("[LongTerm] Starting with empty long-term memory.")
+            url = os.getenv("SUPABASE_URL", "")
+            key = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+            if not url or not key:
+                raise ValueError(
+                    "[LongTerm] SUPABASE_URL and SUPABASE_KEY must be set "
+                    "when no supabase_client is injected."
+                )
+            self._db = create_client(url, key)
+
+        # In-memory stores (populated by load())
+        self.operational_heuristics: dict[str, Any]  = {}
+        self.ticker_insights:        dict[str, dict] = {}
+        self.user_preferences:       dict[str, Any]  = {}
+
+        self.load()
 
     # ------------------------------------------------------------------
     # Operational heuristics
@@ -539,28 +569,40 @@ class LongTermMemory:
 
     def load(self) -> None:
         """
-        Load memory from the JSON persistence file.
+        Load long-term memory from Supabase for the current user.
 
-        Silently initialises to empty state if the file is malformed.
-        Safe to call on an already-loaded instance (overwrites in-memory state).
+        Performs a ``SELECT`` on ``long_term_memory`` filtered by
+        ``user_id``. Silently initialises to empty state when no row
+        exists yet (first-time user).
+
+        Raises
+        ------
+        Exception
+            Propagated on unexpected Supabase / network errors.
         """
-        if self._path is None or not self._path.exists():
-            log.info("[LongTerm] No persistence file found — starting empty.")
-            return
         try:
-            with self._path.open("r", encoding="utf-8") as fh:
-                data = json.load(fh)
-            self.operational_heuristics = data.get("operational_heuristics", {})
-            self.ticker_insights        = data.get("ticker_insights", {})
-            self.user_preferences       = data.get("user_preferences", {})
-            log.info(
-                "[LongTerm] Loaded from %s — heuristics=%d tickers=%d prefs=%d",
-                self._path,
-                len(self.operational_heuristics),
-                len(self.ticker_insights),
-                len(self.user_preferences),
+            result = (
+                self._db
+                .table("long_term_memory")
+                .select("operational_heuristics, ticker_insights, user_preferences")
+                .eq("user_id", self._user_id)
+                .execute()
             )
-        except (json.JSONDecodeError, OSError) as exc:
+            if result.data:
+                row = result.data[0]
+                self.operational_heuristics = row.get("operational_heuristics", {})
+                self.ticker_insights        = row.get("ticker_insights", {})
+                self.user_preferences       = row.get("user_preferences", {})
+                log.info(
+                    "[LongTerm] Loaded from Supabase — user=%s heuristics=%d tickers=%d prefs=%d",
+                    self._user_id,
+                    len(self.operational_heuristics),
+                    len(self.ticker_insights),
+                    len(self.user_preferences),
+                )
+            else:
+                log.info("[LongTerm] No existing row for user=%s — starting empty.", self._user_id)
+        except Exception as exc:
             log.error("[LongTerm] Load failed (%s) — starting empty.", exc)
             self.operational_heuristics = {}
             self.ticker_insights        = {}
@@ -568,29 +610,31 @@ class LongTermMemory:
 
     def persist(self) -> None:
         """
-        Save the current long-term memory to the JSON persistence file.
+        Save the current long-term memory to Supabase.
 
-        No-op when ``persistence_path`` was not provided at construction.
-        Creates parent directories as needed.
+        Performs an ``UPSERT`` on ``long_term_memory`` keyed by ``user_id``.
+        Creates the row on first call; updates it on subsequent calls.
 
         Raises
         ------
-        OSError
-            Propagated if the file cannot be written (e.g. permissions).
+        Exception
+            Propagated on unexpected Supabase / network errors.
         """
-        if self._path is None:
-            log.debug("[LongTerm] No persistence path — skipping persist().")
-            return
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        payload = {
-            "operational_heuristics": self.operational_heuristics,
-            "ticker_insights":        self.ticker_insights,
-            "user_preferences":       self.user_preferences,
-            "persisted_at":           time.time(),
-        }
-        with self._path.open("w", encoding="utf-8") as fh:
-            json.dump(payload, fh, indent=2, ensure_ascii=False)
-        log.info("[LongTerm] Persisted to %s.", self._path)
+        try:
+            self._db.table("long_term_memory").upsert(
+                {
+                    "user_id":                self._user_id,
+                    "operational_heuristics": self.operational_heuristics,
+                    "ticker_insights":        self.ticker_insights,
+                    "user_preferences":       self.user_preferences,
+                    "updated_at":             "now()",
+                },
+                on_conflict="user_id",
+            ).execute()
+            log.info("[LongTerm] Persisted to Supabase — user=%s.", self._user_id)
+        except Exception as exc:
+            log.error("[LongTerm] Persist failed: %s", exc)
+            raise
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -609,9 +653,12 @@ class ManagerMemory:
 
     Parameters
     ----------
-    persistence_path : str | None
-        Optional path to the long-term memory JSON file.
-        If None, long-term memory is in-memory only.
+    user_id : str
+        User identifier passed from the API layer. Falls back to the
+        ``DEFAULT_USER_ID`` env var when empty (CLI / test usage).
+    supabase_client : supabase.Client | None
+        Optional pre-built Supabase client. When None, ``LongTermMemory``
+        creates one from ``SUPABASE_URL`` / ``SUPABASE_KEY`` env vars.
     max_messages : int
         Maximum LLM messages retained in short-term memory. Default: 50.
     max_heuristics : int
@@ -628,11 +675,18 @@ class ManagerMemory:
 
     Example
     -------
-    >>> memory = ManagerMemory(persistence_path="data/memory.json")
+    >>> # CLI / test usage — user_id from env var DEFAULT_USER_ID
+    >>> memory = ManagerMemory()
+
+    >>> # API usage — user_id injected from the incoming request
+    >>> memory = ManagerMemory(user_id="user_abc123")
+
+    >>> # Inject an existing Supabase client (e.g. shared across the app)
+    >>> memory = ManagerMemory(user_id="user_abc123", supabase_client=sb)
+
     >>> memory.new_session(session_id="sess_001", task_query="Analyse NVDA")
     >>> memory.add_message(role="user", content="Analyse NVDA for Q1 2025")
     >>> record = memory.log_dispatch("ResearchAgent", {"ticker": "NVDA"})
-    >>> # ... after agent.run() returns ...
     >>> record.outcome    = "success"
     >>> record.duration_s = 12.4
     >>> record.result_keys = ["aggregated_research_context"]
@@ -641,18 +695,20 @@ class ManagerMemory:
 
     def __init__(
         self,
-        persistence_path:    str | None = None,
-        max_messages:        int        = 50,
-        max_heuristics:      int        = 100,
-        max_ticker_insights: int        = 200,
+        user_id:             str           = "",
+        supabase_client:     Client | None = None,
+        max_messages:        int           = 50,
+        max_heuristics:      int           = 100,
+        max_ticker_insights: int           = 200,
     ) -> None:
         self.short = ShortTermMemory(max_messages=max_messages)
         self.long  = LongTermMemory(
-            persistence_path=persistence_path,
+            user_id=user_id,
+            supabase_client=supabase_client,
             max_heuristics=max_heuristics,
             max_ticker_insights=max_ticker_insights,
         )
-        log.info("ManagerMemory initialised (persistence=%s).", persistence_path or "none")
+        log.info("ManagerMemory initialised (user=%s).", user_id or "from_env")
 
     # ------------------------------------------------------------------
     # Session lifecycle
@@ -768,4 +824,3 @@ class ManagerMemory:
             "short_term": self.short.to_context_dict(),
             "long_term":  self.long.recall(ticker=ticker),
         }
-
