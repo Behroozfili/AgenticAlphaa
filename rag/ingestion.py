@@ -23,7 +23,7 @@ from rag.embedding_manager import get_embedder
 from rag.vector_store import AlphaVectorStore
 from rag.graph_store import AlphaGraphStore
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -96,30 +96,17 @@ def run_ingestion_pipeline(
     # Stage 3 + 4 — Embed → Vector upsert
     # ─────────────────────────────────────────────────────────────────────────
     logger.info("─── Stage 3+4: Embedding + Vector upsert ───")
+    vector_stage_ok = False
     try:
-        embeddings = embedder._encode_batch([c.text for c in chunks])
+        # embed_chunks() is the public API — returns list of
+        # {"text": str, "embedding": List[float], "metadata": dict}
+        # which is exactly what AlphaVectorStore.upsert() expects.
+        records = embedder.embed_chunks(chunks)
 
-        records = [
-            {
-                "text":      chunk.text,
-                "embedding": emb.tolist() if hasattr(emb, "tolist") else emb,
-                "metadata":  chunk.metadata,
-            }
-            for chunk, emb in zip(chunks, embeddings)
-        ]
-
-        success = 0
-        for record in records:
-            try:
-                vector_store.upsert(records=[record])
-                success += 1
-            except Exception as exc:
-                logger.warning(
-                    "Vector upsert skipped (url=%s): %s",
-                    record["metadata"].get("url"), exc,
-                )
-
-        logger.info("Vector upsert: %d/%d chunks stored.", success, len(records))
+        # Batch upsert in one round-trip instead of N individual calls.
+        upserted = vector_store.upsert(records=records)
+        logger.info("Vector upsert: %d/%d chunks stored.", upserted, len(records))
+        vector_stage_ok = True
 
     except Exception as exc:
         logger.error("Embed/vector stage failed: %s", exc)
@@ -127,7 +114,9 @@ def run_ingestion_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     # Stage 5 — Graph extraction + upsert (Neo4j)
     # ─────────────────────────────────────────────────────────────────────────
-    if skip_graph:
+    if not vector_stage_ok:
+        logger.warning("Skipping Stage 5: vector stage did not complete successfully.")
+    elif skip_graph:
         logger.info("Stage 5 skipped (skip_graph=True).")
     else:
         logger.info("─── Stage 5: Graph extraction + upsert ───")
