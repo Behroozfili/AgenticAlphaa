@@ -78,7 +78,7 @@ class AnalyzeRequest(BaseModel):
     search_depth: str = Field(default="advanced")
     days_back: int = Field(default=14, ge=1, le=365)
     include_sentiment: bool = Field(default=True)
-    peers: list[str] = Field(default_factory=list)
+    
 
     @field_validator("ticker")
     @classmethod
@@ -98,10 +98,6 @@ class AnalyzeRequest(BaseModel):
             raise ValueError("search_depth must be 'basic' or 'advanced'")
         return v
 
-    @field_validator("peers")
-    @classmethod
-    def peers_uppercase(cls, v: list[str]) -> list[str]:
-        return [p.upper().strip() for p in v]
 
 
 class AnalyzeResponse(BaseModel):
@@ -237,7 +233,7 @@ async def analyze(
         "search_depth":       req.search_depth,
         "days_back":          req.days_back,
         "include_sentiment":  req.include_sentiment,
-        "peers":              req.peers,
+        
     }
 
     # ── 2. user_preferences from injected memory ──────────────────────────────

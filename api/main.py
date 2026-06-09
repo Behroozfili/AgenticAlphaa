@@ -128,6 +128,7 @@ async def lifespan(app: FastAPI):
 # ─────────────────────────────────────────────────────────────
 # App
 # ─────────────────────────────────────────────────────────────
+is_prod = settings.APP_ENV == "production"
 
 app = FastAPI(
     title="Alpha-Agent Node API",
@@ -138,8 +139,8 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if is_prod else "/docs",
+    redoc_url=None if is_prod else "/redoc",
 )
 
 
@@ -150,7 +151,8 @@ app = FastAPI(
 # CORS — allow all origins for now; restrict in production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.APP_ENV == "development" else [],
+    allow_origins=["*"] if settings.APP_ENV == "development" else settings.ALLOWED_ORIGINS,
+    allow_credentials=True,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

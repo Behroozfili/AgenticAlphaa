@@ -54,16 +54,16 @@ Field Ownership Map
 from __future__ import annotations
 
 import operator
-from typing import Annotated, Any
+from typing import Annotated, Any, Union
 
-from typing_extensions import TypedDict
+from typing_extensions import NotRequired, TypedDict
 
 
 # ══════════════════════════════════════════════════════════════════
 # Level 1 — Public contract: Manager ↔ All Specialist Agents
 # ══════════════════════════════════════════════════════════════════
 
-class SharedManagerState(TypedDict, total=False):
+class SharedManagerState(TypedDict, total=True):
     """
     Global public interface shared between the Manager Agent and all
     downstream specialist agents on the Alpha-Agent Node platform.
@@ -103,18 +103,23 @@ class SharedManagerState(TypedDict, total=False):
             "required_sources" (list)  : Tools that must be called, e.g.
                                          ["tavily_search", "sec_edgar_filing"].
             "form_type"        (str)   : SEC filing type, e.g. "10-K".
-            "peers"            (list)  : Peer ticker symbols for comparison,
-                                         e.g. ["AMD", "INTC", "QCOM"].
 
         Owner  : Manager Agent
         Readers: All specialist agents
 
-    aggregated_research_context : list[str]
+    aggregated_research_context : list[str | dict]
         Accumulates all raw text chunks gathered during the Research Agent's
         loop. Populated by the Research Agent and consumed as background
         knowledge by the Financial Analyst Agent, Sentiment Agent, and
         Report Writer Agent.
         Starts as an empty list; the Research Agent appends to it.
+
+        Each element may be a plain string chunk OR a dict with keys:
+            "text"       (str)        : The chunk content.
+            "url"        (str | None) : Source URL.
+            "title"      (str | None) : Document title.
+            "source_type"(str | None) : "news" | "rss" | "reddit" | "sec".
+            "score"      (float|None) : Retrieval relevance score.
 
         Owner  : Research Agent
         Readers: Financial Analyst Agent, Sentiment Agent, Report Writer Agent
@@ -215,7 +220,7 @@ class SharedManagerState(TypedDict, total=False):
 
     task_query:                   str
     manager_directives:           dict[str, Any]
-    aggregated_research_context:  list[str]
+    aggregated_research_context:  list[Union[str, dict]]
     financial_metrics_summary:    dict[str, Any]
     sentiment_analysis_summary:   dict[str, Any]
     agent_execution_history:      list[dict[str, Any]]
@@ -246,12 +251,13 @@ class ResearchAgentState(TypedDict):
             "role"    : "user" | "assistant"
             "content" : str
 
-    context_chunks : Annotated[list[str], operator.add]
+    context_chunks : Annotated[list[str | dict], operator.add]
         Accumulator for all text snippets gathered by the Executor node
         across all loop iterations.
         Uses ``operator.add`` so chunks are appended, never overwritten.
         On loop completion, this list is copied into
         ``SharedManagerState["aggregated_research_context"]``.
+        Each element may be a plain string or a dict with text + metadata.
 
     loop_counter : int
         Monotonically increasing counter incremented by the Executor node
@@ -277,7 +283,7 @@ class ResearchAgentState(TypedDict):
     """
 
     messages:            Annotated[list[dict], operator.add]
-    context_chunks:      Annotated[list[str],  operator.add]
+    context_chunks:      Annotated[list[Union[str, dict]], operator.add]
     loop_counter:        int
     validation_feedback: str
     is_complete:         bool
@@ -480,6 +486,33 @@ class SentimentAgentState(TypedDict):
 # Level 3 — Private memory: Manager Agent LangGraph internal state
 # ══════════════════════════════════════════════════════════════════
 
+class EvaluationSnapshot(TypedDict, total=False):
+    """
+    Lightweight snapshot of the most recent EvaluationFeedback stored
+    directly in ManagerGraphState so the graph never depends on memory
+    layer availability for routing decisions.
+
+    Fields
+    ------
+    step : str
+        Agent step that was evaluated: "research" | "financial" | "sentiment".
+    passed : bool
+        Whether the evaluation passed quality threshold.
+    score : int
+        Quality score 0-100.
+    next_action : str
+        Recommended routing action from the evaluator.
+    issues : list[str]
+        Specific issues identified by the evaluator.
+    """
+
+    step:        str
+    passed:      bool
+    score:       int
+    next_action: str
+    issues:      list[str]
+
+
 class ManagerGraphState(TypedDict):
     """
     Private LangGraph state for the ManagerAgent's internal StateGraph.
@@ -517,8 +550,14 @@ class ManagerGraphState(TypedDict):
 
     evaluation_passed : bool
         Whether the most recent ``brain_evaluate`` call returned passed=True.
-        Read by ``_should_route()`` after ``persist`` to decide whether to
-        loop back to ``brain_route`` or exit to END.
+        Read by ``_should_continue_after_persist()`` to decide whether to
+        loop back to ``brain_route`` or rerun the same agent.
+
+    last_evaluation : EvaluationSnapshot | None
+        Full snapshot of the most recent evaluation result stored directly
+        in graph state. Eliminates dependency on memory layer availability
+        inside ``_node_persist`` routing decisions.
+        None before any evaluation has been run.
 
     ticker : str | None
         Resolved ticker symbol for the current session. Extracted from
@@ -536,5 +575,6 @@ class ManagerGraphState(TypedDict):
     last_action:       str
     last_agent_key:    str
     evaluation_passed: bool
+    last_evaluation:   NotRequired[EvaluationSnapshot | None]
     ticker:            str | None
     session_id:        str

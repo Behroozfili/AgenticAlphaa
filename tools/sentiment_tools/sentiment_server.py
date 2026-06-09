@@ -1,16 +1,40 @@
 """
-Sentiment Agent — MCP Server
-==============================
+sentiment_server.py — Sentiment Agent MCP Server
+==================================================
 Exposes the four Sentiment Agent tools over the stdio MCP protocol.
-The Sentiment Agent later acts as an MCP Client, connecting to this
-server and invoking these tools dynamically via standard protocol requests.
+The Sentiment Agent acts as an MCP Client, connecting to this server
+and invoking these tools dynamically via standard protocol requests.
 
 Registered tools
 ─────────────────
-  1. retrieve_social_data   — LocalSocialDataRetriever  (RAG pipeline)
+  1. retrieve_social_data   — AlphaRetriever via rag/retriever.py (RAG pipeline)
   2. analyze_finbert        — FinBertSentimentAnalyzer  (ProsusAI/finbert)
   3. score_vader            — VaderLexiconScorer         (NLTK VADER)
   4. calculate_fear_greed   — FearGreedIndexCalculator   (weighted aggregation)
+
+RAG Integration
+────────────────
+retrieve_social_data now uses AlphaRetriever.retrieve_raw() directly from
+rag/retriever.py — the same single entry point used by research_server.py.
+LocalSocialDataRetriever has been removed to eliminate the duplicate RAG path.
+
+Output contract for retrieve_social_data
+──────────────────────────────────────────
+{
+  "chunks":          list[str],        -- plain text, ready for FinBERT/VADER
+  "sources_metadata": list[dict],      -- parallel metadata per chunk
+  "total_retrieved": int
+}
+
+Each sources_metadata entry:
+{
+  "ticker":       str | None,
+  "source_type":  str | None,
+  "published_at": str | None,
+  "url":          str | None,
+  "title":        str | None,
+  "rrf_score":    float
+}
 
 Structural pattern
 ───────────────────
@@ -43,8 +67,10 @@ from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
 from tools.fear_greed_calculator import FearGreedIndexCalculator
 from tools.finbert_analyzer import FinBertSentimentAnalyzer
-from tools.local_social_retriever import LocalSocialDataRetriever
 from tools.vader_scorer import VaderLexiconScorer
+from rag.retriever import AlphaRetriever
+from rag.vector_store import AlphaVectorStore
+from rag.embedding_manager import get_embedder
 
 # ---------------------------------------------------------------------------
 # Bootstrap
@@ -60,19 +86,28 @@ log = logging.getLogger("sentiment-mcp")
 
 # ---------------------------------------------------------------------------
 # Lazy-initialised tool singletons
-# (Heavy models loaded only on first call to avoid slow server startup)
 # ---------------------------------------------------------------------------
 
-_retriever:   LocalSocialDataRetriever | None   = None
-_finbert:     FinBertSentimentAnalyzer  | None  = None
-_vader:       VaderLexiconScorer        | None  = None
-_fear_greed:  FearGreedIndexCalculator  | None  = None
+_retriever:  AlphaRetriever             | None = None
+_finbert:    FinBertSentimentAnalyzer   | None = None
+_vader:      VaderLexiconScorer         | None = None
+_fear_greed: FearGreedIndexCalculator   | None = None
 
 
-def _get_retriever() -> LocalSocialDataRetriever:
+def _get_retriever() -> AlphaRetriever:
     global _retriever
     if _retriever is None:
-        _retriever = LocalSocialDataRetriever()
+        vector_store = AlphaVectorStore(
+            supabase_url=os.environ["SUPABASE_URL"],
+            supabase_key=(
+                os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+                or os.environ["SUPABASE_KEY"]
+            ),
+        )
+        _retriever = AlphaRetriever(
+            vector_store=vector_store,
+            embedder=get_embedder(),
+        )
     return _retriever
 
 
@@ -93,13 +128,73 @@ def _get_vader() -> VaderLexiconScorer:
 def _get_fear_greed() -> FearGreedIndexCalculator:
     global _fear_greed
     if _fear_greed is None:
-        finbert_w = float(os.environ.get("FEAR_GREED_FINBERT_WEIGHT", "0.65"))
-        vader_w   = float(os.environ.get("FEAR_GREED_VADER_WEIGHT",   "0.35"))
+        finbert_w   = float(os.environ.get("FEAR_GREED_FINBERT_WEIGHT", "0.65"))
+        vader_w     = float(os.environ.get("FEAR_GREED_VADER_WEIGHT",   "0.35"))
         _fear_greed = FearGreedIndexCalculator(
             finbert_weight=finbert_w,
             vader_weight=vader_w,
         )
     return _fear_greed
+
+
+# ---------------------------------------------------------------------------
+# RAG retrieval helper
+# ---------------------------------------------------------------------------
+
+def _retrieve_social_data(
+    query:     str,
+    ticker:    str | None,
+    days_back: int,
+) -> dict[str, Any]:
+    """
+    Fetch chunks from the RAG pipeline via AlphaRetriever.retrieve_raw().
+
+    Uses retrieve_raw() instead of retrieve() so we get structured chunk
+    dicts with metadata rather than a pre-formatted context string.
+    This keeps the output contract identical to what the SentimentAgent
+    expects: separate ``chunks`` and ``sources_metadata`` lists.
+
+    Parameters
+    ----------
+    query     : Natural language query for hybrid search.
+    ticker    : Optional ticker filter passed to Supabase.
+    days_back : Recency window in days.
+
+    Returns
+    -------
+    dict with keys:
+        chunks           : list[str]   — plain text per chunk
+        sources_metadata : list[dict]  — parallel metadata per chunk
+        total_retrieved  : int
+    """
+    raw_chunks: list[dict] = _get_retriever().retrieve_raw(
+        query=query,
+        ticker=ticker,
+        days_back=days_back,
+    )
+
+    chunks:   list[str]  = []
+    metadata: list[dict] = []
+
+    for chunk in raw_chunks:
+        text = chunk.get("text", "").strip()
+        if not text:
+            continue
+        chunks.append(text)
+        metadata.append({
+            "ticker":       chunk.get("ticker"),
+            "source_type":  chunk.get("source_type"),
+            "published_at": chunk.get("published_at"),
+            "url":          chunk.get("url"),
+            "title":        chunk.get("title"),
+            "rrf_score":    chunk.get("rrf_score", chunk.get("freshness_score", 0.0)),
+        })
+
+    return {
+        "chunks":           chunks,
+        "sources_metadata": metadata,
+        "total_retrieved":  len(chunks),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -109,16 +204,6 @@ def _get_fear_greed() -> FearGreedIndexCalculator:
 def _to_dict(obj: Any) -> Any:
     """
     Recursively convert dataclasses, lists, and primitives to JSON-safe types.
-
-    Parameters
-    ----------
-    obj : Any
-        Any object returned by the tool layer.
-
-    Returns
-    -------
-    Any
-        JSON-serializable Python object.
     """
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         return {k: _to_dict(v) for k, v in dataclasses.asdict(obj).items()}
@@ -137,25 +222,14 @@ app = Server("sentiment-agent-mcp")
 
 
 # ══════════════════════════════════════════════════════════════════
-# LIST TOOLS  —  advertise every tool to the MCP client
+# LIST TOOLS
 # ══════════════════════════════════════════════════════════════════
 
 @app.list_tools()
 async def list_tools() -> ListToolsResult:
-    """
-    Declare all four Sentiment Agent tools with full JSON Schema definitions.
-
-    The MCP client (Sentiment Agent) calls this on connect to discover
-    what tools are available and how to call them.
-
-    Returns
-    -------
-    ListToolsResult
-        MCP-protocol object containing the tool list.
-    """
     return ListToolsResult(tools=[
 
-        # ── 1. LocalSocialDataRetriever ────────────────────────────
+        # ── 1. RAG-based social data retrieval ────────────────────
         Tool(
             name="retrieve_social_data",
             description=(
@@ -203,9 +277,9 @@ async def list_tools() -> ListToolsResult:
             description=(
                 "Run financial sentiment analysis using ProsusAI/finbert. "
                 "FinBERT is fine-tuned on Financial PhraseBank and produces three "
-                "probabilities per text: Bullish (positive), Bearish (negative), Neutral. "
-                "Aggregates chunk-level scores into a corpus-level result. "
-                "Best for: financial news, earnings reports, analyst commentary."
+                "class probabilities: bullish, bearish, neutral. "
+                "Accepts a list of text chunks (typically from retrieve_social_data). "
+                "Returns aggregated mean probabilities and a dominant label."
             ),
             inputSchema={
                 "type": "object",
@@ -215,7 +289,7 @@ async def list_tools() -> ListToolsResult:
                         "type": "array",
                         "items": {"type": "string"},
                         "description": (
-                            "List of text chunks to analyze. "
+                            "List of text chunks to analyse. "
                             "Typically the 'chunks' field from retrieve_social_data output. "
                             "Empty strings are filtered automatically."
                         ),
@@ -223,7 +297,7 @@ async def list_tools() -> ListToolsResult:
                     },
                     "batch_size": {
                         "type": "integer",
-                        "description": "Inference batch size. Lower = less GPU memory. Default: 16.",
+                        "description": "Inference batch size (default: 16).",
                         "default": 16,
                         "minimum": 1,
                         "maximum": 64,
@@ -236,11 +310,10 @@ async def list_tools() -> ListToolsResult:
         Tool(
             name="score_vader",
             description=(
-                "Fast rule-based sentiment scoring using NLTK VADER. "
-                "Optimised for social media jargon, slang, ALL-CAPS emphasis, "
-                "punctuation intensity, and emoji cues that deep models miss. "
-                "Returns compound score [-1.0, +1.0] and directional proportions. "
-                "Best for: Reddit posts, tweets, short news headlines."
+                "Score text chunks using NLTK VADER lexicon. "
+                "VADER is optimised for social media and short financial text. "
+                "Returns mean compound score [-1, +1] and aggregated pos/neg/neu means. "
+                "Complements FinBERT — use both for the Fear/Greed calculation."
             ),
             inputSchema={
                 "type": "object",
@@ -302,14 +375,14 @@ async def list_tools() -> ListToolsResult:
                     },
                     "finbert_weight": {
                         "type": "number",
-                        "description": "Override FinBERT weight (0-1). Must sum to 1 with vader_weight. Default: 0.65.",
+                        "description": "Override FinBERT weight (0-1). Default: 0.65.",
                         "default": 0.65,
                         "minimum": 0.0,
                         "maximum": 1.0,
                     },
                     "vader_weight": {
                         "type": "number",
-                        "description": "Override VADER weight (0-1). Must sum to 1 with finbert_weight. Default: 0.35.",
+                        "description": "Override VADER weight (0-1). Default: 0.35.",
                         "default": 0.35,
                         "minimum": 0.0,
                         "maximum": 1.0,
@@ -322,7 +395,7 @@ async def list_tools() -> ListToolsResult:
 
 
 # ══════════════════════════════════════════════════════════════════
-# CALL TOOL  —  route each call to the correct implementation
+# CALL TOOL
 # ══════════════════════════════════════════════════════════════════
 
 @app.call_tool()
@@ -330,22 +403,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
     """
     Route an incoming MCP tool call to the correct tool implementation.
 
-    All tool functions are synchronous (heavy model inference runs on CPU/GPU).
-    They are wrapped in asyncio.to_thread() to avoid blocking the event loop
-    while allowing the MCP server to remain responsive.
-
-    Parameters
-    ----------
-    name : str
-        Tool name as declared in list_tools().
-    arguments : dict[str, Any]
-        Tool arguments as provided by the MCP client.
-
-    Returns
-    -------
-    CallToolResult
-        MCP-protocol result containing a JSON-serialised text payload.
-        Sets isError=True on any unhandled exception.
+    retrieve_social_data runs in a thread via asyncio.to_thread() because
+    AlphaRetriever.retrieve_raw() is synchronous (network I/O to Supabase).
+    All other tools also run in threads as they involve heavy model inference.
     """
     log.info("→ tool=%s args=%s", name, json.dumps(arguments, ensure_ascii=False))
 
@@ -354,24 +414,22 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 
             # ── 1. retrieve_social_data ────────────────────────────
             case "retrieve_social_data":
-                result_obj = await asyncio.to_thread(
-                    _get_retriever().retrieve,
+                result = await asyncio.to_thread(
+                    _retrieve_social_data,
                     query=arguments["query"],
                     ticker=arguments.get("ticker"),
-                    days_back=arguments.get("days_back", 7),
+                    days_back=int(arguments.get("days_back", 7)),
                 )
-                result = _to_dict(result_obj)
 
             # ── 2. analyze_finbert ─────────────────────────────────
             case "analyze_finbert":
                 texts      = arguments["texts"]
                 batch_size = int(arguments.get("batch_size", 16))
                 analyzer   = _get_finbert()
-                # Temporarily override batch_size if requested
-                original_bs          = analyzer.batch_size
-                analyzer.batch_size  = batch_size
+                original_bs         = analyzer.batch_size
+                analyzer.batch_size = batch_size
                 result_obj = await asyncio.to_thread(analyzer.analyze, texts)
-                analyzer.batch_size  = original_bs
+                analyzer.batch_size = original_bs
                 result = _to_dict(result_obj)
 
             # ── 3. score_vader ─────────────────────────────────────
@@ -384,14 +442,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 
             # ── 4. calculate_fear_greed ────────────────────────────
             case "calculate_fear_greed":
-                # If custom weights are passed, build a fresh calculator
                 fw = arguments.get("finbert_weight")
                 vw = arguments.get("vader_weight")
 
                 if fw is not None or vw is not None:
-                    fw = float(fw if fw is not None else 0.65)
-                    vw = float(vw if vw is not None else 0.35)
-                    calculator = FearGreedIndexCalculator(
+                    fw          = float(fw if fw is not None else 0.65)
+                    vw          = float(vw if vw is not None else 0.35)
+                    calculator  = FearGreedIndexCalculator(
                         finbert_weight=fw,
                         vader_weight=vw,
                     )
@@ -436,12 +493,6 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 # ══════════════════════════════════════════════════════════════════
 
 async def main() -> None:
-    """
-    Launch the Sentiment Agent MCP Server in stdio transport mode.
-
-    The server reads JSON-RPC messages from stdin and writes responses
-    to stdout, conforming to the MCP stdio transport specification.
-    """
     log.info("Sentiment Agent MCP Server starting (stdio mode)...")
     async with stdio_server() as (read_stream, write_stream):
         await app.run(

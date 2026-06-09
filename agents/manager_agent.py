@@ -23,12 +23,7 @@ Architecture
     │    START → hydrate → brain_route                               │
     │    brain_route →(conditional)→ dispatch | finalise | abort     │
     │    dispatch → evaluate → persist                               │
-    │    persist  →(conditional)→ brain_route | END                  │
-    │                                                                │
-    │  INTERNAL METHODS (unchanged — called by nodes)                │
-    │    _hydrate_state()   _recall()      _brain_route()            │
-    │    _brain_evaluate()  _brain_finalise()  _dispatch()           │
-    │    _persist()         _should_route()    _build_graph()        │
+    │    persist  →(conditional)→ brain_route | dispatch | abort     │
     │                                                                │
     │  GUARDRAIL: max_routing_loops (default: 8)                     │
     └────────────────────────────────────────────────────────────────┘
@@ -64,7 +59,7 @@ import sys
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Union
 
 import anthropic
 
@@ -73,7 +68,11 @@ from langgraph.graph import END, StateGraph
 from agents.financial_agent import FinancialAnalystAgent
 from agents.research_agent import ResearchAgent
 from agents.sentiment_agent import SentimentAgent
-from agents.state import ManagerGraphState, SharedManagerState
+from agents.state import (
+    EvaluationSnapshot,
+    ManagerGraphState,
+    SharedManagerState,
+)
 from memory.manager_memory import EvaluationFeedback, ManagerMemory
 
 # ---------------------------------------------------------------------------
@@ -91,10 +90,9 @@ log = logging.getLogger("manager-agent")
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEFAULT_MODEL            = "claude-sonnet-4-20250514"
+_DEFAULT_MODEL             = "claude-sonnet-4-20250514"
 _DEFAULT_MAX_ROUTING_LOOPS = 8
 
-# Valid routing actions the Brain may return
 _VALID_ACTIONS: frozenset[str] = frozenset({
     "run_research", "run_financial", "run_sentiment",
     "rerun_research", "rerun_financial", "rerun_sentiment",
@@ -205,6 +203,33 @@ Do NOT include any JSON or code blocks.
 """
 
 
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _extract_chunk_text(chunk: Union[str, dict]) -> str:
+    """
+    Safely extract plain text from a research context chunk.
+    Handles both legacy plain-string chunks and dict chunks with a "text" key.
+    """
+    if isinstance(chunk, str):
+        return chunk
+    if isinstance(chunk, dict):
+        return chunk.get("text", str(chunk))
+    return str(chunk)
+
+
+def _feedback_to_snapshot(fb: EvaluationFeedback) -> EvaluationSnapshot:
+    """Convert an EvaluationFeedback dataclass to a plain EvaluationSnapshot dict."""
+    return EvaluationSnapshot(
+        step=        fb.step,
+        passed=      fb.passed,
+        score=       fb.score,
+        next_action= fb.next_action,
+        issues=      list(fb.issues),
+    )
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # ManagerAgent
 # ══════════════════════════════════════════════════════════════════════════════
@@ -240,19 +265,9 @@ class ManagerAgent:
     memory : ManagerMemory
         Injected ManagerMemory instance (short + long term).
     model : str
-        Anthropic model identifier for Brain calls. Default: claude-sonnet-4-20250514.
+        Anthropic model identifier for Brain calls.
     max_routing_loops : int
         Hard limit on Brain→Dispatch iterations. Default: 8.
-        Prevents runaway execution chains.
-
-    Attributes
-    ----------
-    _llm : anthropic.Anthropic
-        Anthropic SDK client for all Brain calls.
-    _memory : ManagerMemory
-        Injected memory system.
-    _agents : dict[str, ResearchAgent | FinancialAnalystAgent | SentimentAgent]
-        Registry mapping action keys to agent instances.
     """
 
     def __init__(
@@ -264,19 +279,18 @@ class ManagerAgent:
         model:             str = _DEFAULT_MODEL,
         max_routing_loops: int = _DEFAULT_MAX_ROUTING_LOOPS,
     ) -> None:
-        self._llm               = anthropic.Anthropic()
+        # Use AsyncAnthropic so Brain calls never block the event loop
+        self._llm               = anthropic.AsyncAnthropic()
         self._model             = model
         self._max_routing_loops = max_routing_loops
         self._memory            = memory
 
-        # Agent registry — maps routing action prefixes to agent instances
         self._agents: dict[str, Any] = {
             "research":  research_agent,
             "financial": financial_agent,
             "sentiment": sentiment_agent,
         }
 
-        # Compile the LangGraph StateGraph
         self._graph = self._build_graph()
 
         log.info(
@@ -290,35 +304,19 @@ class ManagerAgent:
 
     def _hydrate_state(
         self,
-        task_query:        str,
+        task_query:         str,
         manager_directives: dict[str, Any],
     ) -> SharedManagerState:
         """
-        INGEST & HYDRATE — Initialise a fresh SharedManagerState.
-
-        Creates a clean state dict with all required fields at their
-        default empty values. Called once at the start of every ``run()``.
-
-        Parameters
-        ----------
-        task_query : str
-            The user's natural-language research objective.
-        manager_directives : dict[str, Any]
-            Initial configuration hints (ticker, max_loops, peers, etc.).
-
-        Returns
-        -------
-        SharedManagerState
-            Fully initialised state dict ready for specialist agent dispatch.
+        Initialise a fresh SharedManagerState with all required fields.
+        Called once at the start of every ``run()``.
         """
         state: SharedManagerState = {
-            # Manager-owned (written here)
-            "task_query":              task_query,
-            "manager_directives":      manager_directives,
-            "agent_execution_history": [],
-            "orchestrator_logs":       [],
-            "final_report":            "",
-            # Specialist-owned (written by agents later)
+            "task_query":                  task_query,
+            "manager_directives":          manager_directives,
+            "agent_execution_history":     [],
+            "orchestrator_logs":           [],
+            "final_report":                "",
             "aggregated_research_context": [],
             "financial_metrics_summary":   {},
             "sentiment_analysis_summary":  {},
@@ -331,25 +329,10 @@ class ManagerAgent:
     # =========================================================================
 
     def _recall(self, ticker: str | None) -> dict[str, Any]:
-        """
-        RECALL — Pull relevant context from ManagerMemory.
-
-        Queries both short-term (current session log) and long-term
-        (cross-session heuristics and ticker insights) memory layers.
-
-        Parameters
-        ----------
-        ticker : str | None
-            Ticker symbol to fetch long-term insights for. None if unknown.
-
-        Returns
-        -------
-        dict[str, Any]
-            Unified memory recall dict (short_term + long_term).
-        """
+        """Pull relevant context from ManagerMemory (short-term + long-term)."""
         recall = self._memory.recall(ticker=ticker)
         log.info(
-            "[Recall] Memory recalled — agents_run=%s heuristics=%d ticker_cached=%s",
+            "[Recall] agents_run=%s heuristics=%d ticker_cached=%s",
             recall["short_term"].get("agents_dispatched", []),
             len(recall["long_term"].get("heuristics", {})),
             bool(recall["long_term"].get("ticker_insight")),
@@ -357,39 +340,20 @@ class ManagerAgent:
         return recall
 
     # =========================================================================
-    # STEP 3 — BRAIN
+    # STEP 3 — BRAIN  (all three passes are now async)
     # =========================================================================
 
-    def _brain_route(
+    async def _brain_route(
         self,
         state:         SharedManagerState,
         memory_recall: dict[str, Any],
         loop_counter:  int,
     ) -> dict[str, Any]:
         """
-        BRAIN PASS 1 — Routing Decision.
+        BRAIN PASS 1 — Routing Decision (async).
 
-        Consults Claude to decide the next pipeline action based on the
-        current SharedManagerState and memory context.
-
-        Parameters
-        ----------
-        state : SharedManagerState
-            Current orchestration state.
-        memory_recall : dict[str, Any]
-            Output from ``_recall()``.
-        loop_counter : int
-            Current routing loop iteration index.
-
-        Returns
-        -------
-        dict[str, Any]
-            Parsed routing decision with keys:
-            - ``"action"``            (str)            : Routing action.
-            - ``"reasoning"``         (str)            : Brain's justification.
-            - ``"directive_updates"`` (dict[str, Any]) : Directives to merge.
+        Uses AsyncAnthropic so the event loop is never blocked.
         """
-        # Build a compact state summary — avoid dumping huge text blobs
         research_chunks = len(state.get("aggregated_research_context", []))
         fin_score       = state.get("financial_metrics_summary", {}).get(
                               "composite_score", {}).get("score")
@@ -409,7 +373,7 @@ class ManagerAgent:
             "sentiment_fg_label":  sent_label,
             "agents_run":          self._memory.agents_run(),
             "last_evaluation":     memory_recall["short_term"].get("last_evaluation"),
-            "orchestrator_logs":   state.get("orchestrator_logs", [])[-5:],  # last 5
+            "orchestrator_logs":   state.get("orchestrator_logs", [])[-5:],
         }
 
         user_content = (
@@ -422,7 +386,7 @@ class ManagerAgent:
         log.info("[Brain-Route] Querying Claude for routing decision (loop=%d)...", loop_counter)
 
         try:
-            response = self._llm.messages.create(
+            response = await self._llm.messages.create(
                 model=self._model,
                 max_tokens=256,
                 system=_ROUTER_SYSTEM_PROMPT,
@@ -447,7 +411,6 @@ class ManagerAgent:
 
         except Exception as exc:
             log.exception("[Brain-Route] Claude call failed: %s", exc)
-            # Safe fallback: advance through the pipeline or finalise
             agents_run = self._memory.agents_run()
             if "ResearchAgent" not in agents_run:
                 fallback_action = "run_research"
@@ -464,57 +427,46 @@ class ManagerAgent:
                 "directive_updates": {},
             }
 
-    def _brain_evaluate(
+    async def _brain_evaluate(
         self,
         agent_name:  str,
         state:       SharedManagerState,
         memory_ctx:  dict[str, Any],
     ) -> EvaluationFeedback:
         """
-        BRAIN PASS 2 — Output Quality Evaluation.
+        BRAIN PASS 2 — Output Quality Evaluation (async).
 
-        Called after each specialist agent completes. Grades the agent's
-        output and recommends a next routing action.
-
-        Parameters
-        ----------
-        agent_name : str
-            Class name of the agent that just ran.
-        state : SharedManagerState
-            Current state after the agent's ``run()`` returned.
-        memory_ctx : dict[str, Any]
-            Current memory recall for context injection.
-
-        Returns
-        -------
-        EvaluationFeedback
-            Structured quality verdict stored in ManagerMemory.
+        Grades the agent's output and recommends a next routing action.
+        Does NOT call memory.add_evaluation() — that is the sole
+        responsibility of _node_persist() to avoid double-writing.
         """
-        # Build a targeted state summary for the evaluator
         if agent_name == "ResearchAgent":
             output_summary = {
                 "chunks_count": len(state.get("aggregated_research_context", [])),
-                "sample":       state.get("aggregated_research_context", [])[:2],
+                "sample": [
+                    _extract_chunk_text(c)[:200]
+                    for c in state.get("aggregated_research_context", [])[:2]
+                ],
             }
         elif agent_name == "FinancialAnalystAgent":
             fm = state.get("financial_metrics_summary", {})
             output_summary = {
-                "ticker":           fm.get("ticker"),
-                "composite_score":  fm.get("composite_score", {}).get("score"),
-                "grade":            fm.get("composite_score", {}).get("grade"),
+                "ticker":            fm.get("ticker"),
+                "composite_score":   fm.get("composite_score", {}).get("score"),
+                "grade":             fm.get("composite_score", {}).get("grade"),
                 "validation_passed": fm.get("validation_passed"),
                 "extraction_errors": fm.get("extraction_errors", []),
                 "pe_ratio":          fm.get("pe_ratio", {}).get("pe_ratio"),
             }
-        else:  # SentimentAgent
+        else:
             sm = state.get("sentiment_analysis_summary", {})
             output_summary = {
-                "fear_greed_score":     sm.get("fear_greed_score"),
-                "fear_greed_label":     sm.get("fear_greed_label"),
-                "overall_sentiment":    sm.get("overall_sentiment"),
-                "conviction_level":     sm.get("conviction_level"),
-                "total_chunks":         sm.get("total_chunks_analyzed"),
-                "extraction_errors":    sm.get("extraction_errors", []),
+                "fear_greed_score":  sm.get("fear_greed_score"),
+                "fear_greed_label":  sm.get("fear_greed_label"),
+                "overall_sentiment": sm.get("overall_sentiment"),
+                "conviction_level":  sm.get("conviction_level"),
+                "total_chunks":      sm.get("total_chunks_analyzed"),
+                "extraction_errors": sm.get("extraction_errors", []),
             }
 
         user_content = (
@@ -528,7 +480,7 @@ class ManagerAgent:
         log.info("[Brain-Evaluate] Evaluating %s output...", agent_name)
 
         try:
-            response = self._llm.messages.create(
+            response = await self._llm.messages.create(
                 model=self._model,
                 max_tokens=256,
                 system=_EVALUATOR_SYSTEM_PROMPT,
@@ -542,19 +494,21 @@ class ManagerAgent:
         except Exception as exc:
             log.exception("[Brain-Evaluate] Evaluation failed: %s", exc)
             verdict = {
-                "passed":      True,   # assume OK on error to avoid deadlock
+                "passed":      True,
                 "score":       50,
                 "issues":      [f"Evaluation API call failed: {exc}"],
-                "next_action": "run_financial" if agent_name == "ResearchAgent"
-                               else ("run_sentiment" if agent_name == "FinancialAnalystAgent"
-                               else "finalise"),
-                "reasoning":   "Evaluation failed; assuming partial pass.",
+                "next_action": (
+                    "run_financial" if agent_name == "ResearchAgent"
+                    else ("run_sentiment" if agent_name == "FinancialAnalystAgent"
+                          else "finalise")
+                ),
+                "reasoning": "Evaluation failed; assuming partial pass.",
             }
 
         step_map = {
-            "ResearchAgent":       "research",
+            "ResearchAgent":         "research",
             "FinancialAnalystAgent": "financial",
-            "SentimentAgent":      "sentiment",
+            "SentimentAgent":        "sentiment",
         }
         feedback = EvaluationFeedback(
             step=        step_map.get(agent_name, agent_name.lower()),
@@ -571,56 +525,48 @@ class ManagerAgent:
         )
         return feedback
 
-    def _brain_finalise(self, state: SharedManagerState) -> str:
+    async def _brain_finalise(self, state: SharedManagerState) -> str:
         """
-        BRAIN PASS 3 — Final Report Synthesis.
+        BRAIN PASS 3 — Final Report Synthesis (async).
 
-        Consults Claude to synthesise all agent outputs into a single
-        investment analysis report. Called once after all agents complete.
-
-        Parameters
-        ----------
-        state : SharedManagerState
-            Final state with all specialist agent outputs populated.
-
-        Returns
-        -------
-        str
-            The complete final report as a plain-text string.
+        Synthesises all agent outputs into a single investment analysis report.
         """
-        # Research highlights: top 3 chunks
         research_sample = state.get("aggregated_research_context", [])[:3]
         fm = state.get("financial_metrics_summary", {})
         sm = state.get("sentiment_analysis_summary", {})
 
         fin_summary = {
-            "ticker":          fm.get("ticker"),
-            "company_name":    fm.get("company_name"),
-            "sector":          fm.get("sector"),
-            "current_price":   fm.get("current_price"),
-            "market_cap":      fm.get("market_cap"),
-            "composite_score": fm.get("composite_score", {}),
-            "pe_ratio":        fm.get("pe_ratio", {}).get("pe_ratio"),
-            "roe":             fm.get("roe", {}).get("roe_pct"),
-            "net_margin":      fm.get("net_margin", {}).get("net_margin_pct"),
-            "revenue_cagr":    fm.get("revenue_cagr", {}).get("cagr_pct"),
+            "ticker":            fm.get("ticker"),
+            "company_name":      fm.get("company_name"),
+            "sector":            fm.get("sector"),
+            "current_price":     fm.get("current_price"),
+            "market_cap":        fm.get("market_cap"),
+            "composite_score":   fm.get("composite_score", {}),
+            "pe_ratio":          fm.get("pe_ratio", {}).get("pe_ratio"),
+            "roe":               fm.get("roe", {}).get("roe_pct"),
+            "net_margin":        fm.get("net_margin", {}).get("net_margin_pct"),
+            "revenue_cagr":      fm.get("revenue_cagr", {}).get("cagr_pct"),
             "validation_passed": fm.get("validation_passed"),
         }
         sent_summary = {
-            "fear_greed_score":   sm.get("fear_greed_score"),
-            "fear_greed_label":   sm.get("fear_greed_label"),
-            "overall_sentiment":  sm.get("overall_sentiment"),
-            "conviction_level":   sm.get("conviction_level"),
-            "model_agreement":    sm.get("model_agreement"),
-            "narrative":          sm.get("narrative"),
-            "risk_flags":         sm.get("risk_flags", []),
+            "fear_greed_score":  sm.get("fear_greed_score"),
+            "fear_greed_label":  sm.get("fear_greed_label"),
+            "overall_sentiment": sm.get("overall_sentiment"),
+            "conviction_level":  sm.get("conviction_level"),
+            "model_agreement":   sm.get("model_agreement"),
+            "narrative":         sm.get("narrative"),
+            "risk_flags":        sm.get("risk_flags", []),
         }
+
+        research_lines = "\n".join(
+            f"  - {_extract_chunk_text(c)[:200]}"
+            for c in research_sample
+        )
 
         user_content = (
             f"TASK QUERY:\n{state.get('task_query', '')}\n\n"
-            f"RESEARCH HIGHLIGHTS (top 3 chunks):\n"
-            + "\n".join(f"  - {c[:200]}" for c in research_sample)
-            + f"\n\nFINANCIAL METRICS SUMMARY:\n{json.dumps(fin_summary, indent=2)}\n\n"
+            f"RESEARCH HIGHLIGHTS (top 3 chunks):\n{research_lines}\n\n"
+            f"FINANCIAL METRICS SUMMARY:\n{json.dumps(fin_summary, indent=2)}\n\n"
             f"SENTIMENT ANALYSIS SUMMARY:\n{json.dumps(sent_summary, indent=2)}\n\n"
             f"EXECUTION HISTORY:\n"
             + json.dumps(state.get("agent_execution_history", []), indent=2)
@@ -629,7 +575,7 @@ class ManagerAgent:
 
         log.info("[Brain-Finalise] Synthesising final report...")
         try:
-            response = self._llm.messages.create(
+            response = await self._llm.messages.create(
                 model=self._model,
                 max_tokens=1024,
                 system=_FINALISER_SYSTEM_PROMPT,
@@ -657,25 +603,9 @@ class ManagerAgent:
         state:  SharedManagerState,
     ) -> SharedManagerState:
         """
-        EXECUTION — Route SharedManagerState to the Correct Specialist Agent.
-
-        Maps the Brain's routing action to the appropriate agent instance
-        and calls its ``run()`` method. Records execution time and outcome
-        in both the SharedManagerState history and ManagerMemory.
-
-        Parameters
-        ----------
-        action : str
-            Routing action from ``_brain_route()`` (e.g. ``"run_research"``).
-        state : SharedManagerState
-            Current state to pass into the agent's ``run()`` method.
-
-        Returns
-        -------
-        SharedManagerState
-            Mutated state returned by the agent's ``run()`` method.
+        Route SharedManagerState to the correct specialist agent and await
+        its ``run()`` method. Records execution time and outcome.
         """
-        # Map action → agent key (strip "rerun_" prefix first, then "run_")
         agent_key  = action.removeprefix("rerun_").removeprefix("run_")
         agent      = self._agents.get(agent_key)
 
@@ -686,15 +616,13 @@ class ManagerAgent:
         agent_class = type(agent).__name__
         directives  = state.get("manager_directives", {})
 
-        # Log dispatch to memory (returns mutable record)
         record = self._memory.log_dispatch(
             agent_name=agent_class,
             directives=directives,
         )
 
-        # Log to orchestrator_logs
-        ts  = datetime.now(timezone.utc).isoformat()
-        state["orchestrator_logs"].append(  # type: ignore[literal-required]
+        ts = datetime.now(timezone.utc).isoformat()
+        state["orchestrator_logs"].append(
             f"[{ts}] [DISPATCH] → {agent_class} (action={action})"
         )
 
@@ -705,16 +633,13 @@ class ManagerAgent:
             state   = await agent.run(state)
             elapsed = round(time.time() - t0, 2)
 
-            # Determine which keys the agent populated
             result_keys = _infer_result_keys(agent_key, state)
 
-            # Update mutable record
-            record.outcome    = "success"
-            record.duration_s = elapsed
+            record.outcome     = "success"
+            record.duration_s  = elapsed
             record.result_keys = result_keys
 
-            # Write to SharedManagerState history
-            state["agent_execution_history"].append({  # type: ignore[literal-required]
+            state["agent_execution_history"].append({
                 "agent_name":    agent_class,
                 "dispatched_at": record.dispatched_at,
                 "outcome":       "success",
@@ -722,8 +647,7 @@ class ManagerAgent:
                 "result_keys":   result_keys,
                 "error_message": None,
             })
-
-            state["orchestrator_logs"].append(  # type: ignore[literal-required]
+            state["orchestrator_logs"].append(
                 f"[{datetime.now(timezone.utc).isoformat()}] "
                 f"[SUCCESS] {agent_class} completed in {elapsed}s — keys={result_keys}"
             )
@@ -735,7 +659,7 @@ class ManagerAgent:
             record.duration_s    = elapsed
             record.error_message = str(exc)
 
-            state["agent_execution_history"].append({  # type: ignore[literal-required]
+            state["agent_execution_history"].append({
                 "agent_name":    agent_class,
                 "dispatched_at": record.dispatched_at,
                 "outcome":       "error",
@@ -743,7 +667,7 @@ class ManagerAgent:
                 "result_keys":   [],
                 "error_message": str(exc),
             })
-            state["orchestrator_logs"].append(  # type: ignore[literal-required]
+            state["orchestrator_logs"].append(
                 f"[{datetime.now(timezone.utc).isoformat()}] "
                 f"[ERROR] {agent_class} failed: {exc}"
             )
@@ -762,28 +686,15 @@ class ManagerAgent:
         evaluation: EvaluationFeedback,
     ) -> None:
         """
-        PERSIST — Write Execution Milestones into ManagerMemory.
+        Write execution milestones into ManagerMemory.
 
-        Called after each agent completes and is evaluated. Extracts
-        salient facts from the agent's output and stores them in long-term
-        memory for future sessions.
-
-        Parameters
-        ----------
-        agent_key : str
-            One of ``"research"`` | ``"financial"`` | ``"sentiment"``.
-        state : SharedManagerState
-            Current state after agent completion.
-        evaluation : EvaluationFeedback
-            Quality evaluation from ``_brain_evaluate()``.
+        Stores evaluation feedback and extracts salient facts into long-term
+        memory. Does NOT call add_evaluation() — that was already done in
+        _node_evaluate() to avoid double-writing.
         """
         directives = state.get("manager_directives", {})
         ticker     = directives.get("ticker")
 
-        # Store evaluation feedback in short-term memory
-        self._memory.add_evaluation(evaluation)
-
-        # Store heuristics and ticker insights in long-term memory
         if agent_key == "research" and ticker:
             self._memory.store_heuristic(
                 f"{ticker}_research_chunks",
@@ -822,22 +733,16 @@ class ManagerAgent:
         """
         NODE: hydrate — Session Setup & State Initialisation.
 
-        Applies long-term memory preferences to directives, then returns
-        the updated shared_state and resolved ticker for downstream nodes.
-
-        State mutations
-        ---------------
-        Writes: shared_state, ticker
+        Applies long-term memory preferences to directives.
         """
         shared     = g["shared_state"]
         directives = dict(shared.get("manager_directives", {}))
 
-        # Apply long-term search depth preference if not overridden
         if "search_depth" not in directives:
             saved_depth = self._memory.get_preference("search_depth")
             if saved_depth:
                 directives["search_depth"] = saved_depth
-                shared["manager_directives"] = directives  # type: ignore[literal-required]
+                shared["manager_directives"] = directives
 
         ticker = directives.get("ticker")
         log.info("[Node:Hydrate] session=%s ticker=%s", g["session_id"], ticker)
@@ -847,12 +752,8 @@ class ManagerAgent:
         """
         NODE: brain_route — Routing Decision.
 
-        Increments loop_counter, recalls memory, calls _brain_route() to get
-        the next action, and merges any directive_updates into shared_state.
-
-        State mutations
-        ---------------
-        Writes: loop_counter, last_action, shared_state, ticker
+        Increments loop_counter, recalls memory, awaits _brain_route()
+        to get the next action, and merges any directive_updates.
         """
         new_counter = g["loop_counter"] + 1
         shared      = g["shared_state"]
@@ -861,7 +762,7 @@ class ManagerAgent:
         log.info("[Node:BrainRoute] iteration %d / %d", new_counter, self._max_routing_loops)
 
         memory_ctx = self._recall(ticker=ticker)
-        decision   = self._brain_route(
+        decision   = await self._brain_route(
             state=shared,
             memory_recall=memory_ctx,
             loop_counter=new_counter,
@@ -870,16 +771,16 @@ class ManagerAgent:
         directive_updates = decision.get("directive_updates", {})
 
         if directive_updates:
-            shared["manager_directives"].update(directive_updates)  # type: ignore[literal-required]
+            shared["manager_directives"].update(directive_updates)
             log.info("[Node:BrainRoute] Directive updates: %s", directive_updates)
 
         ts = datetime.now(timezone.utc).isoformat()
-        shared["orchestrator_logs"].append(  # type: ignore[literal-required]
+        shared["orchestrator_logs"].append(
             f"[{ts}] [ROUTE] loop={new_counter} action={action} "
             f"reasoning={decision.get('reasoning', '')[:80]}"
         )
 
-        updated_ticker = shared["manager_directives"].get("ticker", ticker)  # type: ignore[literal-required]
+        updated_ticker = shared["manager_directives"].get("ticker", ticker)
         return {
             "loop_counter": new_counter,
             "last_action":  action,
@@ -892,11 +793,6 @@ class ManagerAgent:
         NODE: dispatch — Specialist Agent Execution.
 
         Maps last_action to the correct specialist agent and awaits agent.run().
-        Records execution time and outcome in shared_state.agent_execution_history.
-
-        State mutations
-        ---------------
-        Writes: shared_state, last_agent_key
         """
         action    = g["last_action"]
         shared    = g["shared_state"]
@@ -911,12 +807,8 @@ class ManagerAgent:
         """
         NODE: evaluate — Brain Quality Assessment.
 
-        Calls _brain_evaluate() to grade the last agent's output and stores
-        the EvaluationFeedback in ManagerMemory short-term memory.
-
-        State mutations
-        ---------------
-        Writes: evaluation_passed
+        Awaits _brain_evaluate(), stores the EvaluationFeedback in memory
+        exactly once, and snapshots it into graph state for routing.
         """
         agent_key  = g["last_agent_key"]
         shared     = g["shared_state"]
@@ -930,45 +822,63 @@ class ManagerAgent:
         agent_class = agent_class_map.get(agent_key, agent_key)
         memory_ctx  = self._recall(ticker=ticker)
 
-        evaluation = self._brain_evaluate(
+        evaluation = await self._brain_evaluate(
             agent_name=agent_class,
             state=shared,
             memory_ctx=memory_ctx,
         )
-        # Store in short-term memory so persist node can read it
+
+        # Single write point — _persist() must NOT call add_evaluation() again
         self._memory.add_evaluation(evaluation)
+
+        snapshot = _feedback_to_snapshot(evaluation)
 
         log.info(
             "[Node:Evaluate] %s → passed=%s score=%d next=%s",
             agent_class, evaluation.passed, evaluation.score, evaluation.next_action,
         )
-        return {"evaluation_passed": evaluation.passed}
+        return {
+            "evaluation_passed": evaluation.passed,
+            "last_evaluation":   snapshot,
+        }
 
     async def _node_persist(self, g: ManagerGraphState) -> dict:
         """
         NODE: persist — Memory Storage.
 
-        Calls _persist() to write ticker insights and heuristics to long-term
-        memory. If evaluation failed, overrides last_action to the rerun action
-        so _should_continue_after_persist() routes back to dispatch.
+        Reads last_evaluation directly from graph state (not memory layer)
+        so routing is deterministic regardless of memory availability.
 
-        State mutations
-        ---------------
-        Writes: last_action (overridden to rerun_* if eval failed)
+        When evaluation failed, overrides last_action to the rerun_* action
+        so _should_continue_after_persist() routes back to dispatch correctly.
         """
         agent_key = g["last_agent_key"]
         shared    = g["shared_state"]
-        ticker    = g["ticker"]
 
-        last_eval = self._memory.get_last_evaluation()
+        snapshot: EvaluationSnapshot | None = g.get("last_evaluation")
 
-        if last_eval:
-            self._persist(agent_key=agent_key, state=shared, evaluation=last_eval)
+        if snapshot is not None:
+            # Reconstruct a minimal EvaluationFeedback for _persist()
+            # _persist() only reads step/score/issues — no add_evaluation() call
+            fb = EvaluationFeedback(
+                step=        snapshot["step"],
+                timestamp=   time.time(),
+                passed=      snapshot["passed"],
+                score=       snapshot["score"],
+                issues=      snapshot.get("issues", []),
+                next_action= snapshot["next_action"],
+                raw_verdict= "{}",
+            )
+            self._persist(agent_key=agent_key, state=shared, evaluation=fb)
 
-        # Override last_action if evaluation failed so router sends to dispatch
+        # Determine updated action for routing
         updated_action = g["last_action"]
-        if not g["evaluation_passed"] and last_eval:
-            updated_action = last_eval.next_action
+        if not g["evaluation_passed"] and snapshot is not None:
+            rerun_action = snapshot["next_action"]
+            # Ensure we always produce a rerun_* action on failure
+            if rerun_action.startswith("run_") and not rerun_action.startswith("rerun_"):
+                rerun_action = "rerun_" + rerun_action.removeprefix("run_")
+            updated_action = rerun_action
             log.info(
                 "[Node:Persist] Eval failed — overriding action to '%s'", updated_action
             )
@@ -980,20 +890,15 @@ class ManagerAgent:
         """
         NODE: finalise — Final Report Synthesis.
 
-        Calls _brain_finalise() to synthesise all agent outputs into a
-        structured investment analysis report. Commits the report into
-        shared_state.final_report and persists long-term memory to disk.
-
-        State mutations
-        ---------------
-        Writes: shared_state (final_report populated)
+        Awaits _brain_finalise(), writes the report into shared_state,
+        and persists long-term memory to disk.
         """
         shared     = g["shared_state"]
         ticker     = g["ticker"]
         session_id = g["session_id"]
 
-        final_report = self._brain_finalise(shared)
-        shared["final_report"] = final_report  # type: ignore[literal-required]
+        final_report = await self._brain_finalise(shared)
+        shared["final_report"] = final_report
 
         if ticker:
             self._memory.store_ticker_insight(ticker, {
@@ -1016,18 +921,13 @@ class ManagerAgent:
         NODE: abort — Guardrail / Error Exit.
 
         Reached when Brain returns action="abort" or loop_counter exceeds
-        max_routing_loops. Logs the abort, updates orchestrator_logs, and
-        persists long-term memory before the graph exits to END.
-
-        State mutations
-        ---------------
-        Writes: shared_state (orchestrator_logs updated)
+        max_routing_loops. Logs the abort and persists long-term memory.
         """
         shared = g["shared_state"]
         loop   = g["loop_counter"]
 
         ts = datetime.now(timezone.utc).isoformat()
-        shared["orchestrator_logs"].append(  # type: ignore[literal-required]
+        shared["orchestrator_logs"].append(
             f"[{ts}] [ABORT] Orchestration aborted at loop {loop} "
             f"(max_routing_loops={self._max_routing_loops})."
         )
@@ -1047,15 +947,11 @@ class ManagerAgent:
         """
         CONDITIONAL EDGE — Route after brain_route node.
 
-        Maps the Brain's action string to a concrete LangGraph node name.
-        Enforces the max_routing_loops guardrail regardless of Brain decision.
-
         Returns
         -------
-        str
-            ``"dispatch"``  for run_* / rerun_* actions,
-            ``"finalise"``  when Brain decides pipeline is complete,
-            ``"abort"``     on guardrail hit or unknown action.
+        "dispatch"  for run_* / rerun_* actions
+        "finalise"  when Brain decides pipeline is complete
+        "abort"     on guardrail hit or unknown action
         """
         action  = g["last_action"]
         counter = g["loop_counter"]
@@ -1083,15 +979,15 @@ class ManagerAgent:
         """
         CONDITIONAL EDGE — Route after persist node.
 
-        Decides whether to loop back to brain_route (evaluation passed),
-        rerun the same agent via dispatch (evaluation failed), or abort.
+        Reads last_action which was already overridden by _node_persist()
+        to a rerun_* action when evaluation failed. This makes routing
+        deterministic — no ambiguity between run_* and rerun_*.
 
         Returns
         -------
-        str
-            ``"brain_route"`` when evaluation passed — advance the pipeline.
-            ``"dispatch"``    when evaluation failed — rerun current agent.
-            ``"abort"``       when guardrail is hit.
+        "brain_route"  evaluation passed — advance to next Brain decision
+        "dispatch"     evaluation failed — rerun the same agent directly
+        "abort"        guardrail hit
         """
         if g["loop_counter"] >= self._max_routing_loops:
             return "abort"
@@ -1099,7 +995,9 @@ class ManagerAgent:
         if not g["evaluation_passed"]:
             action = g["last_action"]
             if action.startswith("rerun_"):
-                log.info("[Router-Persist] Eval failed → rerun via dispatch.")
+                log.info(
+                    "[Router-Persist] Eval failed → rerun via dispatch (action=%s).", action
+                )
                 return "dispatch"
 
         return "brain_route"
@@ -1128,14 +1026,9 @@ class ManagerAgent:
           ▼                   ▼
       brain_route          dispatch
       (eval passed)        (eval failed → rerun)
-
-        Returns
-        -------
-        Compiled LangGraph StateGraph ready for ``ainvoke()``.
         """
         builder = StateGraph(ManagerGraphState)
 
-        # Register all nodes
         builder.add_node("hydrate",     self._node_hydrate)
         builder.add_node("brain_route", self._node_brain_route)
         builder.add_node("dispatch",    self._node_dispatch)
@@ -1144,7 +1037,6 @@ class ManagerAgent:
         builder.add_node("finalise",    self._node_finalise)
         builder.add_node("abort",       self._node_abort)
 
-        # Fixed edges
         builder.set_entry_point("hydrate")
         builder.add_edge("hydrate",  "brain_route")
         builder.add_edge("dispatch", "evaluate")
@@ -1152,7 +1044,6 @@ class ManagerAgent:
         builder.add_edge("finalise", END)
         builder.add_edge("abort",    END)
 
-        # Conditional edge: brain_route → dispatch | finalise | abort
         builder.add_conditional_edges(
             "brain_route",
             self._should_route,
@@ -1163,7 +1054,6 @@ class ManagerAgent:
             },
         )
 
-        # Conditional edge: persist → brain_route | dispatch | abort
         builder.add_conditional_edges(
             "persist",
             self._should_continue_after_persist,
@@ -1190,10 +1080,6 @@ class ManagerAgent:
         """
         PRIMARY ENTRY POINT — Invoke the compiled LangGraph StateGraph.
 
-        Replaces the previous manual while-loop with a single graph.ainvoke()
-        call. The StateGraph drives Brain → Dispatch → Evaluate → Persist
-        cycles autonomously, with conditional edges handling all routing logic.
-
         Parameters
         ----------
         task_query : str
@@ -1214,7 +1100,6 @@ class ManagerAgent:
         directives  = dict(manager_directives or {})
         preferences = dict(user_preferences or {})
 
-        # Start memory session + store user preferences
         self._memory.new_session(session_id=session_id, task_query=task_query)
         for k, v in preferences.items():
             self._memory.store_preference(k, v)
@@ -1224,24 +1109,22 @@ class ManagerAgent:
             session_id, task_query[:80],
         )
 
-        # Hydrate SharedManagerState
         shared_state = self._hydrate_state(
             task_query=task_query,
             manager_directives=directives,
         )
 
-        # Build initial ManagerGraphState
         initial: ManagerGraphState = {
             "shared_state":      shared_state,
             "loop_counter":      0,
             "last_action":       "",
             "last_agent_key":    "",
             "evaluation_passed": False,
+            "last_evaluation":   None,
             "ticker":            directives.get("ticker"),
             "session_id":        session_id,
         }
 
-        # Execute the compiled graph
         try:
             final: ManagerGraphState = await self._graph.ainvoke(
                 initial,

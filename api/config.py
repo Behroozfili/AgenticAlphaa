@@ -17,7 +17,8 @@ import sys
 import logging
 from typing import Literal
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings,SettingsConfigDict
+from pydantic import Field
 
 log = logging.getLogger("api.config")
 
@@ -43,7 +44,9 @@ class Settings(BaseSettings):
 
     # ── Supabase ─────────────────────────────────────────────
     SUPABASE_URL: str = ""
-    SUPABASE_KEY: str = ""          # anon or service-role key
+    SUPABASE_KEY: str = Field(
+        default="", validation_alias="SUPABASE_SERVICE_ROLE_KEY"
+    )
 
     # ── App ──────────────────────────────────────────────────
     APP_ENV: Literal["development", "production"] = "development"
@@ -52,11 +55,12 @@ class Settings(BaseSettings):
 
     # ── Logging ──────────────────────────────────────────────
     LOG_LEVEL: str = "INFO"
+    ALLOWED_ORIGINS: list[str] = []
+    model_config = SettingsConfigDict(
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=True
+    )
 
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
+    
 
 
 # ─────────────────────────────────────────────────────────────

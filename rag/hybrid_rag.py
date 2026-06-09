@@ -25,24 +25,29 @@ try:
     from supabase import create_client
     _sb = create_client(
         os.environ["SUPABASE_URL"],
-        # FIX: use the same env-var convention as vector_store.py
         os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ["SUPABASE_KEY"],
     )
 except Exception as exc:
     _sb = None
     logger.warning("Supabase not available: %s", exc)
 
-try:
-    from neo4j import AsyncGraphDatabase
-    _neo4j = AsyncGraphDatabase.driver(
-        os.environ["NEO4J_URI"],
-        auth=(os.environ.get("NEO4J_USER", "neo4j"), os.environ["NEO4J_PASSWORD"]),
-    )
-except Exception as exc:
-    _neo4j = None
-    logger.warning("Neo4j not available: %s", exc)
+_neo4j_driver = None
 
-# FIX: use the AlphaEmbedder singleton instead of a separate SentenceTransformer
+def _get_neo4j():
+    global _neo4j_driver
+    if _neo4j_driver is not None:
+        return _neo4j_driver
+    try:
+        from neo4j import AsyncGraphDatabase
+        _neo4j_driver = AsyncGraphDatabase.driver(
+            os.environ["NEO4J_URI"],
+            auth=(os.environ.get("NEO4J_USER", "neo4j"), os.environ["NEO4J_PASSWORD"]),
+        )
+        return _neo4j_driver
+    except Exception as exc:
+        logger.warning("Neo4j not available: %s", exc)
+        return None
+
 try:
     from rag.embedding_manager import get_embedder as _get_embedder
     _embedder = _get_embedder()
@@ -90,7 +95,9 @@ async def rag_vector_search(
         params["days_back"] = days_back
 
     try:
-        resp = _sb.rpc("alpha_hybrid_search", params).execute()
+        resp = await asyncio.to_thread(
+            lambda: _sb.rpc("alpha_hybrid_search", params).execute()
+        )
         rows: list[dict] = resp.data or []
     except Exception as exc:
         logger.error("Supabase RPC error: %s", exc)
@@ -107,6 +114,7 @@ async def rag_vector_search(
             "published_at": r.get("published_at"),
             "url":        r.get("url"),
             "title":      r.get("title"),
+            "chunk_index":  r.get("chunk_index"),
         }
         for r in rows
         if r.get("rrf_score", 0.0) >= threshold
@@ -136,7 +144,8 @@ async def rag_graph_traverse(
 
     max_hops = min(max_hops, 3)   # guard against hallucination-prone deep traversal
 
-    if not _neo4j:
+    driver = _get_neo4j()
+    if not driver:
         return {"entity": entity, "nodes": [], "warning": "Neo4j not configured"}
 
     if "ALL" in relation_types:
@@ -162,7 +171,7 @@ async def rag_graph_traverse(
 
     try:
         # FIX: correct async session usage for neo4j >= 5.x
-        async with _neo4j.session() as session:
+        async with driver.session() as session:
             result = await session.run(cypher, entity=entity.upper(), limit=limit)
             async for rec in result:
                 nodes.append({
