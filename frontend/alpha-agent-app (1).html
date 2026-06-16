@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Alpha-Agent · Market Intelligence</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#05070F;--bg2:#0C0F1D;--bg3:#111427;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);
+  --text:#E8EBF8;--t2:#8891BB;--t3:#4A5178;
+  --blue:#6382FF;--blue2:rgba(99,130,255,0.15);--blue3:rgba(99,130,255,0.06);
+  --amber:#F5A623;--amber2:rgba(245,166,35,0.12);
+  --green:#2DD4A0;--green2:rgba(45,212,160,0.1);
+  --red:#F06080;--red2:rgba(240,96,128,0.1);
+  --purple:#A78BFA;--purple2:rgba(167,139,250,0.1);
+  --orange:#FB923C;
+  --font:'Inter',sans-serif;--mono:'JetBrains Mono',monospace;
+}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.5;min-height:100vh;display:flex;flex-direction:column;overflow-x:hidden}
+
+/* HEADER */
+header{position:relative;z-index:20;display:flex;align-items:center;justify-content:space-between;padding:0 28px;height:52px;border-bottom:1px solid var(--border);backdrop-filter:blur(20px);background:rgba(5,7,15,0.8)}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-icon{width:28px;height:28px;border-radius:7px;background:var(--blue);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:13px;font-weight:600;color:#fff}
+.logo-name{font-size:14px;font-weight:600;letter-spacing:-0.02em}
+.logo-dot{color:var(--blue)}
+.hdr-right{display:flex;align-items:center;gap:16px}
+.api-chip{font-family:var(--mono);font-size:10px;color:var(--t3);background:var(--bg2);border:1px solid var(--border);padding:4px 10px;border-radius:5px;display:flex;align-items:center;gap:6px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--t3);transition:background .3s,box-shadow .3s}
+.live-dot.running{background:var(--amber);box-shadow:0 0 0 3px rgba(245,166,35,.2);animation:throb 1s ease-in-out infinite}
+.live-dot.done{background:var(--green);box-shadow:0 0 0 3px rgba(45,212,160,.15)}
+.live-dot.error{background:var(--red)}
+@keyframes throb{0%,100%{opacity:1}50%{opacity:.35}}
+#status-label{font-size:11px;color:var(--t3)}
+
+/* LAYOUT */
+.app-layout{flex:1;display:grid;grid-template-columns:1fr 380px;position:relative;z-index:1}
+
+/* LEFT — graph */
+.graph-col{position:relative;border-right:1px solid var(--border);overflow:hidden;min-height:calc(100vh - 52px)}
+#graph-canvas{width:100%;height:100%;display:block}
+
+/* Ambient glow behind graph */
+.graph-col::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:500px;height:500px;background:radial-gradient(ellipse,rgba(99,130,255,.06) 0%,transparent 65%);pointer-events:none;z-index:0}
+
+/* Chat bubbles overlay */
+#chat-layer{position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:5}
+.bubble{position:absolute;max-width:180px;background:var(--bg2);border:1px solid var(--border2);border-radius:10px;padding:7px 10px;font-size:10.5px;line-height:1.45;color:var(--t2);opacity:0;pointer-events:none;font-family:var(--mono)}
+.bubble.show{animation:bubble-in .35s ease forwards}
+.bubble.hide{animation:bubble-out .3s ease forwards}
+@keyframes bubble-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes bubble-out{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(-4px)}}
+.bubble-tail{font-size:9px;color:var(--t3);margin-bottom:2px;font-weight:600;letter-spacing:.06em;text-transform:uppercase}
+
+/* RIGHT — panel */
+.panel-col{display:flex;flex-direction:column;overflow-y:auto;max-height:calc(100vh - 52px)}
+
+/* Input section */
+.input-section{padding:24px 22px 0;flex-shrink:0}
+.section-eyebrow{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);margin-bottom:10px}
+.input-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;overflow:hidden;transition:border-color .25s}
+.input-card:focus-within{border-color:rgba(99,130,255,.4)}
+.q-wrap{padding:14px 16px 10px}
+.field-label{font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--t3);display:block;margin-bottom:5px}
+#query-input{width:100%;background:transparent;border:none;outline:none;color:var(--text);font-family:var(--font);font-size:13.5px;resize:none;line-height:1.55}
+#query-input::placeholder{color:var(--t3)}
+.t-wrap{border-top:1px solid var(--border);padding:10px 16px 12px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.ticker-group{flex:1}
+#ticker-input{background:transparent;border:none;outline:none;color:var(--text);font-family:var(--mono);font-size:22px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;width:100%}
+#ticker-input::placeholder{color:var(--t3);font-weight:400;font-size:18px}
+#run-btn{display:flex;align-items:center;gap:7px;background:var(--blue);color:#fff;border:none;border-radius:7px;padding:8px 16px;font-family:var(--font);font-size:12px;font-weight:600;cursor:pointer;letter-spacing:-.01em;transition:opacity .15s,transform .1s;white-space:nowrap;flex-shrink:0}
+#run-btn:hover:not(:disabled){opacity:.85}
+#run-btn:active:not(:disabled){transform:scale(.97)}
+#run-btn:disabled{background:var(--bg3);color:var(--t3);cursor:not-allowed}
+.kbd-hint{font-size:10px;color:var(--t3);margin-top:8px;padding:0 16px 12px}
+kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--t2)}
+
+/* Agent status */
+.agent-section{padding:20px 22px 0;flex-shrink:0}
+#agent-rail{display:flex;flex-direction:column;gap:1px;border-radius:10px;overflow:hidden;border:1px solid var(--border)}
+.a-row{display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--bg2);opacity:.3;transition:opacity .4s,background .3s}
+.a-row.active{opacity:1;background:rgba(99,130,255,.04)}
+.a-row.done{opacity:.75}
+.a-dot{width:7px;height:7px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background .3s,box-shadow .3s}
+.a-row.active .a-dot{background:var(--amber);box-shadow:0 0 0 3px rgba(245,166,35,.2);animation:throb .9s ease-in-out infinite}
+.a-row.done .a-dot{background:var(--green);box-shadow:0 0 0 2px rgba(45,212,160,.15);animation:none}
+.a-name{font-size:11px;font-weight:500;color:var(--t2);width:110px;flex-shrink:0}
+.a-tools{font-family:var(--mono);font-size:9.5px;color:var(--t3);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.a-time{font-family:var(--mono);font-size:10px;color:var(--green);width:36px;text-align:right;flex-shrink:0}
+
+/* Results */
+.results-section{padding:20px 22px 32px;display:flex;flex-direction:column;gap:12px}
+
+.r-strip{display:flex;flex-wrap:wrap;gap:6px}
+.chip{font-family:var(--mono);font-size:10px;padding:3px 9px;border-radius:20px;border:1px solid var(--border);color:var(--t3);background:var(--bg2);white-space:nowrap}
+.chip.ok{border-color:rgba(45,212,160,.3);color:var(--green);background:var(--green2)}
+.chip.fail{border-color:rgba(240,96,128,.3);color:var(--red);background:var(--red2)}
+
+.r-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.r-card-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border)}
+.r-card-title{font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--t3)}
+.r-card-body{padding:13px 14px}
+
+.metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.m-item{display:flex;flex-direction:column;gap:2px}
+.m-key{font-size:9.5px;color:var(--t3)}
+.m-val{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--amber)}
+
+.sent-score-row{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
+.sent-score{font-family:var(--mono);font-size:20px;font-weight:600}
+.sent-sublabel{font-size:11px;color:var(--t3)}
+.sent-bar{height:4px;background:var(--bg3);border-radius:2px;overflow:hidden;margin-bottom:10px}
+.sent-fill{height:100%;border-radius:2px;transition:width 1s cubic-bezier(.16,1,.3,1)}
+.sent-rows{display:flex;flex-direction:column;gap:5px}
+.sent-r{display:flex;justify-content:space-between}
+.sent-rk{font-size:10px;color:var(--t3)}
+.sent-rv{font-family:var(--mono);font-size:10px;color:var(--t2)}
+
+.big-n{font-family:var(--mono);font-size:36px;font-weight:600;color:var(--blue);line-height:1}
+.big-sub{font-size:10px;color:var(--t3);margin-top:3px}
+.hist-list{margin-top:10px;display:flex;flex-direction:column;gap:4px}
+.hist-row{display:flex;align-items:center;gap:6px;font-size:10px}
+.hd{width:5px;height:5px;border-radius:50%;flex-shrink:0}
+.hd.s{background:var(--green)}.hd.e{background:var(--red)}.hd.p{background:var(--amber)}
+.hn{color:var(--t2);flex:1}.ho{color:var(--t3);font-family:var(--mono);font-size:9px}
+
+/* Report */
+.report-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.report-bar{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--bg3);border-bottom:1px solid var(--border)}
+.mac-dots{display:flex;gap:5px}
+.mac-dot{width:10px;height:10px;border-radius:50%}
+.mac-dot.r{background:rgba(240,96,128,.45)}.mac-dot.y{background:rgba(245,166,35,.45)}.mac-dot.g{background:rgba(45,212,160,.45)}
+.report-fn{font-family:var(--mono);font-size:10px;color:var(--t3)}
+.copy-btn{font-size:10px;color:var(--t3);background:var(--bg2);border:1px solid var(--border);padding:3px 8px;border-radius:4px;cursor:pointer;font-family:var(--font);transition:color .15s}
+.copy-btn:hover{color:var(--text)}
+#report-body{padding:16px;font-family:var(--mono);font-size:11.5px;line-height:1.8;color:var(--t2);white-space:pre-wrap;word-break:break-word;max-height:400px;overflow-y:auto}
+#report-body .rh1{font-family:var(--font);font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.02em;display:block;margin-bottom:8px}
+#report-body .rh2{font-family:var(--font);font-size:12px;font-weight:600;color:var(--text);display:block;margin:14px 0 5px;padding-bottom:5px;border-bottom:1px solid var(--border)}
+#report-body .rh3{font-family:var(--font);font-size:11px;font-weight:600;color:var(--t2);display:block;margin:10px 0 3px}
+#report-body .rb{color:var(--text);font-weight:500}
+#report-body .rc{background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:0 4px;font-size:10px;color:var(--blue)}
+
+.err-block{background:var(--red2);border:1px solid rgba(240,96,128,.2);border-radius:10px;padding:16px}
+.err-block h3{font-size:12px;font-weight:600;color:var(--red);margin-bottom:5px}
+.err-block p{font-family:var(--mono);font-size:10px;color:var(--t3);line-height:1.6}
+
+::-webkit-scrollbar{width:3px}::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">α</div>
+    <span class="logo-name">Alpha<span class="logo-dot">·</span>Agent</span>
+  </div>
+  <div class="hdr-right">
+    <div class="api-chip"><div class="live-dot" id="live-dot"></div>localhost:8000</div>
+    <span id="status-label">ready</span>
+  </div>
+</header>
+
+<div class="app-layout">
+
+  <!-- LEFT: GRAPH -->
+  <div class="graph-col">
+    <canvas id="graph-canvas"></canvas>
+    <div id="chat-layer"></div>
+  </div>
+
+  <!-- RIGHT: PANEL -->
+  <div class="panel-col" id="panel-col">
+
+    <div class="input-section">
+      <div class="section-eyebrow">Analysis Query</div>
+      <div class="input-card">
+        <div class="q-wrap">
+          <label class="field-label" for="query-input">Question</label>
+          <textarea id="query-input" rows="3" placeholder="Is NVIDIA a good buy for Q4 2025 given current AI spending?"></textarea>
+        </div>
+        <div class="t-wrap">
+          <div class="ticker-group">
+            <label class="field-label" for="ticker-input">Ticker</label>
+            <input id="ticker-input" type="text" maxlength="5" placeholder="NVDA" autocomplete="off" spellcheck="false"/>
+          </div>
+          <button id="run-btn" onclick="runAnalysis()">
+            <svg width="11" height="11" viewBox="0 0 11 11"><path d="M1 1L10 5.5L1 10V1Z" fill="white"/></svg>
+            Run Analysis
+          </button>
+        </div>
+        <div class="kbd-hint"><kbd>⌘</kbd> <kbd>↵</kbd> to run</div>
+      </div>
+    </div>
+
+    <div class="agent-section">
+      <div class="section-eyebrow" style="margin-bottom:10px">Pipeline</div>
+      <div id="agent-rail">
+        <div class="a-row" id="ar-manager">
+          <div class="a-dot"></div>
+          <div class="a-name">ManagerAgent</div>
+          <div class="a-tools" id="at-manager">brain_route · hydrate · evaluate · finalise</div>
+          <div class="a-time" id="atime-manager"></div>
+        </div>
+        <div class="a-row" id="ar-research">
+          <div class="a-dot"></div>
+          <div class="a-name">ResearchAgent</div>
+          <div class="a-tools" id="at-research">tavily · sec_edgar · rag_hybrid</div>
+          <div class="a-time" id="atime-research"></div>
+        </div>
+        <div class="a-row" id="ar-financial">
+          <div class="a-dot"></div>
+          <div class="a-name">FinancialAgent</div>
+          <div class="a-tools" id="at-financial">ratios · xbrl · pe · roe · composite</div>
+          <div class="a-time" id="atime-financial"></div>
+        </div>
+        <div class="a-row" id="ar-sentiment">
+          <div class="a-dot"></div>
+          <div class="a-name">SentimentAgent</div>
+          <div class="a-tools" id="at-sentiment">finbert · vader · fear_greed</div>
+          <div class="a-time" id="atime-sentiment"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="results-section" id="results-section" style="display:none"></div>
+
+  </div>
+</div>
+
+<script>
+/* ═══════════════════════════════════════════
+   GRAPH ENGINE
+═══════════════════════════════════════════ */
+const canvas = document.getElementById('graph-canvas');
+const ctx = canvas.getContext('2d');
+const chatLayer = document.getElementById('chat-layer');
+
+let W, H, animFrame;
+let nodes = [];
+let edges = [];
+let packets = [];
+let globalRunning = false;
+let tick = 0;
+
+// Node definitions
+const NODE_DEFS = [
+  { id:'manager',   label:'Manager',   sub:'orchestrator', color:'#6382FF', x:.5, y:.42 },
+  { id:'research',  label:'Research',  sub:'Tavily·SEC·RAG',color:'#A78BFA', x:.22, y:.72 },
+  { id:'financial', label:'Financial', sub:'Ratios·XBRL',   color:'#F5A623', x:.5,  y:.78 },
+  { id:'sentiment', label:'Sentiment', sub:'FinBERT·VADER',  color:'#2DD4A0', x:.78, y:.72 },
+
+];
+
+const EDGE_DEFS = [
+  { from:'manager',  to:'research',  label:'dispatch' },
+  { from:'manager',  to:'financial', label:'dispatch' },
+  { from:'manager',  to:'sentiment', label:'dispatch' },
+  { from:'research', to:'manager',   label:'results' },
+  { from:'financial',to:'manager',   label:'metrics' },
+  { from:'sentiment',to:'manager',   label:'scores' },
+
+];
+
+function resize() {
+  const col = canvas.parentElement;
+  W = canvas.width  = col.clientWidth;
+  H = canvas.height = col.clientHeight;
+  buildGraph();
+}
+
+function buildGraph() {
+  nodes = NODE_DEFS.map(d => ({
+    ...d,
+    px: d.x * W,
+    py: d.y * H,
+    r: d.id === 'manager' ? 38 : 28,
+    pulse: 0,
+    active: false,
+    done: false,
+    vx: 0, vy: 0,
+  }));
+  edges = EDGE_DEFS.map(d => ({
+    ...d,
+    fromNode: nodes.find(n=>n.id===d.from),
+    toNode:   nodes.find(n=>n.id===d.to),
+    active: false,
+  }));
+}
+
+// Packets flowing along edges
+function spawnPacket(edgeId, color) {
+  const e = edges[edgeId];
+  if (!e) return;
+  packets.push({ edge:e, t:0, color: color || e.fromNode.color, speed: 0.004 + Math.random()*.003 });
+}
+
+// Idle ambient packets
+let idleTimer = 0;
+function idleTick() {
+  idleTimer++;
+  if (idleTimer % 90 === 0) {
+    const ei = Math.floor(Math.random() * edges.length);
+    spawnPacket(ei, edges[ei].fromNode.color);
+  }
+}
+
+// Active run packets
+let runSequence = null;
+let runStep = 0;
+let runTimer = 0;
+
+const RUN_STEPS = [
+  { delay:0,   action:'activateNode', node:'manager', msg:{ from:'manager', text:'Routing query…\nselecting agents' } },
+  { delay:60,  action:'activateNode', node:'research' },
+  { delay:140, action:'spawnFlow',    from:'manager', to:'research', color:'#A78BFA', msg:{ from:'manager', text:'dispatch →\nResearchAgent' } },
+  { delay:200, action:'msg',          from:'research', text:'Searching Tavily…\n7 results found' },
+  { delay:280, action:'msg',          from:'research', text:'SEC filing\nretrieved ✓' },
+  { delay:360, action:'spawnFlow',    from:'research', to:'manager', color:'#A78BFA', msg:{ from:'research', text:'18 chunks ready\nsending back ✓' } },
+  { delay:380, action:'completeNode', node:'research' },
+  { delay:400, action:'activateNode', node:'financial' },
+  { delay:410, action:'spawnFlow',    from:'manager', to:'financial', color:'#F5A623', msg:{ from:'manager', text:'dispatch →\nFinancialAgent' } },
+  { delay:470, action:'msg',          from:'financial', text:'P/E ratio: 45.2\nROE: 31.4%' },
+  { delay:550, action:'msg',          from:'financial', text:'Composite score\ncalculated ✓' },
+  { delay:600, action:'spawnFlow',    from:'financial', to:'manager', color:'#F5A623', msg:{ from:'financial', text:'Metrics complete\n9 ratios ✓' } },
+  { delay:620, action:'completeNode', node:'financial' },
+  { delay:640, action:'activateNode', node:'sentiment' },
+  { delay:650, action:'spawnFlow',    from:'manager', to:'sentiment', color:'#2DD4A0', msg:{ from:'manager', text:'dispatch →\nSentimentAgent' } },
+  { delay:720, action:'msg',          from:'sentiment', text:'FinBERT: +0.71\nVADER: +0.64' },
+  { delay:800, action:'spawnFlow',    from:'sentiment', to:'manager', color:'#2DD4A0', msg:{ from:'sentiment', text:'Bullish signal\nF&G: 72 ✓' } },
+  { delay:820, action:'completeNode', node:'sentiment' },
+  { delay:860, action:'msg',          from:'manager', text:'Synthesizing\nfinal report…' },
+  { delay:1000,action:'completeNode', node:'manager' },
+  { delay:1020,action:'done' },
+];
+
+function triggerRunAnimation() {
+  globalRunning = true;
+  runStep = 0;
+  runTimer = 0;
+  nodes.forEach(n => { n.active = false; n.done = false; n.pulse = 0; });
+  packets = [];
+}
+
+function processRunStep(t) {
+  while (runStep < RUN_STEPS.length && t >= RUN_STEPS[runStep].delay) {
+    const s = RUN_STEPS[runStep];
+    if (s.action === 'activateNode') {
+      const n = nodes.find(x=>x.id===s.node);
+      if (n) { n.active = true; n.done = false; }
+      activateAgentRow(s.node);
+    }
+    if (s.action === 'completeNode') {
+      const n = nodes.find(x=>x.id===s.node);
+      if (n) { n.active = false; n.done = true; }
+      completeAgentRow(s.node);
+    }
+    if (s.action === 'spawnFlow') {
+      const e = edges.find(x=>x.from===s.from && x.to===s.to);
+      if (e) {
+        const idx = edges.indexOf(e);
+        spawnPacket(idx, s.color);
+        e.active = true;
+        setTimeout(() => { e.active = false; }, 2500);
+      }
+      if (s.msg) showBubble(s.msg.from, s.msg.text);
+    }
+    if (s.action === 'activateNode' && s.msg) showBubble(s.msg.from, s.msg.text);
+    if (s.action === 'msg') showBubble(s.from, s.text);
+    if (s.action === 'done') { globalRunning = false; }
+    runStep++;
+  }
+}
+
+/* ── DRAW ── */
+function lerp(a,b,t){return a+(b-a)*t}
+function hexAlpha(hex,a){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);return `rgba(${r},${g},${b},${a})`}
+
+function drawEdge(e) {
+  const {fromNode:f,toNode:t,active} = e;
+  const dx=t.px-f.px, dy=t.py-f.py, len=Math.sqrt(dx*dx+dy*dy);
+  const nx=dx/len, ny=dy/len;
+  const sx=f.px+nx*f.r, sy=f.py+ny*f.r;
+  const ex=t.px-nx*t.r, ey=t.py-ny*t.r;
+
+  // slight curve
+  const cx=(sx+ex)/2-ny*30, cy=(sy+ey)/2+nx*30;
+
+  ctx.beginPath();
+  ctx.moveTo(sx,sy);
+  ctx.quadraticCurveTo(cx,cy,ex,ey);
+  ctx.strokeStyle = active ? hexAlpha(f.color,.35) : hexAlpha(f.color,.12);
+  ctx.lineWidth = active ? 1.5 : 1;
+  ctx.setLineDash(active ? [] : [4,6]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // arrowhead
+  const angle = Math.atan2(ey-cy, ex-cx);
+  const al = 7;
+  ctx.beginPath();
+  ctx.moveTo(ex, ey);
+  ctx.lineTo(ex - al*Math.cos(angle-.45), ey - al*Math.sin(angle-.45));
+  ctx.lineTo(ex - al*Math.cos(angle+.45), ey - al*Math.sin(angle+.45));
+  ctx.closePath();
+  ctx.fillStyle = active ? hexAlpha(f.color,.5) : hexAlpha(f.color,.2);
+  ctx.fill();
+}
+
+function drawPacket(p) {
+  const {fromNode:f, toNode:t} = p.edge;
+  const dx=t.px-f.px, dy=t.py-f.py, len=Math.sqrt(dx*dx+dy*dy);
+  const nx=dx/len, ny=dy/len;
+  const sx=f.px+nx*f.r, sy=f.py+ny*f.r;
+  const ex=t.px-nx*t.r, ey=t.py-ny*t.r;
+  const cx=(sx+ex)/2-ny*30, cy=(sy+ey)/2+nx*30;
+
+  // quadratic bezier point
+  const u=p.t;
+  const px=(1-u)*(1-u)*sx + 2*(1-u)*u*cx + u*u*ex;
+  const py=(1-u)*(1-u)*sy + 2*(1-u)*u*cy + u*u*ey;
+
+  // glow
+  const g=ctx.createRadialGradient(px,py,0,px,py,9);
+  g.addColorStop(0,hexAlpha(p.color,.9));
+  g.addColorStop(.4,hexAlpha(p.color,.35));
+  g.addColorStop(1,'rgba(0,0,0,0)');
+  ctx.beginPath();
+  ctx.arc(px,py,9,0,Math.PI*2);
+  ctx.fillStyle=g;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(px,py,3,0,Math.PI*2);
+  ctx.fillStyle=p.color;
+  ctx.fill();
+}
+
+function drawNode(n) {
+  const {px:x,py:y,r,color,active,done,pulse} = n;
+
+  // outer ring (active pulse)
+  if (active) {
+    const pr = r + 8 + Math.sin(tick*.08)*4;
+    const g=ctx.createRadialGradient(x,y,r,x,y,pr+6);
+    g.addColorStop(0,hexAlpha(color,.25));
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath();ctx.arc(x,y,pr+6,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+
+    ctx.beginPath();ctx.arc(x,y,pr,0,Math.PI*2);
+    ctx.strokeStyle=hexAlpha(color,.4);ctx.lineWidth=1.5;ctx.stroke();
+  }
+
+  // done subtle ring
+  if (done) {
+    ctx.beginPath();ctx.arc(x,y,r+5,0,Math.PI*2);
+    ctx.strokeStyle=hexAlpha('#2DD4A0',.25);ctx.lineWidth=1;ctx.stroke();
+  }
+
+  // bg fill
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+  if (active) {
+    const g=ctx.createRadialGradient(x,y,0,x,y,r);
+    g.addColorStop(0,hexAlpha(color,.18));
+    g.addColorStop(1,hexAlpha(color,.06));
+    ctx.fillStyle=g;
+  } else if (done) {
+    ctx.fillStyle='rgba(45,212,160,0.07)';
+  } else {
+    ctx.fillStyle='rgba(12,15,29,0.9)';
+  }
+  ctx.fill();
+
+  // border
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.strokeStyle = active ? hexAlpha(color,.8) : done ? 'rgba(45,212,160,.5)' : hexAlpha(color,.3);
+  ctx.lineWidth = active ? 1.8 : 1.2;
+  ctx.stroke();
+
+  // label
+  ctx.font = `600 ${n.id==='manager'?12:10}px 'Inter',sans-serif`;
+  ctx.fillStyle = active ? '#fff' : done ? 'rgba(255,255,255,.7)' : 'rgba(255,255,255,.45)';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText(n.label, x, y - (n.sub ? 6 : 0));
+
+  if (n.sub) {
+    ctx.font = `400 8.5px 'JetBrains Mono',monospace`;
+    ctx.fillStyle = active ? hexAlpha(color,.9) : 'rgba(255,255,255,.22)';
+    ctx.fillText(n.sub, x, y+7);
+  }
+
+  // spinning arc on active
+  if (active) {
+    const start = (tick*.04) % (Math.PI*2);
+    ctx.beginPath();
+    ctx.arc(x,y,r+2, start, start+1.2);
+    ctx.strokeStyle=hexAlpha(color,.7);ctx.lineWidth=2;ctx.stroke();
+  }
+}
+
+function frame() {
+  animFrame = requestAnimationFrame(frame);
+  tick++;
+  ctx.clearRect(0,0,W,H);
+
+  if (globalRunning) {
+    runTimer++;
+    processRunStep(runTimer);
+  } else {
+    idleTick();
+  }
+
+  // draw edges
+  edges.forEach(drawEdge);
+
+  // update + draw packets
+  packets = packets.filter(p => p.t < 1);
+  packets.forEach(p => {
+    p.t += p.speed;
+    drawPacket(p);
+  });
+
+  // draw nodes
+  nodes.forEach(drawNode);
+}
+
+/* ── CHAT BUBBLES ── */
+const bubbleTimers = {};
+const bubbleEls = {};
+
+function getBubblePos(nodeId) {
+  const n = nodes.find(x=>x.id===nodeId);
+  if (!n) return { left:'50%', top:'50%' };
+  // position bubble near node
+  let lx = n.px + n.r + 14;
+  let ly = n.py - 30;
+  if (lx + 190 > W) lx = n.px - n.r - 194;
+  if (ly < 10) ly = n.py + n.r + 10;
+  return { left: lx+'px', top: ly+'px' };
+}
+
+function showBubble(nodeId, text) {
+  if (bubbleTimers[nodeId]) clearTimeout(bubbleTimers[nodeId]);
+  let el = bubbleEls[nodeId];
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'bubble';
+    chatLayer.appendChild(el);
+    bubbleEls[nodeId] = el;
+  }
+  const pos = getBubblePos(nodeId);
+  el.style.left = pos.left;
+  el.style.top = pos.top;
+
+  const n = nodes.find(x=>x.id===nodeId);
+  const color = n ? n.color : '#fff';
+  el.innerHTML = `<div class="bubble-tail" style="color:${color}">${nodeId.toUpperCase()}</div>${text.replace(/\n/g,'<br>')}`;
+  el.classList.remove('hide');
+  el.classList.add('show');
+
+  bubbleTimers[nodeId] = setTimeout(() => {
+    el.classList.remove('show');
+    el.classList.add('hide');
+    setTimeout(()=>{ el.classList.remove('hide'); },400);
+  }, 3200);
+}
+
+/* ── AGENT RAIL ── */
+const agentT = {};
+let timerID = null, startT = null;
+
+function activateAgentRow(id) {
+  const el = document.getElementById('ar-'+id);
+  if (!el) return;
+  el.classList.add('active');
+  agentT[id] = Date.now();
+}
+
+function completeAgentRow(id) {
+  const el = document.getElementById('ar-'+id);
+  if (!el) return;
+  el.classList.remove('active');
+  el.classList.add('done');
+  if (agentT[id]) {
+    const t = document.getElementById('atime-'+id);
+    if (t) t.textContent = ((Date.now()-agentT[id])/1000).toFixed(1)+'s';
+  }
+}
+
+function resetRail() {
+  ['manager','research','financial','sentiment'].forEach(id => {
+    const el = document.getElementById('ar-'+id);
+    if (el) el.className='a-row';
+    const t = document.getElementById('atime-'+id);
+    if (t) t.textContent='';
+  });
+}
+
+function startClock() {
+  startT = Date.now();
+  timerID = setInterval(()=>{
+    const s = document.getElementById('status-label');
+    if (s) s.textContent = 'running · ' + ((Date.now()-startT)/1000).toFixed(1)+'s';
+  }, 100);
+}
+
+function stopClock() { clearInterval(timerID); }
+
+/* ── RESULTS ── */
+function parseMarkdown(md) {
+  return md.split('\n').map(line => {
+    if (/^# /.test(line))   return `<span class="rh1">${line.slice(2)}</span>`;
+    if (/^## /.test(line))  return `<span class="rh2">${line.slice(3)}</span>`;
+    if (/^### /.test(line)) return `<span class="rh3">${line.slice(4)}</span>`;
+    line = line.replace(/\*\*(.+?)\*\*/g,'<span class="rb">$1</span>');
+    line = line.replace(/`([^`]+)`/g,'<span class="rc">$1</span>');
+    return line;
+  }).join('\n');
+}
+
+function sentColor(s) {
+  if (s===null) return 'var(--t3)';
+  if (s>.2) return 'var(--green)';
+  if (s<-.2) return 'var(--red)';
+  return 'var(--amber)';
+}
+function sentLabel(s) {
+  if (s===null) return '—';
+  if (s>.5) return 'Strong Buy';
+  if (s>.2) return 'Bullish';
+  if (s<-.5) return 'Strong Sell';
+  if (s<-.2) return 'Bearish';
+  return 'Neutral';
+}
+
+function renderResults(data) {
+  const sec = document.getElementById('results-section');
+  sec.style.display='flex';
+  sec.innerHTML='';
+
+  // strip
+  const strip = document.createElement('div');
+  strip.className='r-strip';
+  strip.innerHTML=`
+    <span class="chip ok">completed</span>
+    <span class="chip">${data.duration_s}s</span>
+    ${data.analysis_id?`<span class="chip">#${data.analysis_id.slice(0,8)}</span>`:''}
+  `;
+  sec.appendChild(strip);
+
+  // financial
+  const fm = data.financial_metrics || {};
+  const fk = Object.keys(fm);
+  if (fk.length) {
+    const c=document.createElement('div');c.className='r-card';
+    c.innerHTML=`<div class="r-card-head"><span class="r-card-title">Financial Metrics</span></div>
+    <div class="r-card-body"><div class="metric-grid">${fk.slice(0,8).map(k=>{
+      const v=fm[k]; const d=typeof v==='number'?(Number.isInteger(v)?v:parseFloat(v.toFixed(3))):v;
+      return `<div class="m-item"><span class="m-key">${k.replace(/_/g,' ')}</span><span class="m-val">${d??'—'}</span></div>`;
+    }).join('')}</div></div>`;
+    sec.appendChild(c);
+  }
+
+  // sentiment
+  const sa=data.sentiment_analysis||{};
+  const raw=sa.composite_score??sa.overall_score??sa.score??null;
+  const sn=typeof raw==='number'?raw:null;
+  const pct=sn!==null?Math.round((sn+1)/2*100):50;
+  const sc=sentColor(sn); const sl=sentLabel(sn);
+  const sx=Object.entries(sa).filter(([k])=>!['composite_score','overall_score','score'].includes(k)).slice(0,4);
+  const c2=document.createElement('div');c2.className='r-card';
+  c2.innerHTML=`<div class="r-card-head"><span class="r-card-title">Sentiment</span></div>
+  <div class="r-card-body">
+    <div class="sent-score-row"><span class="sent-score" style="color:${sc}">${sl}</span><span class="sent-sublabel">${sn!==null?(sn>0?'+':'')+sn.toFixed(3):''}</span></div>
+    <div class="sent-bar"><div class="sent-fill" style="width:0%;background:${sc}" id="sent-fill-el"></div></div>
+    <div class="sent-rows">${sx.map(([k,v])=>`<div class="sent-r"><span class="sent-rk">${k.replace(/_/g,' ')}</span><span class="sent-rv">${typeof v==='number'?v.toFixed(3):v}</span></div>`).join('')}</div>
+  </div>`;
+  sec.appendChild(c2);
+  setTimeout(()=>{ const el=document.getElementById('sent-fill-el'); if(el) el.style.width=pct+'%'; },100);
+
+  // research
+  const hist=data.agent_execution_history||[];
+  const c3=document.createElement('div');c3.className='r-card';
+  c3.innerHTML=`<div class="r-card-head"><span class="r-card-title">Research</span></div>
+  <div class="r-card-body">
+    <div class="big-n">${data.research_context_chunks??'—'}</div>
+    <div class="big-sub">context chunks retrieved</div>
+    ${hist.length?`<div class="hist-list">${hist.slice(0,4).map(r=>{
+      const oc=r.outcome||'pending';const cls=oc==='success'?'s':oc==='error'?'e':'p';
+      const nm=(r.agent_name||'').replace('Agent','').replace('FinancialAnalyst','Financial');
+      return `<div class="hist-row"><div class="hd ${cls}"></div><span class="hn">${nm}</span><span class="ho">${oc}</span></div>`;
+    }).join('')}</div>`:''}
+  </div>`;
+  sec.appendChild(c3);
+
+  // report
+  const rep=document.createElement('div');rep.className='report-card';
+  rep.innerHTML=`<div class="report-bar">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="mac-dots"><div class="mac-dot r"></div><div class="mac-dot y"></div><div class="mac-dot g"></div></div>
+      <span class="report-fn">final_report.md</span>
+    </div>
+    <button class="copy-btn" onclick="copyReport(this)">Copy</button>
+  </div>
+  <div id="report-body">${parseMarkdown(data.final_report||'(No report generated)')}</div>`;
+  sec.appendChild(rep);
+}
+
+function renderError(msg, detail) {
+  const sec=document.getElementById('results-section');
+  sec.style.display='flex';
+  sec.innerHTML=`<div class="err-block"><h3>Failed — ${msg}</h3>${detail?`<p>${detail}</p>`:''}</div>`;
+}
+
+function copyReport(btn) {
+  const el=document.getElementById('report-body');
+  if (el) navigator.clipboard.writeText(el.innerText).then(()=>{
+    btn.textContent='Copied!'; setTimeout(()=>btn.textContent='Copy',1800);
+  });
+}
+
+/* ── RUN ── */
+async function runAnalysis() {
+  const query=document.getElementById('query-input').value.trim();
+  const ticker=document.getElementById('ticker-input').value.trim().toUpperCase();
+  if (!query||query.length<10){document.getElementById('query-input').focus();return;}
+
+  document.getElementById('results-section').style.display='none';
+  document.getElementById('results-section').innerHTML='';
+  resetRail();
+  document.getElementById('live-dot').className='live-dot running';
+  document.getElementById('status-label').textContent='analyzing…';
+  document.getElementById('run-btn').disabled=true;
+  document.getElementById('run-btn').innerHTML='<span style="opacity:.6">Running…</span>';
+
+  // trigger graph animation
+  triggerRunAnimation();
+  startClock();
+
+  try {
+    const body={query,user_id:'anonymous',search_depth:'advanced',days_back:14,include_sentiment:true};
+    if(ticker) body.ticker=ticker;
+
+    const res=await fetch('http://localhost:8000/api/v1/analyze',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
+    });
+    stopClock();
+
+    if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail?.message||e.message||`HTTP ${res.status}`);}
+    const data=await res.json();
+
+    // mark completed nodes
+    if(data.agent_execution_history?.length){
+      const map={ResearchAgent:'research',FinancialAnalystAgent:'financial',SentimentAgent:'sentiment'};
+      data.agent_execution_history.forEach(r=>{
+        const k=Object.keys(map).find(k=>r.agent_name&&r.agent_name.includes(k));
+        if(k){completeAgentRow(map[k]);const n=nodes.find(x=>x.id===map[k]);if(n){n.active=false;n.done=true;}}
+      });
+    } else {
+      ['manager','research','financial','sentiment'].forEach(id=>{
+        completeAgentRow(id);const n=nodes.find(x=>x.id===id);if(n){n.active=false;n.done=true;}
+      });
+    }
+
+    document.getElementById('live-dot').className='live-dot done';
+    document.getElementById('status-label').textContent='done · '+data.duration_s+'s';
+    renderResults(data);
+
+  } catch(err){
+    stopClock();
+    globalRunning=false;
+    document.getElementById('live-dot').className='live-dot error';
+    document.getElementById('status-label').textContent='error';
+    renderError(err.message);
+  } finally {
+    document.getElementById('run-btn').disabled=false;
+    document.getElementById('run-btn').innerHTML=`<svg width="11" height="11" viewBox="0 0 11 11"><path d="M1 1L10 5.5L1 10V1Z" fill="white"/></svg> Run Analysis`;
+  }
+}
+
+/* ── INIT ── */
+document.getElementById('query-input').addEventListener('keydown',e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key==='Enter') runAnalysis();
+});
+document.getElementById('ticker-input').addEventListener('input',e=>{
+  e.target.value=e.target.value.toUpperCase().replace(/[^A-Z]/g,'');
+});
+
+window.addEventListener('resize', resize);
+resize();
+frame();
+
+// idle ambient bubbles
+const IDLE_MSGS = [
+  {node:'manager', text:'Waiting for\nquery…'},
+  {node:'research',text:'ready to\nsearch'},
+  {node:'financial',text:'XBRL parsers\nstandby'},
+  {node:'sentiment',text:'FinBERT\ninitialized'},
+];
+let idleBubbleI=0;
+setInterval(()=>{
+  if(!globalRunning){
+    const m=IDLE_MSGS[idleBubbleI%IDLE_MSGS.length];
+    showBubble(m.node, m.text);
+    idleBubbleI++;
+  }
+},4000);
+</script>
+</body>
+</html>
