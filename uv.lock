@@ -29,6 +29,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "requests" },
     { name = "sentence-transformers" },
+    { name = "sentry-sdk" },
     { name = "supabase" },
     { name = "torch" },
     { name = "transformers" },
@@ -51,6 +52,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.2.2" },
     { name = "requests", specifier = ">=2.32.0" },
     { name = "sentence-transformers", specifier = ">=5.5.0" },
+    { name = "sentry-sdk", specifier = ">=2.0.0" },
     { name = "supabase", specifier = ">=2.30.0" },
     { name = "torch", specifier = ">=2.2.0" },
     { name = "transformers", specifier = ">=5.8.1" },
@@ -2448,6 +2450,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2c/27/16d127a61303e05847d878b23687f3371868c76e738557fa80b4373a8c2b/sentence_transformers-5.5.0.tar.gz", hash = "sha256:9cec675e68bfe09d07466d1f13ab06d1d79d60a0f45b154baf433bde6ae159cb", size = 444908, upload-time = "2026-05-12T14:05:42.383Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/55/20/18416624bcbae866ec0b111979766cebabe8e5ff7563ab953ecbaf3ff9e7/sentence_transformers-5.5.0-py3-none-any.whl", hash = "sha256:75313fdcc2397ec4b58297c25d6187fcca5a6b2aeb09570a72eff5a3223d8d58", size = 588665, upload-time = "2026-05-12T14:05:40.899Z" },
+]
+
+[[package]]
+name = "sentry-sdk"
+version = "2.63.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "certifi" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ba/c8/b3c970a5b186722d276cd40a05b3254e03bccc0208560aff20f612e018e8/sentry_sdk-2.63.0.tar.gz", hash = "sha256:2a1502bf864769275dbc8c2c9fc7a0f7f5e18358180b615d262d13a31ffba216", size = 912449, upload-time = "2026-06-16T12:45:57.553Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7b/57/cb205f7d93373120f666b9c5736dc0815524d96a9b278e7a728f018dc22a/sentry_sdk-2.63.0-py3-none-any.whl", hash = "sha256:3a9b5ddd403f79eb73bd670f75f04485819db53d28f76ced7bc09041cb0dfd6a", size = 495950, upload-time = "2026-06-16T12:45:55.819Z" },
 ]
 
 [[package]]
