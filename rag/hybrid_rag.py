@@ -17,6 +17,9 @@ import logging
 import os
 from typing import Optional
 
+from langsmith import traceable
+from core.observability import sentry_enabled
+
 logger = logging.getLogger(__name__)
 
 # ── Optional imports — graceful degradation ────────────────────────────────
@@ -60,32 +63,26 @@ except Exception as exc:
 # Tool 1 — Vector Search (Supabase pgvector via alpha_hybrid_search RPC)
 # ─────────────────────────────────────────────────────────────────────────────
 
+@traceable(run_type="retriever")
 async def rag_vector_search(
     query: str,
     top_k: int = 5,
     ticker_filter: Optional[str] = None,
     days_back: Optional[int] = None,
-    threshold: float = 0.01,            # RRF scores are small; 0.01 is a safe floor
+    threshold: float = 0.01,
 ) -> dict:
     """
     Semantic + full-text hybrid search over the Supabase knowledge base.
-
-    Uses the alpha_hybrid_search RPC (same as AlphaVectorStore.hybrid_search)
-    so both the agent and the ingestion pipeline stay in sync with the same
-    SQL function.
-
-    Returns top-k relevant document chunks with RRF scores.
     """
     if not _sb:
         return {"query": query, "results": [], "warning": "Supabase not configured"}
 
     embedding = _embed(query)
 
-    # FIX: use alpha_hybrid_search (matches vector_store.py), not match_documents
     params: dict = {
         "query_embedding": embedding,
         "query_text":      query,
-        "top_k":           top_k * 2,   # fetch extra; client-side threshold filters down
+        "top_k":           top_k * 2,
         "rrf_k":           60,
         "page_offset":     0,
     }
@@ -94,6 +91,15 @@ async def rag_vector_search(
     if days_back is not None:
         params["days_back"] = days_back
 
+    if sentry_enabled():
+        import sentry_sdk
+        sentry_sdk.add_breadcrumb(
+            category="rag.vector_search",
+            message="Calling Supabase alpha_hybrid_search RPC",
+            data={"query": query[:100], "ticker_filter": ticker_filter},
+            level="info",
+        )
+
     try:
         resp = await asyncio.to_thread(
             lambda: _sb.rpc("alpha_hybrid_search", params).execute()
@@ -101,19 +107,23 @@ async def rag_vector_search(
         rows: list[dict] = resp.data or []
     except Exception as exc:
         logger.error("Supabase RPC error: %s", exc)
+        if sentry_enabled():
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("component", "rag.vector_search")
+                sentry_sdk.capture_exception(exc)
         return {"query": query, "results": [], "error": str(exc)}
 
-    # Apply score threshold + limit
     results = [
         {
-            "id":         r.get("id"),
-            "ticker":     r.get("ticker"),
-            "source_type": r.get("source_type"),
-            "chunk_text": r.get("text"),
-            "score":      round(r.get("rrf_score", 0.0), 6),
+            "id":           r.get("id"),
+            "ticker":       r.get("ticker"),
+            "source_type":  r.get("source_type"),
+            "chunk_text":   r.get("text"),
+            "score":        round(r.get("rrf_score", 0.0), 6),
             "published_at": r.get("published_at"),
-            "url":        r.get("url"),
-            "title":      r.get("title"),
+            "url":          r.get("url"),
+            "title":        r.get("title"),
             "chunk_index":  r.get("chunk_index"),
         }
         for r in rows
@@ -126,6 +136,7 @@ async def rag_vector_search(
 # Tool 2 — Graph Traversal (Neo4j)
 # ─────────────────────────────────────────────────────────────────────────────
 
+@traceable(run_type="retriever")
 async def rag_graph_traverse(
     entity: str,
     relation_types: Optional[list[str]] = None,
@@ -169,8 +180,16 @@ async def rag_graph_traverse(
     nodes: list[dict] = []
     paths: list[list] = []
 
+    if sentry_enabled():
+        import sentry_sdk
+        sentry_sdk.add_breadcrumb(
+            category="rag.graph_traverse",
+            message="Running Neo4j cypher traversal",
+            data={"entity": entity, "max_hops": max_hops},
+            level="info",
+        )
+
     try:
-        # FIX: correct async session usage for neo4j >= 5.x
         async with driver.session() as session:
             result = await session.run(cypher, entity=entity.upper(), limit=limit)
             async for rec in result:
@@ -183,6 +202,12 @@ async def rag_graph_traverse(
                 paths.append(rec["path_nodes"])
     except Exception as exc:
         logger.error("Neo4j traversal error (entity=%s): %s", entity, exc)
+        if sentry_enabled():
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("component", "rag.graph_traverse")
+                scope.set_tag("entity", entity)
+                sentry_sdk.capture_exception(exc)
         return {"entity": entity, "nodes": [], "paths": [], "error": str(exc)}
 
     return {"entity": entity, "nodes": nodes, "paths": paths}
@@ -192,6 +217,7 @@ async def rag_graph_traverse(
 # Tool 3 — Hybrid Query (Vector + Graph fused with RRF)
 # ─────────────────────────────────────────────────────────────────────────────
 
+@traceable(run_type="retriever")
 async def rag_hybrid_query(
     query: str,
     entity: str,

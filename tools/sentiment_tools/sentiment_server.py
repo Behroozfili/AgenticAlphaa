@@ -65,9 +65,15 @@ from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 
-from tools.fear_greed_calculator import FearGreedIndexCalculator
-from tools.finbert_analyzer import FinBertSentimentAnalyzer
-from tools.vader_scorer import VaderLexiconScorer
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from core.observability import init_sentry, sentry_enabled
+init_sentry()
+
+from tools.sentiment_tools.fear_greed_calculator import FearGreedIndexCalculator
+from tools.sentiment_tools.finbert_analyzer import FinBertSentimentAnalyzer
+from tools.sentiment_tools.vader_scorer import VaderLexiconScorer
 from rag.retriever import AlphaRetriever
 from rag.vector_store import AlphaVectorStore
 from rag.embedding_manager import get_embedder
@@ -476,6 +482,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 
     except Exception as exc:
         log.exception("Tool '%s' raised an exception.", name)
+        if sentry_enabled():
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("tool", name)
+                scope.set_tag("server", "sentiment-agent-mcp")
+                sentry_sdk.capture_exception(exc)
         error_payload = {"error": str(exc), "tool": name, "arguments": arguments}
         return CallToolResult(
             content=[

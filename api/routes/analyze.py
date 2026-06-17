@@ -37,6 +37,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from memory.manager_memory import ManagerMemory
 from api.dependencies import get_manager_memory
+from api.core.exceptions import AgentError
 
 log = logging.getLogger("api.analyze")
 
@@ -246,6 +247,21 @@ async def analyze(
     error_message = None
 
     try:
+        import sentry_sdk
+        sentry_sdk.add_breadcrumb(
+            category="analyze",
+            message="ManagerAgent.run() starting",
+            data={
+                "analysis_id":  analysis_id,
+                "ticker":       req.ticker,
+                "search_depth": req.search_depth,
+            },
+            level="info",
+        )
+    except Exception:
+        pass
+
+    try:
         result = await manager_agent.run(
             task_query=req.query,
             manager_directives=manager_directives,
@@ -279,16 +295,11 @@ async def analyze(
         duration_s=duration_s,
     )
 
-    # ── 6. If the agent failed, raise HTTP 500 ────────────────────────────────
+    # ── 6. If the agent failed, raise AgentError (→ Sentry via main.py handler)
     if status == "failed":
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "error":       "Agent pipeline failed",
-                "code":        "AGENT_ERROR",
-                "analysis_id": analysis_id,
-                "message":     error_message,
-            },
+        raise AgentError(
+            message="Agent pipeline failed",
+            detail=error_message,
         )
 
     # ── 7. Build and return response ──────────────────────────────────────────

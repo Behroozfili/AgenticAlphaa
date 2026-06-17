@@ -50,6 +50,10 @@ import sys
 import os
 import logging
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from core.observability import init_sentry, sentry_enabled
+init_sentry()
+
 # ---------------------------------------------------------------------------
 # FastMCP import — the modern MCP server API (no FastAPI, no HTTP)
 # ---------------------------------------------------------------------------
@@ -124,6 +128,29 @@ mcp = FastMCP(
 )
 
 
+def _sentry_capture(tool_name: str, exc: Exception) -> None:
+    """Capture an exception to Sentry tagged with the tool name."""
+    if sentry_enabled():
+        import sentry_sdk
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("tool", tool_name)
+            scope.set_tag("server", "financial-agent-mcp")
+            sentry_sdk.capture_exception(exc)
+
+
+def _sentry_tool(tool_name: str, fn, *args, **kwargs):
+    """
+    Call a tool function and capture any exception to Sentry before re-raising.
+    Returns {"error": str(exc)} on failure so FastMCP can serialize it.
+    """
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:
+        log.exception("Tool %s failed: %s", tool_name, exc)
+        _sentry_capture(tool_name, exc)
+        return {"error": str(exc), "tool": tool_name}
+
+
 # ===========================================================================
 # Yahoo Finance tools
 # ===========================================================================
@@ -177,7 +204,7 @@ def tool_get_financial_ratios(ticker: str) -> dict:
           - error (str | None)
     """
     log.info("tool_get_financial_ratios called: ticker=%s", ticker)
-    return get_financial_ratios(ticker)
+    return _sentry_tool("tool_get_financial_ratios", get_financial_ratios, ticker)
 
 
 @mcp.tool()
@@ -203,7 +230,7 @@ def tool_get_revenue_growth(ticker: str) -> dict:
         Growth values are decimals (e.g. 1.22 = +122% growth).
     """
     log.info("tool_get_revenue_growth called: ticker=%s", ticker)
-    return get_revenue_growth(ticker)
+    return _sentry_tool("tool_get_revenue_growth", get_revenue_growth, ticker)
 
 
 @mcp.tool()
@@ -349,7 +376,7 @@ def tool_get_xbrl_financials(ticker: str) -> dict:
         are returned per metric.
     """
     log.info("tool_get_xbrl_financials called: ticker=%s", ticker)
-    return get_xbrl_financials(ticker)
+    return _sentry_tool("tool_get_xbrl_financials", get_xbrl_financials, ticker)
 
 
 # ===========================================================================

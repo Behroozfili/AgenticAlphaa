@@ -22,8 +22,10 @@ from rag.processor import AlphaProcessor, ProcessedChunk
 from rag.embedding_manager import get_embedder
 from rag.vector_store import AlphaVectorStore
 from rag.graph_store import AlphaGraphStore
+from core.observability import init_sentry, sentry_enabled
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
+init_sentry()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -66,10 +68,23 @@ def run_ingestion_pipeline(
     # Stage 1 — Load
     # ─────────────────────────────────────────────────────────────────────────
     logger.info("─── Stage 1: Loading documents ───")
+    if sentry_enabled():
+        import sentry_sdk
+        sentry_sdk.add_breadcrumb(
+            category="ingestion",
+            message="Stage 1: Loading documents",
+            data={"tickers": tickers, "stage": "load"},
+            level="info",
+        )
     try:
         raw_docs: list[RawDocument] = loader.load(tickers=tickers)
     except Exception as exc:
         logger.error("Load stage failed: %s", exc)
+        if sentry_enabled():
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("component", "ingestion.load")
+                sentry_sdk.capture_exception(exc)
         return
 
     logger.info("Raw documents fetched: %d", len(raw_docs))
@@ -81,10 +96,23 @@ def run_ingestion_pipeline(
     # Stage 2 — Process & chunk
     # ─────────────────────────────────────────────────────────────────────────
     logger.info("─── Stage 2: Processing & chunking ───")
+    if sentry_enabled():
+        import sentry_sdk
+        sentry_sdk.add_breadcrumb(
+            category="ingestion",
+            message="Stage 2: Processing & chunking",
+            data={"tickers": tickers, "stage": "process"},
+            level="info",
+        )
     try:
         chunks: list[ProcessedChunk] = processor.process(raw_docs)
     except Exception as exc:
         logger.error("Process stage failed: %s", exc)
+        if sentry_enabled():
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("component", "ingestion.process")
+                sentry_sdk.capture_exception(exc)
         return
 
     logger.info("Processor metrics: %s", processor.metrics.report())
@@ -97,19 +125,27 @@ def run_ingestion_pipeline(
     # ─────────────────────────────────────────────────────────────────────────
     logger.info("─── Stage 3+4: Embedding + Vector upsert ───")
     vector_stage_ok = False
+    if sentry_enabled():
+        import sentry_sdk
+        sentry_sdk.add_breadcrumb(
+            category="ingestion",
+            message="Stage 3+4: Embedding + Vector upsert",
+            data={"tickers": tickers, "stage": "vector"},
+            level="info",
+        )
     try:
-        # embed_chunks() is the public API — returns list of
-        # {"text": str, "embedding": List[float], "metadata": dict}
-        # which is exactly what AlphaVectorStore.upsert() expects.
         records = embedder.embed_chunks(chunks)
-
-        # Batch upsert in one round-trip instead of N individual calls.
         upserted = vector_store.upsert(records=records)
         logger.info("Vector upsert: %d/%d chunks stored.", upserted, len(records))
         vector_stage_ok = True
 
     except Exception as exc:
         logger.error("Embed/vector stage failed: %s", exc)
+        if sentry_enabled():
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("component", "ingestion.vector")
+                sentry_sdk.capture_exception(exc)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Stage 5 — Graph extraction + upsert (Neo4j)
@@ -120,6 +156,14 @@ def run_ingestion_pipeline(
         logger.info("Stage 5 skipped (skip_graph=True).")
     else:
         logger.info("─── Stage 5: Graph extraction + upsert ───")
+        if sentry_enabled():
+            import sentry_sdk
+            sentry_sdk.add_breadcrumb(
+                category="ingestion",
+                message="Stage 5: Graph extraction + upsert",
+                data={"tickers": tickers, "stage": "graph"},
+                level="info",
+            )
         try:
             graph_docs = graph_store.extract_batch(raw_docs)
             summary    = graph_store.upsert_batch(graph_docs)
@@ -129,6 +173,11 @@ def run_ingestion_pipeline(
             )
         except Exception as exc:
             logger.error("Graph stage failed: %s", exc)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "ingestion.graph")
+                    sentry_sdk.capture_exception(exc)
         finally:
             if graph_store:
                 graph_store.close()

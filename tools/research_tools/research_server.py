@@ -29,6 +29,12 @@ from rag.hybrid_rag import rag_vector_search, rag_graph_traverse, rag_hybrid_que
 from dotenv import load_dotenv
 load_dotenv()
 
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
+from core.observability import init_sentry, sentry_enabled
+init_sentry()
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("research-mcp")
 
@@ -366,6 +372,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 
     except Exception as exc:
         log.exception("Tool %s failed", name)
+        if sentry_enabled():
+            import sentry_sdk
+            with sentry_sdk.push_scope() as scope:
+                scope.set_tag("tool", name)
+                scope.set_tag("server", "research-agent-mcp")
+                sentry_sdk.capture_exception(exc)
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps({"error": str(exc), "tool": name}))],
             isError=True,

@@ -44,6 +44,7 @@ from memory.manager_memory import ManagerMemory
 from api.config import settings, validate_settings
 from api.core.exceptions import AlphaAgentError
 from api.routes.analyze import router as analyze_router
+from core.observability import init_sentry, init_langsmith
 
 
 # ─────────────────────────────────────────────────────────────
@@ -57,6 +58,9 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 log = logging.getLogger("api.main")
+
+# Set during lifespan startup; read by exception handlers below
+_sentry_ok: bool = False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -77,6 +81,12 @@ async def lifespan(app: FastAPI):
 
     # ── 1. Validate env vars — exit immediately if missing ───
     validate_settings()
+
+    # ── 1b. Observability — Sentry + LangSmith ───────────────
+    global _sentry_ok
+    _sentry_ok   = init_sentry()
+    langsmith_ok = init_langsmith()
+    log.info("Sentry enabled: %s, LangSmith enabled: %s", _sentry_ok, langsmith_ok)
 
     # ── 2. Supabase client (shared across all requests) ──────
     log.info("Connecting to Supabase...")
@@ -196,6 +206,12 @@ async def alpha_agent_exception_handler(
         "AlphaAgentError [%s] trace_id=%s — %s | detail: %s",
         exc.code, exc.trace_id, exc.message, exc.detail,
     )
+    if _sentry_ok:
+        import sentry_sdk
+        with sentry_sdk.push_scope() as scope:
+            scope.set_tag("trace_id", exc.trace_id)
+            scope.set_tag("error_code", exc.code)
+            sentry_sdk.capture_exception(exc)
     return JSONResponse(
         status_code=exc.http_status,
         content=exc.to_dict(),
@@ -209,6 +225,9 @@ async def unhandled_exception_handler(
 ) -> JSONResponse:
     """Catch-all for any unhandled exception — return 500."""
     log.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    if _sentry_ok:
+        import sentry_sdk
+        sentry_sdk.capture_exception(exc)
     return JSONResponse(
         status_code=500,
         content={

@@ -30,6 +30,8 @@ from typing import Any, Optional
 
 import anthropic
 
+from core.observability import sentry_enabled
+
 logger = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -251,6 +253,12 @@ class AlphaGraphStore:
             raw = response.content[0].text
         except Exception as exc:
             logger.error("Claude extraction failed for %s: %s", source_url, exc)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "graph_store.extract")
+                    scope.set_tag("source_url", source_url[:100])
+                    sentry_sdk.capture_exception(exc)
             return GraphDocument(source_url=source_url, ticker=ticker)
 
         return self._parse_graph_doc(raw, source_url=source_url, ticker=ticker)

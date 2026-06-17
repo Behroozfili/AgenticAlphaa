@@ -64,6 +64,7 @@ from typing import Any, Union
 import anthropic
 
 from langgraph.graph import END, StateGraph
+from langsmith import traceable
 
 from agents.financial_agent import FinancialAnalystAgent
 from agents.research_agent import ResearchAgent
@@ -74,6 +75,7 @@ from agents.state import (
     SharedManagerState,
 )
 from memory.manager_memory import EvaluationFeedback, ManagerMemory
+from core.observability import sentry_enabled
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -411,6 +413,11 @@ class ManagerAgent:
 
         except Exception as exc:
             log.exception("[Brain-Route] Claude call failed: %s", exc)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "brain_route")
+                    sentry_sdk.capture_exception(exc)
             agents_run = self._memory.agents_run()
             if "ResearchAgent" not in agents_run:
                 fallback_action = "run_research"
@@ -493,6 +500,12 @@ class ManagerAgent:
 
         except Exception as exc:
             log.exception("[Brain-Evaluate] Evaluation failed: %s", exc)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "brain_evaluate")
+                    scope.set_tag("agent_name", agent_name)
+                    sentry_sdk.capture_exception(exc)
             verdict = {
                 "passed":      True,
                 "score":       50,
@@ -587,6 +600,11 @@ class ManagerAgent:
 
         except Exception as exc:
             log.exception("[Brain-Finalise] Synthesis failed: %s", exc)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "brain_finalise")
+                    sentry_sdk.capture_exception(exc)
             return (
                 f"[REPORT GENERATION FAILED — {exc}]\n\n"
                 f"Raw Financial Score: {fm.get('composite_score', {}).get('score')}\n"
@@ -630,6 +648,14 @@ class ManagerAgent:
         t0 = time.time()
 
         try:
+            if sentry_enabled():
+                import sentry_sdk
+                sentry_sdk.add_breadcrumb(
+                    category="manager_agent.dispatch",
+                    message=f"Dispatching {agent_class}",
+                    data={"agent_class": agent_class, "action": action},
+                    level="info",
+                )
             state   = await agent.run(state)
             elapsed = round(time.time() - t0, 2)
 
@@ -658,6 +684,13 @@ class ManagerAgent:
             record.outcome       = "error"
             record.duration_s    = elapsed
             record.error_message = str(exc)
+
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("agent_name", agent_class)
+                    scope.set_tag("action", action)
+                    sentry_sdk.capture_exception(exc)
 
             state["agent_execution_history"].append({
                 "agent_name":    agent_class,
@@ -729,6 +762,7 @@ class ManagerAgent:
     # LANGGRAPH NODES
     # =========================================================================
 
+    @traceable(name="hydrate", run_type="chain")
     async def _node_hydrate(self, g: ManagerGraphState) -> dict:
         """
         NODE: hydrate — Session Setup & State Initialisation.
@@ -748,6 +782,7 @@ class ManagerAgent:
         log.info("[Node:Hydrate] session=%s ticker=%s", g["session_id"], ticker)
         return {"shared_state": shared, "ticker": ticker}
 
+    @traceable(name="brain_route", run_type="chain")
     async def _node_brain_route(self, g: ManagerGraphState) -> dict:
         """
         NODE: brain_route — Routing Decision.
@@ -788,6 +823,7 @@ class ManagerAgent:
             "ticker":       updated_ticker,
         }
 
+    @traceable(name="dispatch", run_type="chain")
     async def _node_dispatch(self, g: ManagerGraphState) -> dict:
         """
         NODE: dispatch — Specialist Agent Execution.
@@ -803,6 +839,7 @@ class ManagerAgent:
 
         return {"shared_state": shared, "last_agent_key": agent_key}
 
+    @traceable(name="evaluate", run_type="chain")
     async def _node_evaluate(self, g: ManagerGraphState) -> dict:
         """
         NODE: evaluate — Brain Quality Assessment.
@@ -842,6 +879,7 @@ class ManagerAgent:
             "last_evaluation":   snapshot,
         }
 
+    @traceable(name="persist", run_type="chain")
     async def _node_persist(self, g: ManagerGraphState) -> dict:
         """
         NODE: persist — Memory Storage.
@@ -886,6 +924,7 @@ class ManagerAgent:
         log.info("[Node:Persist] Memory persisted for agent_key=%s", agent_key)
         return {"last_action": updated_action}
 
+    @traceable(name="finalise", run_type="chain")
     async def _node_finalise(self, g: ManagerGraphState) -> dict:
         """
         NODE: finalise — Final Report Synthesis.
@@ -908,7 +947,15 @@ class ManagerAgent:
         self._memory.store_heuristic(
             f"session_{session_id}_loops_used", g["loop_counter"]
         )
-        self._memory.persist_long_term()
+        try:
+            self._memory.persist_long_term()
+        except Exception as exc:
+            log.warning("[Node:Finalise] persist_long_term() failed (non-fatal): %s", exc)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "memory.persist_long_term")
+                    sentry_sdk.capture_exception(exc)
 
         log.info(
             "[Node:Finalise] Report generated (%d chars). Long-term memory persisted.",
@@ -916,6 +963,7 @@ class ManagerAgent:
         )
         return {"shared_state": shared}
 
+    @traceable(name="abort", run_type="chain")
     async def _node_abort(self, g: ManagerGraphState) -> dict:
         """
         NODE: abort — Guardrail / Error Exit.
@@ -931,7 +979,15 @@ class ManagerAgent:
             f"[{ts}] [ABORT] Orchestration aborted at loop {loop} "
             f"(max_routing_loops={self._max_routing_loops})."
         )
-        self._memory.persist_long_term()
+        try:
+            self._memory.persist_long_term()
+        except Exception as exc:
+            log.warning("[Node:Abort] persist_long_term() failed (non-fatal): %s", exc)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "memory.persist_long_term")
+                    sentry_sdk.capture_exception(exc)
 
         log.warning(
             "[Node:Abort] Orchestration aborted at loop %d / %d.",
@@ -1071,6 +1127,7 @@ class ManagerAgent:
     # ENTRY POINT — run()
     # =========================================================================
 
+    @traceable(name="ManagerAgent.run", run_type="chain")
     async def run(
         self,
         task_query:         str,

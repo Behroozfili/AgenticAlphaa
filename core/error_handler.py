@@ -30,6 +30,7 @@ import asyncio
 import contextlib
 import functools
 import logging
+import inspect
 from typing import Any, AsyncIterator, Callable, Iterator
 
 from core.observability import sentry_enabled
@@ -103,7 +104,7 @@ def with_error_reporting(component: str) -> Callable:
     """
     def decorator(fn: Callable) -> Callable:
 
-        if asyncio.iscoroutinefunction(fn):
+        if  inspect.iscoroutinefunction(fn): 
             @functools.wraps(fn)
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 _add_breadcrumb(component, fn.__name__, _safe_extra(kwargs))
@@ -165,7 +166,7 @@ async def _async_context(component: str) -> AsyncIterator[None]:
     Async context manager variant.
 
     Usage::
-
+س
         async with with_error_reporting.async_context(component="rag.vector_search"):
             results = await vector_store.search(query)
     """

@@ -60,6 +60,8 @@ import os
 # agents/state.py — the single source of truth for all state TypedDicts
 # across the Alpha-Agent Node platform.
 from agents.state import FinancialAgentState, SharedManagerState
+from langsmith import traceable
+from core.observability import sentry_enabled
 
 # ---------------------------------------------------------------------------
 # Logging — stderr only; stdout is reserved for MCP JSON-RPC
@@ -231,6 +233,7 @@ class FinancialAnalystAgent:
     # LAYER 1 — EXECUTORS (MCP Protocol Interface)
     # =========================================================================
 
+    @traceable(name="financial.extract", run_type="tool")
     async def _execute_data_extraction(
         self,
         session: ClientSession,
@@ -282,6 +285,14 @@ class FinancialAnalystAgent:
         # -- Yahoo Finance: key ratios ----------------------------------------
         log.info("Executor: calling tool_get_financial_ratios for %s", ticker)
         try:
+            if sentry_enabled():
+                import sentry_sdk
+                sentry_sdk.add_breadcrumb(
+                    category="mcp.financial",
+                    message="Calling tool_get_financial_ratios",
+                    data={"tool": "tool_get_financial_ratios", "ticker": ticker},
+                    level="info",
+                )
             ratios_result = await session.call_tool(
                 "tool_get_financial_ratios",
                 arguments={"ticker": ticker},
@@ -294,10 +305,24 @@ class FinancialAnalystAgent:
             errors.append(f"tool_get_financial_ratios exception: {exc}")
             state["raw_numerical_data"]["yahoo_ratios"] = {}
             log.exception("Executor: tool_get_financial_ratios failed")
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("tool", "tool_get_financial_ratios")
+                    scope.set_tag("component", "mcp.financial")
+                    sentry_sdk.capture_exception(exc)
 
         # -- Yahoo Finance: revenue growth ------------------------------------
         log.info("Executor: calling tool_get_revenue_growth for %s", ticker)
         try:
+            if sentry_enabled():
+                import sentry_sdk
+                sentry_sdk.add_breadcrumb(
+                    category="mcp.financial",
+                    message="Calling tool_get_revenue_growth",
+                    data={"tool": "tool_get_revenue_growth", "ticker": ticker},
+                    level="info",
+                )
             growth_result = await session.call_tool(
                 "tool_get_revenue_growth",
                 arguments={"ticker": ticker},
@@ -310,10 +335,24 @@ class FinancialAnalystAgent:
             errors.append(f"tool_get_revenue_growth exception: {exc}")
             state["raw_numerical_data"]["revenue_growth"] = {}
             log.exception("Executor: tool_get_revenue_growth failed")
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("tool", "tool_get_revenue_growth")
+                    scope.set_tag("component", "mcp.financial")
+                    sentry_sdk.capture_exception(exc)
 
         # -- SEC EDGAR: XBRL structured financials ----------------------------
         log.info("Executor: calling tool_get_xbrl_financials for %s", ticker)
         try:
+            if sentry_enabled():
+                import sentry_sdk
+                sentry_sdk.add_breadcrumb(
+                    category="mcp.financial",
+                    message="Calling tool_get_xbrl_financials",
+                    data={"tool": "tool_get_xbrl_financials", "ticker": ticker},
+                    level="info",
+                )
             xbrl_result = await session.call_tool(
                 "tool_get_xbrl_financials",
                 arguments={"ticker": ticker},
@@ -326,6 +365,12 @@ class FinancialAnalystAgent:
             errors.append(f"tool_get_xbrl_financials exception: {exc}")
             state["raw_numerical_data"]["xbrl_financials"] = {}
             log.exception("Executor: tool_get_xbrl_financials failed")
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("tool", "tool_get_xbrl_financials")
+                    scope.set_tag("component", "mcp.financial")
+                    sentry_sdk.capture_exception(exc)
 
         if errors:
             state["raw_numerical_data"]["extraction_errors"] = errors
@@ -333,6 +378,7 @@ class FinancialAnalystAgent:
             "Executor: data extraction complete — %d error(s) recorded.", len(errors)
         )
 
+    @traceable(name="financial.compute", run_type="tool")
     async def _execute_ratio_computation(
         self,
         session: ClientSession,
@@ -377,10 +423,24 @@ class FinancialAnalystAgent:
         # -- Helper: safe MCP tool call ---------------------------------------
         async def _call(tool: str, args: dict) -> dict:
             try:
+                if sentry_enabled():
+                    import sentry_sdk
+                    sentry_sdk.add_breadcrumb(
+                        category="mcp.financial",
+                        message=f"Calling {tool}",
+                        data={"tool": tool},
+                        level="info",
+                    )
                 result = await session.call_tool(tool, arguments=args)
                 return json.loads(result.content[0].text)
             except Exception as exc:
                 log.warning("Ratio computation tool '%s' failed: %s", tool, exc)
+                if sentry_enabled():
+                    import sentry_sdk
+                    with sentry_sdk.push_scope() as scope:
+                        scope.set_tag("tool", tool)
+                        scope.set_tag("component", "mcp.financial")
+                        sentry_sdk.capture_exception(exc)
                 return {"error": str(exc)}
 
         # -- P/E Ratio --------------------------------------------------------
@@ -498,6 +558,7 @@ class FinancialAnalystAgent:
     # LAYER 2 — CHECKER / CRITIC (Validation & Quality Control)
     # =========================================================================
 
+    @traceable(name="financial.checker", run_type="llm")
     def _check_data_quality(self, state: FinancialAgentState) -> dict[str, Any]:
         """
         CHECKER — Claude-Powered Financial Data Critic.
@@ -691,6 +752,7 @@ class FinancialAnalystAgent:
     # LAYER 3 — BRAIN / ORCHESTRATOR (Lifecycle & Loop Gateway)
     # =========================================================================
 
+    @traceable(name="financial.brain", run_type="llm")
     def _brain(self, state: FinancialAgentState) -> dict[str, Any]:
         """
         BRAIN — Planning Node for the Internal Execution Loop.
@@ -775,6 +837,12 @@ class FinancialAnalystAgent:
 
         except Exception as exc:
             log.exception("Brain: Claude API call failed — using default plan.")
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "financial.brain")
+                    scope.set_tag("iteration", str(iteration))
+                    sentry_sdk.capture_exception(exc)
             default_plan = "Default plan: run full data extraction and ratio computation."
             state["messages"].append({"role": "assistant", "content": default_plan})
             return {
@@ -791,6 +859,7 @@ class FinancialAnalystAgent:
     # ENTRY GATEWAY — run()
     # =========================================================================
 
+    @traceable(name="FinancialAnalystAgent.run", run_type="chain")
     async def run(self, shared_state: SharedManagerState) -> SharedManagerState:
         """
         PRIMARY ENTRY GATEWAY — Drives the Full Lifecycle Loop.

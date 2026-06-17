@@ -72,6 +72,8 @@ from mcp.client.stdio import stdio_client
 # SharedManagerState and SentimentAgentState are declared in agents/state.py
 # — the single source of truth for all state TypedDicts across the platform.
 from agents.state import SentimentAgentState, SharedManagerState
+from langsmith import traceable
+from core.observability import sentry_enabled
 
 # ---------------------------------------------------------------------------
 # Logging — stderr only; stdout is reserved for MCP JSON-RPC
@@ -293,6 +295,7 @@ class SentimentAgent:
     # LAYER 2 — BRAIN (Cognitive / LLM Interpretation Layer)
     # =========================================================================
 
+    @traceable(name="sentiment.brain_plan", run_type="llm")
     def _brain_plan(self, state: SentimentAgentState) -> dict[str, Any]:
         """
         BRAIN PASS 1 — Pre-Execution Retrieval Planning.
@@ -375,6 +378,12 @@ class SentimentAgent:
 
         except (json.JSONDecodeError, Exception) as exc:
             log.warning("[Brain-Plan] Claude returned invalid plan (%s) — using defaults.", exc)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "sentiment.brain_plan")
+                    scope.set_tag("iteration", str(state["loop_counter"]))
+                    sentry_sdk.capture_exception(exc)
             default_plan = {
                 "retrieval_query": f"{ticker or 'market'} earnings sentiment investor reaction",
                 "ticker":          ticker,
@@ -385,6 +394,7 @@ class SentimentAgent:
                                        "content": json.dumps(default_plan)})
             return default_plan
 
+    @traceable(name="sentiment.brain_analyze", run_type="llm")
     def _brain_analyze(self, state: SentimentAgentState) -> str:
         """
         BRAIN PASS 2 — Post-Execution Sentiment Interpretation.
@@ -462,6 +472,11 @@ class SentimentAgent:
 
         except Exception as exc:
             log.exception("[Brain-Analyze] Claude API call failed: %s", exc)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "sentiment.brain_analyze")
+                    sentry_sdk.capture_exception(exc)
             fallback = json.dumps({
                 "overall_sentiment":  "Neutral",
                 "conviction_level":   "Low",
@@ -478,6 +493,7 @@ class SentimentAgent:
     # LAYER 1 — EXECUTOR (MCP Protocol Interface)
     # =========================================================================
 
+    @traceable(name="sentiment.executor", run_type="tool")
     async def _execute_sentiment_pipeline(
         self,
         session:  ClientSession,
@@ -541,6 +557,14 @@ class SentimentAgent:
         # -- Internal helper: safe MCP call -----------------------------------
         async def _call(tool: str, args: dict) -> dict:
             try:
+                if sentry_enabled():
+                    import sentry_sdk
+                    sentry_sdk.add_breadcrumb(
+                        category="mcp.sentiment",
+                        message=f"Calling {tool}",
+                        data={"tool": tool},
+                        level="info",
+                    )
                 result = await session.call_tool(tool, arguments=args)
                 payload = json.loads(result.content[0].text)
                 if payload.get("error"):
@@ -552,6 +576,12 @@ class SentimentAgent:
             except Exception as exc:
                 state["extraction_errors"].append(f"{tool} exception: {exc}")
                 log.exception("[Executor] %s call failed: %s", tool, exc)
+                if sentry_enabled():
+                    import sentry_sdk
+                    with sentry_sdk.push_scope() as scope:
+                        scope.set_tag("tool", tool)
+                        scope.set_tag("component", "mcp.sentiment")
+                        sentry_sdk.capture_exception(exc)
                 return {}
 
         # -- Step 1: retrieve_social_data ------------------------------------
@@ -651,6 +681,7 @@ class SentimentAgent:
     # ENTRY GATEWAY — run()
     # =========================================================================
 
+    @traceable(name="SentimentAgent.run", run_type="chain")
     async def run(self, shared_state: SharedManagerState) -> SharedManagerState:
         """
         PRIMARY ENTRY GATEWAY — Drives the Full Lifecycle Loop.

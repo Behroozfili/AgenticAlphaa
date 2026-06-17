@@ -49,6 +49,8 @@ from mcp.client.stdio import stdio_client
 
 from agents.state import ResearchAgentState, SharedManagerState
 from dotenv import load_dotenv
+from langsmith import traceable
+from core.observability import sentry_enabled
 
 load_dotenv()
 
@@ -196,6 +198,7 @@ class ResearchAgent:
     # Public gateway
     # ══════════════════════════════════════════════════════════════
 
+    @traceable(name="ResearchAgent.run", run_type="chain")
     async def run(self, shared_state: SharedManagerState) -> SharedManagerState:
         """
         Public entry point called by the Manager Agent.
@@ -269,6 +272,7 @@ class ResearchAgent:
     # LangGraph node: Brain (Planner)
     # ══════════════════════════════════════════════════════════════
 
+    @traceable(name="research.brain", run_type="llm")
     async def _brain_node(
         self, state: ResearchAgentState
     ) -> dict[str, Any]:
@@ -349,6 +353,7 @@ class ResearchAgent:
     # LangGraph node: Executor (Tool Caller)
     # ══════════════════════════════════════════════════════════════
 
+    @traceable(name="research.executor", run_type="tool")
     async def _executor_node(
         self, state: ResearchAgentState
     ) -> dict[str, Any]:
@@ -421,6 +426,14 @@ class ResearchAgent:
                     logger.info("[Executor] calling tool='%s' args=%s", tool_name, arguments)
 
                     try:
+                        if sentry_enabled():
+                            import sentry_sdk
+                            sentry_sdk.add_breadcrumb(
+                                category="mcp.research",
+                                message=f"Calling tool: {tool_name}",
+                                data={"tool_name": tool_name, "arguments": str(arguments)[:200]},
+                                level="info",
+                            )
                         result = await session.call_tool(tool_name, arguments)
                         raw_text = (
                             result.content[0].text
@@ -439,11 +452,23 @@ class ResearchAgent:
                             f"[TOOL ERROR] {tool_name} failed: {tool_exc}"
                         )
                         logger.warning(err_msg)
+                        if sentry_enabled():
+                            import sentry_sdk
+                            with sentry_sdk.push_scope() as scope:
+                                scope.set_tag("tool", tool_name)
+                                scope.set_tag("component", "mcp.research")
+                                sentry_sdk.capture_exception(tool_exc)
                         new_chunks.append(err_msg)
 
         except Exception as mcp_exc:
             err_msg = f"[MCP CONNECTION ERROR] Could not connect to research_server: {mcp_exc}"
             logger.error(err_msg)
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "mcp_connection")
+                    scope.set_tag("server", "research-agent-mcp")
+                    sentry_sdk.capture_exception(mcp_exc)
             new_chunks.append(err_msg)
 
         return {
@@ -455,6 +480,7 @@ class ResearchAgent:
     # LangGraph node: Checker (Validator / Critic)
     # ══════════════════════════════════════════════════════════════
 
+    @traceable(name="research.checker", run_type="llm")
     async def _checker_node(
         self, state: ResearchAgentState
     ) -> dict[str, Any]:
