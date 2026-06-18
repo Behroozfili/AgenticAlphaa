@@ -220,11 +220,15 @@ class SentimentAgent:
         server_script_path: str,
         model: str = "claude-sonnet-4-20250514",
         max_loops: int = 2,
+        llm_client: anthropic.Anthropic | None = None,
+        mcp_server_params: StdioServerParameters | None = None,
     ) -> None:
-        self._llm               = anthropic.Anthropic()
+        # Accept an injected client so tests can pass a mock without
+        # making real API calls.
+        self._llm               = llm_client or anthropic.Anthropic()
         self._model             = model
         self._default_max_loops = max_loops
-        self._server_params     = StdioServerParameters(
+        self._server_params     = mcp_server_params or StdioServerParameters(
             command="python",
             args=[server_script_path],
             env=None,

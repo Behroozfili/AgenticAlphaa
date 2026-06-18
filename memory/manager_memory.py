@@ -428,7 +428,37 @@ class LongTermMemory:
         self.ticker_insights:        dict[str, dict] = {}
         self.user_preferences:       dict[str, Any]  = {}
 
-        self.load()
+        # NOTE: load() is NOT called here intentionally.
+        # Call load() explicitly after construction, or use the
+        # factory classmethod LongTermMemory.create() which does both.
+
+    @classmethod
+    def create(
+        cls,
+        user_id:             str           = "",
+        supabase_client:     "Client | None" = None,
+        max_heuristics:      int           = 100,
+        max_ticker_insights: int           = 200,
+    ) -> "LongTermMemory":
+        """
+        Factory method — construct and immediately load from Supabase.
+
+        Preferred over calling __init__ + load() separately, because it
+        makes the I/O explicit at the call site and keeps __init__ free
+        of side effects (required for unit testing without a real DB).
+
+        Example
+        -------
+        >>> memory = LongTermMemory.create(user_id="user_123", supabase_client=client)
+        """
+        instance = cls(
+            user_id=user_id,
+            supabase_client=supabase_client,
+            max_heuristics=max_heuristics,
+            max_ticker_insights=max_ticker_insights,
+        )
+        instance.load()
+        return instance
 
     # ------------------------------------------------------------------
     # Operational heuristics
@@ -702,7 +732,7 @@ class ManagerMemory:
         max_ticker_insights: int           = 200,
     ) -> None:
         self.short = ShortTermMemory(max_messages=max_messages)
-        self.long  = LongTermMemory(
+        self.long  = LongTermMemory.create(
             user_id=user_id,
             supabase_client=supabase_client,
             max_heuristics=max_heuristics,

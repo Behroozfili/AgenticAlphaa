@@ -42,7 +42,7 @@ from agents.manager_agent import ManagerAgent
 from memory.manager_memory import ManagerMemory
 
 from api.config import settings, validate_settings
-from api.core.exceptions import AlphaAgentError
+from api.core.exceptions import AlphaAgentError, ConfigurationError
 from api.routes.analyze import router as analyze_router
 from core.observability import init_sentry, init_langsmith
 
@@ -58,9 +58,6 @@ logging.basicConfig(
     stream=sys.stderr,
 )
 log = logging.getLogger("api.main")
-
-# Set during lifespan startup; read by exception handlers below
-_sentry_ok: bool = False
 
 
 # ─────────────────────────────────────────────────────────────
@@ -80,13 +77,16 @@ async def lifespan(app: FastAPI):
     """
 
     # ── 1. Validate env vars — exit immediately if missing ───
-    validate_settings()
+    try:
+        validate_settings()
+    except ConfigurationError as exc:
+        log.critical("Startup aborted — %s", exc)
+        sys.exit(1)
 
     # ── 1b. Observability — Sentry + LangSmith ───────────────
-    global _sentry_ok
-    _sentry_ok   = init_sentry()
-    langsmith_ok = init_langsmith()
-    log.info("Sentry enabled: %s, LangSmith enabled: %s", _sentry_ok, langsmith_ok)
+    app.state.sentry_ok  = init_sentry(app_env=settings.APP_ENV)
+    langsmith_ok         = init_langsmith()
+    log.info("Sentry enabled: %s, LangSmith enabled: %s", app.state.sentry_ok, langsmith_ok)
 
     # ── 2. Supabase client (shared across all requests) ──────
     log.info("Connecting to Supabase...")
@@ -138,7 +138,9 @@ async def lifespan(app: FastAPI):
 # ─────────────────────────────────────────────────────────────
 # App
 # ─────────────────────────────────────────────────────────────
-is_prod = settings.APP_ENV == "production"
+# is_prod is evaluated inside lifespan (not at import time) so that
+# patching APP_ENV in tests takes effect without reloading the module.
+_is_prod: bool = settings.APP_ENV == "production"
 
 app = FastAPI(
     title="Alpha-Agent Node API",
@@ -149,8 +151,8 @@ app = FastAPI(
     ),
     version="1.0.0",
     lifespan=lifespan,
-    docs_url=None if is_prod else "/docs",
-    redoc_url=None if is_prod else "/redoc",
+    docs_url=None if _is_prod else "/docs",
+    redoc_url=None if _is_prod else "/redoc",
 )
 
 
@@ -158,11 +160,14 @@ app = FastAPI(
 # Middleware
 # ─────────────────────────────────────────────────────────────
 
-# CORS — allow all origins for now; restrict in production
+# CORS — W3C spec forbids allow_credentials=True with allow_origins=["*"].
+# In development: wildcard origins, credentials disabled (safe for local use).
+# In production:  explicit ALLOWED_ORIGINS list, credentials enabled.
+_dev_mode = settings.APP_ENV == "development"
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.APP_ENV == "development" else settings.ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"] if _dev_mode else settings.ALLOWED_ORIGINS,
+    allow_credentials=False if _dev_mode else True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -206,7 +211,7 @@ async def alpha_agent_exception_handler(
         "AlphaAgentError [%s] trace_id=%s — %s | detail: %s",
         exc.code, exc.trace_id, exc.message, exc.detail,
     )
-    if _sentry_ok:
+    if request.app.state.sentry_ok:
         import sentry_sdk
         with sentry_sdk.push_scope() as scope:
             scope.set_tag("trace_id", exc.trace_id)
@@ -225,17 +230,27 @@ async def unhandled_exception_handler(
 ) -> JSONResponse:
     """Catch-all for any unhandled exception — return 500."""
     log.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    if _sentry_ok:
+    if request.app.state.sentry_ok:
         import sentry_sdk
         sentry_sdk.capture_exception(exc)
-    return JSONResponse(
-        status_code=500,
-        content={
-            "error":   "INTERNAL_ERROR",
-            "message": "An unexpected error occurred.",
-            "detail":  str(exc),
-        },
-    )
+    # In production, never leak internal exception details to the client.
+    # The trace_id lets engineers grep the server logs for the full traceback.
+    import uuid
+    trace_id = str(uuid.uuid4())[:8]
+    if settings.APP_ENV == "production":
+        content = {
+            "error":    "INTERNAL_ERROR",
+            "message":  "An unexpected error occurred.",
+            "trace_id": trace_id,
+        }
+    else:
+        content = {
+            "error":    "INTERNAL_ERROR",
+            "message":  "An unexpected error occurred.",
+            "detail":   str(exc),
+            "trace_id": trace_id,
+        }
+    return JSONResponse(status_code=500, content=content)
 
 
 # ─────────────────────────────────────────────────────────────

@@ -33,7 +33,6 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.observability import init_sentry, sentry_enabled
-init_sentry()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("research-mcp")
@@ -388,6 +387,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 # Entry point
 # ══════════════════════════════════════════════════════════════════
 async def main():
+    init_sentry()
     log.info("Research Agent MCP Server starting...")
     async with stdio_server() as (read, write):
         await app.run(read, write, app.create_initialization_options())

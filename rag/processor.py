@@ -18,6 +18,11 @@ from rag.loader import RawDocument
 
 logger = logging.getLogger(__name__)
 
+# Maximum number of url_hash entries kept in the in-memory dedup store.
+# When the cap is reached, the oldest half is evicted (FIFO-LRU).
+# Override at construction time via max_seen= if needed.
+_DEFAULT_MAX_SEEN: int = 100_000
+
 # ---------------------------------------------------------------------------
 # Data Schema
 # ---------------------------------------------------------------------------
@@ -86,6 +91,7 @@ class AlphaProcessor:
         self,
         chunk_size: int = 512,
         chunk_overlap: int = 64,
+        max_seen: int = _DEFAULT_MAX_SEEN,
     ) -> None:
         self.splitter = RecursiveCharacterTextSplitter(
             separators=self.SEPARATORS,
@@ -95,8 +101,11 @@ class AlphaProcessor:
             is_separator_regex=False,
         )
         # In-memory dedup store: url_hash -> content_hash
+        # Capped at max_seen entries to prevent unbounded memory growth
+        # in long-running ingestion processes (H-7 fix).
         # In production, replace with a Redis / Postgres lookup.
         self._seen: dict[str, str] = {}
+        self._max_seen: int = max_seen
         self.metrics = ProcessorMetrics()
 
     # ------------------------------------------------------------------
@@ -139,8 +148,8 @@ class AlphaProcessor:
             else:
                 logger.info("UPDATE new content for url=%s", doc.url)
                 self.metrics.content_updates += 1
-        # Record / update the seen state
-        self._seen[u_hash] = c_hash
+        # Record / update the seen state (via capped helper)
+        self._add_to_seen(u_hash, c_hash)
 
         # --- Semantic boundary chunking ---
         raw_chunks = self.splitter.split_text(full_text)
@@ -166,3 +175,23 @@ class AlphaProcessor:
             self.metrics.chunks_created += 1
 
         return chunks
+
+    def _add_to_seen(self, u_hash: str, c_hash: str) -> None:
+        """
+        Store a url_hash → content_hash mapping with a size cap.
+
+        When the store reaches _max_seen entries, the oldest half is
+        evicted (FIFO). This keeps memory bounded for long-running
+        ingestion processes without requiring an external cache.
+        """
+        if len(self._seen) >= self._max_seen:
+            # Evict the oldest half — dict preserves insertion order (Python 3.7+)
+            evict_count = self._max_seen // 2
+            keys_to_evict = list(self._seen.keys())[:evict_count]
+            for k in keys_to_evict:
+                del self._seen[k]
+            logger.warning(
+                "AlphaProcessor._seen cap reached (%d) — evicted %d oldest entries.",
+                self._max_seen, evict_count,
+            )
+        self._seen[u_hash] = c_hash

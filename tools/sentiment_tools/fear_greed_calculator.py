@@ -53,8 +53,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 
-from tools.finbert_analyzer import FinBertResult
-from tools.vader_scorer import VaderResult
+from tools.sentiment_tools.finbert_analyzer import FinBertResult
+from tools.sentiment_tools.vader_scorer import VaderResult
 
 logger = logging.getLogger(__name__)
 
@@ -277,8 +277,8 @@ class FearGreedIndexCalculator:
         KeyError
             If required keys are missing from either dict.
         """
-        from tools.finbert_analyzer import FinBertResult
-        from tools.vader_scorer import VaderResult
+        from tools.sentiment_tools.finbert_analyzer import FinBertResult
+        from tools.sentiment_tools.vader_scorer import VaderResult
 
         finbert_result = FinBertResult(
             bullish_prob   = float(finbert_dict["bullish_prob"]),

@@ -56,6 +56,26 @@ _LOCK = threading.Lock()
 _INSTANCE: Optional["AlphaEmbedder"] = None
 
 
+
+def reset_embedder() -> None:
+    """
+    Reset the singleton AlphaEmbedder instance.
+
+    Intended for use in test teardown fixtures so each test can start
+    with a clean state without loading the real 200 MB model.
+
+    Example (pytest)::
+
+        @pytest.fixture(autouse=True)
+        def clean_embedder():
+            yield
+            reset_embedder()
+    """
+    global _INSTANCE
+    with _LOCK:
+        _INSTANCE = None
+
+
 def get_embedder(
     model_name: str = "BAAI/bge-small-en-v1.5",
     batch_size: int = 64,

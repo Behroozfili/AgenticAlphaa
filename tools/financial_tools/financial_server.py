@@ -52,7 +52,6 @@ import logging
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.observability import init_sentry, sentry_enabled
-init_sentry()
 
 # ---------------------------------------------------------------------------
 # FastMCP import — the modern MCP server API (no FastAPI, no HTTP)
@@ -744,5 +743,6 @@ if __name__ == "__main__":
     # mcp.run(transport="stdio") starts the MCP JSON-RPC loop over
     # stdin/stdout. All logging is directed to stderr so it does NOT
     # interfere with the MCP protocol byte stream on stdout.
+    init_sentry()
     log.info("Financial Analyst MCP server starting (stdio transport)")
     mcp.run(transport="stdio")

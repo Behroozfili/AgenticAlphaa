@@ -1,5 +1,5 @@
 """
-tools/finbert_analyzer.py — FinBertSentimentAnalyzer
+tools/sentiment_tools/finbert_analyzer.py — FinBertSentimentAnalyzer
 ======================================================
 Financial sentiment analysis using the open-source ProsusAI/finbert model.
 
@@ -53,6 +53,28 @@ _MODEL:     Optional[BertForSequenceClassification] = None
 _DEVICE:    Optional[str]                          = None
 
 MODEL_NAME = "ProsusAI/finbert"
+
+def reset_finbert() -> None:
+    """
+    Reset the FinBERT singleton model, tokenizer, and device globals.
+
+    Intended for test teardown so each test starts with a clean state
+    without the 440 MB model pre-loaded.
+
+    Example (pytest)::
+
+        @pytest.fixture(autouse=True)
+        def clean_finbert():
+            yield
+            reset_finbert()
+    """
+    global _TOKENIZER, _MODEL, _DEVICE
+    with _LOCK:
+        _TOKENIZER = None
+        _MODEL     = None
+        _DEVICE    = None
+
+
 
 # Label order as defined in ProsusAI/finbert config.json
 # id2label: {0: "positive", 1: "negative", 2: "neutral"}

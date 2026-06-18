@@ -107,10 +107,8 @@ def price_to_earnings(price: float, eps: float) -> dict:
         - "formula"        (str) : Human-readable formula used.
     """
     pe = _safe_div(price, eps)
-    interp = _label(pe,
-                    [(0, "undervalued"), (15, "fairly_valued"), (30, "overvalued")],
-                    higher_is_better=False)
-    # Flip: low P/E = undervalued, high = overvalued
+    # DC-2: removed dead _label() call — result was immediately overwritten
+    # by the if/elif chain below which is the actual interpretation logic.
     if pe is not None:
         if pe < 0:
             interp = "negative_earnings"

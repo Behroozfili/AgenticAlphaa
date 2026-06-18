@@ -55,7 +55,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import sys
 import time
 import uuid
 from datetime import datetime, timezone
@@ -80,12 +79,9 @@ from core.observability import sentry_enabled
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-    stream=sys.stderr,
-)
+# NOTE: logging.basicConfig() must NOT be called in library/agent code —
+# it hijacks the root logger for the entire process. Configuration belongs
+# exclusively in the entry point (api/main.py or __main__ blocks).
 log = logging.getLogger("manager-agent")
 
 # ---------------------------------------------------------------------------
@@ -101,25 +97,39 @@ _VALID_ACTIONS: frozenset[str] = frozenset({
     "finalise", "abort",
 })
 
+# Human-readable descriptions for each action — single source of truth.
+# The prompt is generated from this dict so the list never drifts from
+# the actual frozenset (M-6 fix).
+_ACTION_DESCRIPTIONS: dict[str, str] = {
+    "run_research":    "Dispatch ResearchAgent (first time).",
+    "run_financial":   "Dispatch FinancialAnalystAgent (first time).",
+    "run_sentiment":   "Dispatch SentimentAgent (first time).",
+    "rerun_research":  "Re-dispatch ResearchAgent (quality was insufficient).",
+    "rerun_financial": "Re-dispatch FinancialAnalystAgent (data was incomplete).",
+    "rerun_sentiment": "Re-dispatch SentimentAgent (no chunks retrieved).",
+    "finalise":        "All required agents have run successfully. Synthesise output.",
+    "abort":           "Loop guardrail hit or unrecoverable error. Exit gracefully.",
+}
+
+# Build the actions block dynamically — guaranteed in sync with _VALID_ACTIONS.
+_actions_block: str = "
+".join(
+    f'  "{action}"{"." * (18 - len(action))} — {desc}'
+    for action, desc in _ACTION_DESCRIPTIONS.items()
+)
+
 # ---------------------------------------------------------------------------
 # Brain system prompts
 # ---------------------------------------------------------------------------
 
-_ROUTER_SYSTEM_PROMPT = """\
+_ROUTER_SYSTEM_PROMPT = f"""\
 You are the Routing Brain of the ManagerAgent on the Alpha-Agent Node platform.
 
 Your role: Analyse the current SharedManagerState and memory context, then decide
 the SINGLE most logical next action to take in the orchestration pipeline.
 
 Available actions:
-  "run_research"     — Dispatch ResearchAgent (first time).
-  "run_financial"    — Dispatch FinancialAnalystAgent (first time).
-  "run_sentiment"    — Dispatch SentimentAgent (first time).
-  "rerun_research"   — Re-dispatch ResearchAgent (quality was insufficient).
-  "rerun_financial"  — Re-dispatch FinancialAnalystAgent (data was incomplete).
-  "rerun_sentiment"  — Re-dispatch SentimentAgent (no chunks retrieved).
-  "finalise"         — All required agents have run successfully. Synthesise output.
-  "abort"            — Loop guardrail hit or unrecoverable error. Exit gracefully.
+{_actions_block}
 
 Typical execution order:
   run_research → run_financial → run_sentiment → finalise
@@ -212,9 +222,15 @@ Do NOT include any JSON or code blocks.
 def _extract_chunk_text(chunk: Union[str, dict]) -> str:
     """
     Safely extract plain text from a research context chunk.
-    Handles both legacy plain-string chunks and dict chunks with a "text" key.
+
+    DC-3: The isinstance(chunk, str) branch is kept for safety but is
+    currently unreachable — all callers in the pipeline produce dict chunks
+    with a "text" key. If the pipeline schema changes, this guard prevents
+    a silent crash.
     """
     if isinstance(chunk, str):
+        # NOTE: unreachable in the current pipeline (all chunks are dicts).
+        # Kept as a defensive fallback in case the schema changes upstream.
         return chunk
     if isinstance(chunk, dict):
         return chunk.get("text", str(chunk))
@@ -280,9 +296,12 @@ class ManagerAgent:
         memory:            ManagerMemory,
         model:             str = _DEFAULT_MODEL,
         max_routing_loops: int = _DEFAULT_MAX_ROUTING_LOOPS,
+        llm_client:        anthropic.AsyncAnthropic | None = None,
     ) -> None:
-        # Use AsyncAnthropic so Brain calls never block the event loop
-        self._llm               = anthropic.AsyncAnthropic()
+        # Use AsyncAnthropic so Brain calls never block the event loop.
+        # Accept an injected client so tests can pass a mock without
+        # making real API calls.
+        self._llm               = llm_client or anthropic.AsyncAnthropic()
         self._model             = model
         self._max_routing_loops = max_routing_loops
         self._memory            = memory

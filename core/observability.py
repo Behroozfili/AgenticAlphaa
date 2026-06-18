@@ -38,12 +38,19 @@ _langsmith_enabled: bool = False
 # Sentry
 # ─────────────────────────────────────────────────────────────────────────────
 
-def init_sentry() -> bool:
+def init_sentry(app_env: str | None = None) -> bool:
     """
     Initialise Sentry SDK if SENTRY_DSN is set in the environment.
 
     Idempotent — safe to call multiple times (subsequent calls are no-ops
     because the module-level flag is checked first).
+
+    Args:
+        app_env: The application environment string (e.g. "production",
+                 "development"). If None, falls back to the APP_ENV env var,
+                 then to "development". Pass this explicitly from the entry
+                 point (api/main.py lifespan, MCP server __main__) so that
+                 core/ has zero dependency on api/.
 
     Returns True if Sentry was successfully initialised, False otherwise.
     """
@@ -57,19 +64,21 @@ def init_sentry() -> bool:
         log.info("Sentry disabled — SENTRY_DSN is not set.")
         return False
 
+    # Resolve environment — no import from api/ needed
+    env = app_env or os.environ.get("APP_ENV", "development")
+
     try:
         import sentry_sdk  # noqa: PLC0415  (local import keeps it optional)
-        from api.config import settings  # noqa: PLC0415
 
         sentry_sdk.init(
             dsn=dsn,
             traces_sample_rate=1.0,
-            environment=settings.APP_ENV,
+            environment=env,
             # Attach request data automatically where available
             send_default_pii=False,
         )
         _sentry_enabled = True
-        log.info("Sentry enabled — environment=%s", settings.APP_ENV)
+        log.info("Sentry enabled — environment=%s", env)
         return True
 
     except ImportError:

@@ -53,8 +53,12 @@ class AlphaRetriever:
         stage3_k: int = STAGE3_TOP_K,
         token_budget: int = TOKEN_BUDGET,
     ) -> None:
-        self.store                 = vector_store
-        self.embedder              = embedder or get_embedder()
+        self.store    = vector_store
+        # WARNING: if embedder=None, get_embedder() is called here which
+        # loads the ~200 MB BAAI/bge-small-en-v1.5 model on first use.
+        # In tests, always inject a mock embedder to avoid this side effect:
+        #   retriever = AlphaRetriever(store, embedder=MockEmbedder())
+        self.embedder = embedder or get_embedder()
         self.decay_half_life_hours = decay_half_life_hours
         self.stage1_k              = stage1_k
         self.stage2_k              = stage2_k

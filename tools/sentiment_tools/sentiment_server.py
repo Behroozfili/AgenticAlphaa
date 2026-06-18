@@ -69,7 +69,6 @@ import sys
 import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.observability import init_sentry, sentry_enabled
-init_sentry()
 
 from tools.sentiment_tools.fear_greed_calculator import FearGreedIndexCalculator
 from tools.sentiment_tools.finbert_analyzer import FinBertSentimentAnalyzer
@@ -505,6 +504,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 # ══════════════════════════════════════════════════════════════════
 
 async def main() -> None:
+    init_sentry()
     log.info("Sentiment Agent MCP Server starting (stdio mode)...")
     async with stdio_server() as (read_stream, write_stream):
         await app.run(

@@ -12,6 +12,7 @@ Stages:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -22,19 +23,15 @@ from rag.processor import AlphaProcessor, ProcessedChunk
 from rag.embedding_manager import get_embedder
 from rag.vector_store import AlphaVectorStore
 from rag.graph_store import AlphaGraphStore
+from api.config import get_settings
 from core.observability import init_sentry, sentry_enabled
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
-init_sentry()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-)
 logger = logging.getLogger("IngestionPipeline")
 
 
-def run_ingestion_pipeline(
+async def run_ingestion_pipeline(
     tickers: list[str],
     skip_graph: bool = False,       # set True to run vector-only (faster / cheaper)
 ) -> None:
@@ -48,11 +45,9 @@ def run_ingestion_pipeline(
     logger.info("═══ Ingestion Pipeline START — tickers=%s ═══", tickers)
 
     # ── Validate env ──────────────────────────────────────────────────────────
-    supabase_url = os.environ.get("SUPABASE_URL")
-    supabase_key = (
-        os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-        or os.environ.get("SUPABASE_SERVICE_KEY")
-    )
+    _s = get_settings()
+    supabase_url = _s.SUPABASE_URL
+    supabase_key = _s.SUPABASE_KEY
     if not supabase_url or not supabase_key:
         logger.error("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing. Aborting.")
         return
@@ -62,7 +57,10 @@ def run_ingestion_pipeline(
     processor    = AlphaProcessor()
     embedder     = get_embedder()                      # singleton — loaded once
     vector_store = AlphaVectorStore(supabase_url=supabase_url, supabase_key=supabase_key)
-    graph_store  = AlphaGraphStore() if not skip_graph else None
+    graph_store  = None
+    if not skip_graph:
+        graph_store = AlphaGraphStore()
+        graph_store.connect()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Stage 1 — Load
@@ -165,7 +163,7 @@ def run_ingestion_pipeline(
                 level="info",
             )
         try:
-            graph_docs = graph_store.extract_batch(raw_docs)
+            graph_docs = await graph_store.extract_batch(raw_docs)
             summary    = graph_store.upsert_batch(graph_docs)
             logger.info(
                 "Graph upsert: %d nodes, %d relationships.",
@@ -186,4 +184,9 @@ def run_ingestion_pipeline(
 
 
 if __name__ == "__main__":
-    run_ingestion_pipeline(["MSFT", "NVDA"])
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+    init_sentry()
+    asyncio.run(run_ingestion_pipeline(["MSFT", "NVDA"]))

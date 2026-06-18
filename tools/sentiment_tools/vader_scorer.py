@@ -64,6 +64,25 @@ _VADER_LOCK:   threading.Lock = threading.Lock()
 _VADER_LOADED: bool           = False
 
 
+def reset_vader() -> None:
+    """
+    Reset the VADER lexicon loaded flag.
+
+    Intended for test teardown so each test starts from a clean state
+    without the VADER lexicon pre-loaded.
+
+    Example (pytest)::
+
+        @pytest.fixture(autouse=True)
+        def clean_vader():
+            yield
+            reset_vader()
+    """
+    global _VADER_LOADED
+    with _VADER_LOCK:
+        _VADER_LOADED = False
+
+
 def _ensure_vader_lexicon() -> None:
     """
     Download the VADER lexicon if it is not already present.

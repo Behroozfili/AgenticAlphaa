@@ -21,6 +21,7 @@ Relationship types:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -139,23 +140,50 @@ class AlphaGraphStore:
         neo4j_password: Optional[str] = None,
         max_tokens: int = 1024,
     ) -> None:
-        self._claude = anthropic.Anthropic(
-            api_key=anthropic_api_key or os.environ["ANTHROPIC_API_KEY"]
-        )
+        # Resolve Anthropic API key — raise early with a clear message
+        # instead of letting os.environ["ANTHROPIC_API_KEY"] raise a
+        # cryptic KeyError deep inside a tool call.
+        api_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError(
+                "AlphaGraphStore requires ANTHROPIC_API_KEY — "
+                "set it in .env or pass anthropic_api_key explicitly."
+            )
+        self._api_key   = api_key
         self.max_tokens = max_tokens
 
-        # Neo4j — optional; graceful degradation if not configured
-        self._driver = None
-        uri      = neo4j_uri      or os.environ.get("NEO4J_URI")
-        user     = neo4j_user     or os.environ.get("NEO4J_USER", "neo4j")
-        password = neo4j_password or os.environ.get("NEO4J_PASSWORD")
+        # Store Neo4j credentials for use in connect() — no network I/O here
+        self._neo4j_uri      = neo4j_uri      or os.environ.get("NEO4J_URI")
+        self._neo4j_user     = neo4j_user     or os.environ.get("NEO4J_USER", "neo4j")
+        self._neo4j_password = neo4j_password or os.environ.get("NEO4J_PASSWORD")
 
-        if uri and password:
+        # Clients are None until connect() is called explicitly
+        self._claude = None
+        self._driver = None
+
+    def connect(self) -> None:
+        """
+        Open the Anthropic client and the Neo4j driver, then verify connectivity.
+
+        Call this once after construction — in ingestion.py or any other
+        entry point — before calling extract_batch() or upsert_batch().
+        Keeping network I/O out of __init__ makes unit tests possible
+        without real credentials.
+
+        Neo4j is optional: if NEO4J_URI / NEO4J_PASSWORD are absent,
+        graph writes are disabled and a warning is logged.
+        """
+        self._claude = anthropic.AsyncAnthropic(api_key=self._api_key)
+
+        if self._neo4j_uri and self._neo4j_password:
             try:
                 from neo4j import GraphDatabase
-                self._driver = GraphDatabase.driver(uri, auth=(user, password))
+                self._driver = GraphDatabase.driver(
+                    self._neo4j_uri,
+                    auth=(self._neo4j_user, self._neo4j_password),
+                )
                 self._driver.verify_connectivity()
-                logger.info("AlphaGraphStore connected to Neo4j at %s", uri)
+                logger.info("AlphaGraphStore connected to Neo4j at %s", self._neo4j_uri)
                 self._ensure_constraints()
             except Exception as exc:
                 logger.warning("Neo4j connection failed: %s — graph writes disabled.", exc)
@@ -166,13 +194,13 @@ class AlphaGraphStore:
     # Public API
     # ─────────────────────────────────────────────────────────────────
 
-    def extract_batch(
+    async def extract_batch(
         self,
         raw_docs,                       # list[RawDocument]
         max_chars_per_doc: int = 1500,
     ) -> list[GraphDocument]:
         """
-        Run Claude entity extraction on each RawDocument.
+        Run Claude entity extraction on each RawDocument (async).
         Skips documents that are too short to contain useful entities.
         Returns a list of GraphDocuments (may be empty lists inside).
         """
@@ -184,7 +212,7 @@ class AlphaGraphStore:
                 logger.debug("Skipping short doc: %s", doc.url)
                 continue
 
-            graph_doc = self._extract_one(
+            graph_doc = await self._extract_one(
                 text=text[:max_chars_per_doc],
                 ticker=doc.ticker,
                 source_url=doc.url,
@@ -238,13 +266,13 @@ class AlphaGraphStore:
     # Extraction (Claude)
     # ─────────────────────────────────────────────────────────────────
 
-    def _extract_one(
+    async def _extract_one(
         self, text: str, ticker: str, source_url: str
     ) -> GraphDocument:
         prompt = _EXTRACTION_PROMPT.format(text=text, ticker=ticker)
 
         try:
-            response = self._claude.messages.create(
+            response = await self._claude.messages.create(
                 model=self.EXTRACT_MODEL,
                 max_tokens=self.max_tokens,
                 temperature=0.0,

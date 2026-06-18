@@ -13,12 +13,13 @@ Import the singleton `settings` anywhere in the codebase:
 from __future__ import annotations
 
 import os
-import sys
 import logging
+from functools import lru_cache
 from typing import Literal
 
 from pydantic_settings import BaseSettings,SettingsConfigDict
 from pydantic import Field
+from api.core.exceptions import ConfigurationError
 
 log = logging.getLogger("api.config")
 
@@ -64,10 +65,27 @@ class Settings(BaseSettings):
 
 
 # ─────────────────────────────────────────────────────────────
-# Singleton
+# Settings factory — lazy, cached, testable
 # ─────────────────────────────────────────────────────────────
 
-settings = Settings()
+@lru_cache(maxsize=1)
+def get_settings() -> Settings:
+    """Return the single Settings instance, created on first call.
+
+    lru_cache ensures Settings() is evaluated lazily (not at import time)
+    and only once per process. In tests, call get_settings.cache_clear()
+    after patching env vars so the next call picks up the new values::
+
+        monkeypatch.setenv("APP_ENV", "production")
+        get_settings.cache_clear()
+        assert get_settings().APP_ENV == "production"
+    """
+    return Settings()
+
+
+# Backward-compatible alias — callers using `from api.config import settings`
+# continue to work without change. New code should prefer get_settings().
+settings: Settings = get_settings()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -78,23 +96,25 @@ def validate_settings() -> None:
     """
     Assert that required environment variables are set.
     Called once during FastAPI lifespan startup.
-    Exits the process with a clear message if anything is missing.
+
+    Raises ConfigurationError (instead of calling sys.exit directly) so
+    that tests can assert on the exception without killing the process.
+    The lifespan in api/main.py catches this and calls sys.exit(1).
     """
+    s = get_settings()
     required = {
-        "ANTHROPIC_API_KEY": settings.ANTHROPIC_API_KEY,
-        "SUPABASE_URL":      settings.SUPABASE_URL,
-        "SUPABASE_KEY":      settings.SUPABASE_KEY,
+        "ANTHROPIC_API_KEY": s.ANTHROPIC_API_KEY,
+        "SUPABASE_URL":      s.SUPABASE_URL,
+        "SUPABASE_KEY":      s.SUPABASE_KEY,
     }
     missing = [k for k, v in required.items() if not v]
     if missing:
-        log.critical(
-            "Missing required environment variables: %s — set them in .env",
-            ", ".join(missing),
+        raise ConfigurationError(
+            f"Missing required environment variables: {', '.join(missing)} — set them in .env"
         )
-        sys.exit(1)
 
     log.info(
         "Settings validated — env=%s model=%s",
-        settings.APP_ENV,
-        settings.ANTHROPIC_MODEL,
+        s.APP_ENV,
+        s.ANTHROPIC_MODEL,
     )

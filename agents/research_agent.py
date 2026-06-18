@@ -178,9 +178,12 @@ class ResearchAgent:
         model: str = "claude-sonnet-4-20250514",
         max_loops: int = _DEFAULT_MAX_LOOPS,
         mcp_server_params: StdioServerParameters | None = None,
+        llm_client: anthropic.Anthropic | None = None,
     ) -> None:
         # ── LLM client ───────────────────────────────────────────
-        self._llm = anthropic.Anthropic(
+        # Accept an injected client so tests can pass a mock without
+        # making real API calls or needing ANTHROPIC_API_KEY set.
+        self._llm = llm_client or anthropic.Anthropic(
             api_key=anthropic_api_key or os.environ["ANTHROPIC_API_KEY"]
         )
         self._model    = model
