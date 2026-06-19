@@ -23,7 +23,6 @@ from rag.processor import AlphaProcessor, ProcessedChunk
 from rag.embedding_manager import get_embedder
 from rag.vector_store import AlphaVectorStore
 from rag.graph_store import AlphaGraphStore
-from api.config import get_settings
 from core.observability import init_sentry, sentry_enabled
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -45,9 +44,14 @@ async def run_ingestion_pipeline(
     logger.info("═══ Ingestion Pipeline START — tickers=%s ═══", tickers)
 
     # ── Validate env ──────────────────────────────────────────────────────────
-    _s = get_settings()
-    supabase_url = _s.SUPABASE_URL
-    supabase_key = _s.SUPABASE_KEY
+    # rag/ must not depend on api/ — read env vars directly here.
+    # SUPABASE_KEY is the canonical name; SUPABASE_SERVICE_ROLE_KEY is the
+    # raw env var that Settings maps to it (kept for backward compatibility).
+    supabase_url = os.environ.get("SUPABASE_URL", "")
+    supabase_key = (
+        os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+        or os.environ.get("SUPABASE_KEY", "")
+    )
     if not supabase_url or not supabase_key:
         logger.error("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing. Aborting.")
         return

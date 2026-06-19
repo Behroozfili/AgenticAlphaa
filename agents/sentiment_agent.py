@@ -77,13 +77,9 @@ from core.observability import sentry_enabled
 
 # ---------------------------------------------------------------------------
 # Logging — stderr only; stdout is reserved for MCP JSON-RPC
+# NOTE: logging.basicConfig() must NOT be called in library/agent code.
+# Configuration belongs exclusively in entry points (api/main.py or __main__).
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-    stream=sys.stderr,
-)
 log = logging.getLogger("sentiment-agent")
 
 
