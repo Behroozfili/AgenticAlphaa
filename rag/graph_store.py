@@ -121,7 +121,7 @@ class AlphaGraphStore:
         store.upsert_batch(graph_docs)
     """
 
-    EXTRACT_MODEL = "claude-sonnet-4-20250514"
+    EXTRACT_MODEL = "claude-haiku-4-5"
 
     VALID_ENTITY_TYPES = {
         "Company", "Person", "GeopoliticalEvent",

@@ -193,7 +193,7 @@ class SentimentAgent:
         Absolute path to ``sentiment_server.py`` — the FastMCP stdio server
         that exposes the four sentiment tools.
     model : str
-        Anthropic model identifier. Defaults to ``"claude-sonnet-4-20250514"``.
+        Anthropic model identifier. Defaults to ``"claude-haiku-4-5"``.
     max_loops : int
         Safety guardrail for the internal execution loop. Default: 2.
         Iteration 2 only runs if the Executor retrieved zero chunks on
@@ -214,7 +214,7 @@ class SentimentAgent:
     def __init__(
         self,
         server_script_path: str,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-haiku-4-5",
         max_loops: int = 2,
         llm_client: anthropic.Anthropic | None = None,
         mcp_server_params: StdioServerParameters | None = None,

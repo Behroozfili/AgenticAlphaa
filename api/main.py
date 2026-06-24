@@ -45,6 +45,7 @@ from api.config import settings, validate_settings
 from api.core.exceptions import AlphaAgentError, ConfigurationError
 from api.routes.analyze import router as analyze_router
 from core.observability import init_sentry, init_langsmith
+import os
 
 
 # ─────────────────────────────────────────────────────────────
@@ -63,7 +64,7 @@ log = logging.getLogger("api.main")
 # ─────────────────────────────────────────────────────────────
 # Lifespan — startup & shutdown
 # ─────────────────────────────────────────────────────────────
-
+script_path = os.path.join(os.getcwd(), "tools", "sentiment_tools", "sentiment_server.py")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -104,7 +105,7 @@ async def lifespan(app: FastAPI):
     log.info("Initialising specialist agents...")
     research_agent  = ResearchAgent()
     financial_agent = FinancialAnalystAgent()
-    sentiment_agent = SentimentAgent()
+    sentiment_agent = SentimentAgent(server_script_path=script_path)
 
     # ── 4. Initialise ManagerMemory with a system-level user ─
     #       Per-request memory (user-scoped) is created inside

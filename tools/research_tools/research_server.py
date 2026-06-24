@@ -10,28 +10,36 @@ Registers the following tools and exposes them over stdio MCP protocol:
   5. rag_vector_search  — semantic search over Supabase pgvector
   6. rag_graph_traverse — Neo4j entity-relationship traversal
   7. rag_hybrid_query   — RRF fusion of vector + graph
+  8. comprehensive_analysis — hybrid: Tavily news + SEC filing in one call
 """
-
 import asyncio
 import json
 import logging
+import sys
+import os
 from typing import Any
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.normpath(os.path.join(current_dir, "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+from dotenv import load_dotenv
+load_dotenv(os.path.join(project_root, ".env"))
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import Tool, TextContent, CallToolResult, ListToolsResult
 
 # ── Tool implementations ───────────────────────────────────────────
-from tavily_search import tavily_search
-from news_search   import news_search
-from sec_edgar     import sec_edgar_search, sec_edgar_filing
+from tools.research_tools.tavily_search import tavily_search
+from tools.research_tools.news_search   import news_search
+from tools.research_tools.sec_edgar     import sec_edgar_search, sec_edgar_filing
+from tools.research_tools.comprehensive_analysis import comprehensive_analysis
 from rag.hybrid_rag import rag_vector_search, rag_graph_traverse, rag_hybrid_query
-from dotenv import load_dotenv
-load_dotenv()
-
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.observability import init_sentry, sentry_enabled
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -259,7 +267,7 @@ async def list_tools() -> ListToolsResult:
             description="Fuses vector similarity search + graph traversal via Reciprocal Rank Fusion. Best for complex queries requiring both semantic matching AND relationship context. Example: 'How does Taiwan conflict affect NVIDIA supply chain?'",
             inputSchema={
                 "type": "object",
-                "required": ["query", "entity"],
+                "required": ["query"],
                 "properties": {
                     "query": {
                         "type": "string",
@@ -267,7 +275,7 @@ async def list_tools() -> ListToolsResult:
                     },
                     "entity": {
                         "type": "string",
-                        "description": "Primary entity for graph traversal (ticker or company name)"
+                        "description": "Primary entity for graph traversal (ticker or company name). Optional — if omitted, a ticker is extracted from the query when possible; otherwise the call degrades to vector-only search."
                     },
                     "top_k": {
                         "type": "integer",
@@ -284,6 +292,54 @@ async def list_tools() -> ListToolsResult:
                         "enum": ["rrf", "weighted", "union"],
                         "description": "'rrf'=Reciprocal Rank Fusion, 'weighted'=score-weighted, 'union'=all results",
                         "default": "rrf"
+                    },
+                },
+            },
+        ),
+
+        # ── 8. Hybrid orchestrator: news + official filing ─────────
+        Tool(
+            name="comprehensive_analysis",
+            description=(
+                "Hybrid research call: runs Tavily web/news search AND SEC EDGAR "
+                "filing fetch concurrently for one ticker. Use this instead of "
+                "calling tavily_search + sec_edgar_filing separately when you need "
+                "both market sentiment/news AND official filing data for the same "
+                "company in one shot."
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["ticker"],
+                "properties": {
+                    "ticker": {
+                        "type": "string",
+                        "description": "Stock ticker symbol (e.g. 'AAPL')"
+                    },
+                    "company_name": {
+                        "type": "string",
+                        "description": "Full company name, used to build the Tavily query if topic_query is omitted"
+                    },
+                    "topic_query": {
+                        "type": "string",
+                        "description": "Descriptive natural-language query for Tavily (e.g. 'Apple AI spending strategy 2026'). NOT sent to SEC EDGAR."
+                    },
+                    "form_type": {
+                        "type": "string",
+                        "enum": ["10-K", "10-Q", "8-K"],
+                        "default": "10-Q"
+                    },
+                    "sections": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": ["business", "risk_factors", "mda", "financial_statements", "all"]
+                        },
+                        "default": ["mda"]
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Max Tavily results (default: 5)",
+                        "default": 5
                     },
                 },
             },
@@ -325,7 +381,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                 result = await sec_edgar_search(
                     query=arguments["query"],
                     ticker=arguments.get("ticker"),
-                    form_type=arguments.get("form_type"),
+                    form_type=arguments.get("form_type") or arguments.get("filing_type"),
                     max_results=arguments.get("max_results", 5),
                 )
 
@@ -356,10 +412,20 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             case "rag_hybrid_query":
                 result = await rag_hybrid_query(
                     query=arguments["query"],
-                    entity=arguments["entity"],
+                    entity=arguments.get("entity"),
                     top_k=arguments.get("top_k", 5),
                     max_hops=arguments.get("max_hops", 2),
                     fusion=arguments.get("fusion", "rrf"),
+                )
+
+            case "comprehensive_analysis":
+                result = await comprehensive_analysis(
+                    ticker=arguments["ticker"],
+                    company_name=arguments.get("company_name"),
+                    topic_query=arguments.get("topic_query"),
+                    form_type=arguments.get("form_type", "10-Q"),
+                    sections=arguments.get("sections", ["mda"]),
+                    max_results=arguments.get("max_results", 5),
                 )
 
             case _:

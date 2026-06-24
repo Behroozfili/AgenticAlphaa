@@ -26,7 +26,7 @@ No HTTP, no FastAPI, no web framework of any kind.
           ▼              ▼              ▼
    yahoo_finance.py  sec_edgar.py  financial_ratio_calculator.py
 
-Tool catalogue (16 tools)
+Tool catalogue (17 tools)
 --------------------------
 Yahoo Finance  : get_price_history, get_financial_ratios,
                  get_revenue_growth, get_peer_comparison
@@ -35,7 +35,8 @@ Ratio Calc     : calc_pe, calc_pb, calc_ev_ebitda, calc_peg,
                  calc_gross_margin, calc_operating_margin, calc_net_margin,
                  calc_roe, calc_roa, calc_current_ratio, calc_quick_ratio,
                  calc_debt_to_equity, calc_interest_coverage,
-                 calc_asset_turnover, calc_cagr, calc_composite_score
+                 calc_asset_turnover, calc_cagr,
+                 calc_revenue_cagr_from_growth, calc_composite_score
 
 Usage
 -----
@@ -99,6 +100,7 @@ from financial_ratio_calculator import (
     interest_coverage,
     asset_turnover,
     cagr,
+    compute_revenue_cagr_from_growth,
     composite_financial_score,
 )
 
@@ -119,11 +121,8 @@ log = logging.getLogger("financial-mcp-server")
 # ---------------------------------------------------------------------------
 mcp = FastMCP(
     name="financial-analyst-agent",
-    version="1.0.0",
-    description=(
-        "Financial Analyst Agent tools: real-time market data via Yahoo Finance, "
-        "SEC EDGAR filing access, and a comprehensive financial ratio calculator."
-    ),
+    instructions="MCP server exposing financial analysis tools for the Financial Analyst Agent.",
+    
 )
 
 
@@ -680,6 +679,32 @@ def tool_calc_cagr(start_value: float, end_value: float, years: float) -> dict:
     """
     log.info("tool_calc_cagr called: start=%s end=%s years=%s", start_value, end_value, years)
     return cagr(start_value, end_value, years)
+
+
+@mcp.tool()
+def tool_calc_revenue_cagr_from_growth(annual_revenue: list[dict]) -> dict:
+    """
+    Calculate revenue CAGR directly from the annual_revenue list returned
+    by tool_get_revenue_growth — no need to manually pick start/end values
+    or count years.
+
+    Args:
+        annual_revenue: The "annual_revenue" list from tool_get_revenue_growth,
+            e.g. [{"year": 2025, "revenue": 391000000000, "yoy_growth": 0.02}, ...].
+            Order does not matter; sorted internally by year.
+
+    Returns:
+        dict with keys:
+          - cagr_pct       (float | None) CAGR as a percentage.
+          - interpretation (str) 'hypergrowth' | 'strong' | 'moderate' | 'slow' | 'unavailable'
+          - formula        (str)
+          - start_year     (int | None)
+          - end_year       (int | None)
+          - years_used     (int | None)
+          - error          (str | None) Set when fewer than 2 valid years were supplied.
+    """
+    log.info("tool_calc_revenue_cagr_from_growth called: %d entries", len(annual_revenue or []))
+    return compute_revenue_cagr_from_growth(annual_revenue)
 
 
 @mcp.tool()

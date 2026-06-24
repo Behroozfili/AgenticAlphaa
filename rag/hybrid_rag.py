@@ -220,7 +220,7 @@ async def rag_graph_traverse(
 @traceable(run_type="retriever")
 async def rag_hybrid_query(
     query: str,
-    entity: str,
+    entity: Optional[str] = None,
     top_k: int = 5,
     max_hops: int = 2,
     fusion: str = "rrf",           # "rrf" | "weighted" | "union"
@@ -230,18 +230,48 @@ async def rag_hybrid_query(
     Combines vector similarity search + graph traversal.
     Fuses results using Reciprocal Rank Fusion (default).
 
+    `entity` is optional. If omitted, a best-effort ticker is extracted
+    from `query` (e.g. "AAPL" out of "Apple AAPL earnings"). If no entity
+    can be determined at all, the function gracefully degrades to a
+    vector-only search instead of raising — a missing entity should never
+    crash the pipeline.
+
     Best for complex queries like:
         "How does the war in Ukraine affect airline stocks?"
     where both semantic context AND entity relationships are needed.
     """
+    resolved_entity = entity or _extract_ticker_from_query(query)
+
+    if not resolved_entity:
+        logger.info("rag_hybrid_query: no entity provided/extracted — vector-only mode.")
+        vec_res = await rag_vector_search(query=query, top_k=top_k, days_back=days_back)
+        vec_items = [
+            {
+                "text":   r["chunk_text"] or "",
+                "origin": "vector",
+                "score":  r["score"],
+                "rank":   i + 1,
+                "url":    r.get("url", ""),
+                "title":  r.get("title", ""),
+            }
+            for i, r in enumerate(vec_res.get("results", []))
+        ]
+        return {
+            "query":   query,
+            "entity":  None,
+            "fusion":  "vector_only",
+            "results": vec_items[: top_k * 2],
+            "warning": "No entity provided or extractable from query; graph traversal skipped.",
+        }
+
     vec_res, graph_res = await asyncio.gather(
         rag_vector_search(
             query=query,
             top_k=top_k,
-            ticker_filter=entity,
+            ticker_filter=resolved_entity,
             days_back=days_back,
         ),
-        rag_graph_traverse(entity=entity, max_hops=max_hops),
+        rag_graph_traverse(entity=resolved_entity, max_hops=max_hops),
     )
 
     vec_items = [
@@ -279,7 +309,7 @@ async def rag_hybrid_query(
 
     return {
         "query":   query,
-        "entity":  entity,
+        "entity":  resolved_entity,
         "fusion":  fusion,
         "results": fused[: top_k * 2],
     }
@@ -300,6 +330,23 @@ def _embed(text: str) -> list[float]:
 
 def _key(item: dict) -> str:
     return hashlib.md5(item["text"][:100].encode()).hexdigest()
+
+
+# Heuristic ticker extractor: looks for a 1-5 letter ALL-CAPS token that
+# isn't a common English stopword/acronym. Used only as a fallback when
+# the caller omits `entity` — best-effort, not authoritative.
+_TICKER_STOPWORDS = {
+    "AI", "US", "USA", "CEO", "CFO", "IPO", "ETF", "GDP", "Q1", "Q2", "Q3", "Q4",
+    "THE", "AND", "FOR", "WITH", "FROM", "INTO", "OVER",
+}
+
+def _extract_ticker_from_query(query: str) -> Optional[str]:
+    import re
+    candidates = re.findall(r"\b[A-Z]{1,5}\b", query)
+    for c in candidates:
+        if c not in _TICKER_STOPWORDS:
+            return c
+    return None
 
 
 def _rrf(a: list[dict], b: list[dict], k: int = 60) -> list[dict]:

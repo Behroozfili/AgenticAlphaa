@@ -151,7 +151,7 @@ class FinancialAnalystAgent:
         Absolute path to ``server.py`` — the FastMCP stdio server script that
         exposes Yahoo Finance, SEC EDGAR, and ratio-calculator tools.
     model : str
-        Anthropic model identifier. Defaults to ``"claude-sonnet-4-20250514"``.
+        Anthropic model identifier. Defaults to ``"claude-haiku-4-5"``.
     max_loops : int
         Default safety guardrail for the internal extraction loop.
         Can be overridden by ``manager_directives["max_loops"]``. Defaults to 3.
@@ -170,7 +170,7 @@ class FinancialAnalystAgent:
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-haiku-4-5",
         max_loops: int = 3,
         mcp_server_params: StdioServerParameters | None = None,
         llm_client: anthropic.Anthropic | None = None,
@@ -182,8 +182,9 @@ class FinancialAnalystAgent:
         self._default_max_loops = max_loops
         self._server_params = mcp_server_params or _MCP_SERVER_PARAMS
         log.info(
-            "FinancialAnalystAgent initialised — model=%s, server=%s",
-            model
+            "FinancialAnalystAgent initialised — model=%s, server_script=%s",
+            model,
+            self._server_params.args[-1] if self._server_params.args else "<none>",
         )
 
     # =========================================================================

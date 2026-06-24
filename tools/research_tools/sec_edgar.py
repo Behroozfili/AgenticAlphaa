@@ -1,12 +1,46 @@
+import logging
 import re
 import httpx
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 EDGAR_BASE   = "https://www.sec.gov"
 EDGAR_DATA   = "https://data.sec.gov/submissions/CIK{cik}.json"
 HEADERS      = {"User-Agent": "AlphaAgentNode research@alpha-agent.ai"}
 
 _CIK_CACHE: dict[str, str] = {}
+
+# SEC's full-text search backend (efts.sec.gov) becomes unreliable —
+# and frequently returns 500 — once a query string accumulates too many
+# ANDed terms (we've observed failures around 10+ words). Brain-generated
+# queries tend to pile on synonyms/dates ("Apple AI capex spending Q4 2025
+# earnings capital expenditure infrastructure investment June 2026"), so
+# we defensively cap the term count before sending the request.
+_MAX_QUERY_TERMS = 6
+
+
+def _sanitize_query(query: str) -> str:
+    """
+    Trim an LLM-generated search query down to a small set of terms that
+    SEC's full-text search backend can reliably handle.
+
+    - Strips quote characters (already done by caller, kept here for safety).
+    - Drops bare 4-digit year tokens (e.g. "2025", "2026") — EDGAR full-text
+      search indexes filing dates separately; embedding years as keywords
+      doesn't help relevance and just adds noise/term-count.
+    - Caps the remaining terms to _MAX_QUERY_TERMS, preserving order so the
+      most important (usually earliest) words from the LLM's query survive.
+    """
+    terms = [t for t in query.replace('"', '').split() if not re.fullmatch(r"(19|20)\d{2}", t)]
+    if len(terms) > _MAX_QUERY_TERMS:
+        logger.warning(
+            "sec_edgar_search: query had %d terms after cleanup; truncating to %d. "
+            "original=%r",
+            len(terms), _MAX_QUERY_TERMS, query,
+        )
+        terms = terms[:_MAX_QUERY_TERMS]
+    return " ".join(terms)
 
 
 # ─────────────────────────────────────────────
@@ -21,20 +55,37 @@ async def sec_edgar_search(
     """
     Full-text search across SEC EDGAR filings.
     Returns: list of filings with company, form_type, filed_at, accession_number, url.
+
+    Gracefully degrades on upstream failure: returns
+    ``{"query": query, "filings": [], "error": "..."}`` instead of raising,
+    so a flaky/overloaded SEC endpoint never crashes the calling agent.
     """
-    params: dict = {"q": f'"{query}"'}
+    clean_query = _sanitize_query(query)
+    params: dict = {"q": clean_query}
     if form_type:
         params["forms"] = form_type
     if ticker:
-        params["entity"] = ticker
+        cik = await _resolve_cik(ticker)
+        if cik:
+            params["ciks"] = cik.zfill(10)
 
-    async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
-        resp = await client.get(
-            "https://efts.sec.gov/LATEST/search-index",
-            params=params,
+    try:
+        async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
+            resp = await client.get(
+                "https://efts.sec.gov/LATEST/search-index",
+                params=params,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except httpx.HTTPStatusError as exc:
+        logger.warning(
+            "sec_edgar_search: SEC EDGAR returned %s for query=%r (sanitized=%r): %s",
+            exc.response.status_code, query, clean_query, exc,
         )
-        resp.raise_for_status()
-        data = resp.json()
+        return {"query": query, "filings": [], "error": f"SEC EDGAR {exc.response.status_code}: {exc}"}
+    except httpx.HTTPError as exc:
+        logger.warning("sec_edgar_search: network error for query=%r: %s", query, exc)
+        return {"query": query, "filings": [], "error": f"network error: {exc}"}
 
     filings = []
     for hit in data.get("hits", {}).get("hits", [])[:max_results]:

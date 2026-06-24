@@ -150,9 +150,10 @@ class AlphaLoader:
         docs: list[RawDocument] = []
 
         for item in news_items[: self.max_news_per_ticker]:
-            # yfinance returns a dict; structure may vary by version
-            content_data = item.get("content", {})
-            if isinstance(content_data, dict):
+            
+            if "content" in item and isinstance(item["content"], dict):
+                
+                content_data = item["content"]
                 title   = content_data.get("title", "")
                 summary = content_data.get("summary", "")
                 url     = (
@@ -162,13 +163,15 @@ class AlphaLoader:
                 )
                 pub_raw = content_data.get("pubDate", "")
             else:
-                # older yfinance schema
+                
                 title   = item.get("title", "")
                 summary = item.get("summary", "") or item.get("description", "")
                 url     = item.get("link", "")
                 pub_raw = item.get("providerPublishTime", "")
 
+        
             if not url:
+                logger.debug("Skipping item with empty URL: %s", title)
                 continue
 
             docs.append(RawDocument(
@@ -181,7 +184,6 @@ class AlphaLoader:
             ))
 
         return docs
-
     # ------------------------------------------------------------------
     # Reddit RSS Provider
     # ------------------------------------------------------------------

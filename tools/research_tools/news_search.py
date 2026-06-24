@@ -5,6 +5,15 @@ from datetime import datetime, timedelta
 
 NEWSAPI_URL = "https://newsapi.org/v2/everything"
 
+SORT_BY_MAP = {
+    "relevance": "relevancy",
+    "relevancy": "relevancy",
+    "popularity": "popularity",
+    "publishedAt": "publishedAt",
+    "published_at": "publishedAt",
+    "date": "publishedAt",
+}
+
 
 async def news_search(
     query: str,
@@ -22,6 +31,8 @@ async def news_search(
 
     if not from_date:
         from_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+
+    sort_by = SORT_BY_MAP.get(sort_by, "publishedAt")
 
     params = {
         "apiKey":   api_key,

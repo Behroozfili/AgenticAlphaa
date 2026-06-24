@@ -138,7 +138,7 @@ class ResearchAgent:
     LangGraph-powered Research Agent for the Alpha-Agent Node platform.
 
     Encapsulates:
-      - Anthropic Claude-3-5-Sonnet as the planning and validation LLM.
+      - Anthropic claude-haiku-4-5 as the planning and validation LLM.
       - MCP client connection to research_server.py (7 research tools).
       - A 3-node LangGraph state machine: Brain → Executor → Checker.
       - A conditional routing edge with a max-loop guardrail.
@@ -153,7 +153,7 @@ class ResearchAgent:
     anthropic_api_key : str, optional
         Anthropic API key. Defaults to env var ANTHROPIC_API_KEY.
     model : str, optional
-        Claude model identifier. Default: "claude-sonnet-4-20250514".
+        Claude model identifier. Default: "claude-haiku-4-5".
     max_loops : int, optional
         Maximum Brain→Executor→Checker iterations before forced exit.
         Default: 3.
@@ -175,7 +175,7 @@ class ResearchAgent:
     def __init__(
         self,
         anthropic_api_key: str | None = None,
-        model: str = "claude-sonnet-4-20250514",
+        model: str = "claude-haiku-4-5",
         max_loops: int = _DEFAULT_MAX_LOOPS,
         mcp_server_params: StdioServerParameters | None = None,
         llm_client: anthropic.Anthropic | None = None,

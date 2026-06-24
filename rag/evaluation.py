@@ -188,7 +188,7 @@ class AlphaEvaluator:
     benchmark across multiple query-answer pairs.
     """
 
-    JUDGE_MODEL = "claude-sonnet-4-20250514"
+    JUDGE_MODEL = ""
 
     def __init__(
         self,

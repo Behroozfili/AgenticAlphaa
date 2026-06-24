@@ -139,3 +139,13 @@ class ExternalServiceError(AlphaAgentError):
     """
     http_status = 503
     code = "EXTERNAL_SERVICE_ERROR"
+
+
+class ConfigurationError(AlphaAgentError):
+    """
+    Required environment variable or setting is missing/invalid at startup.
+
+    Example: ANTHROPIC_API_KEY not set when validate_settings() runs.
+    """
+    http_status = 500
+    code = "CONFIGURATION_ERROR"

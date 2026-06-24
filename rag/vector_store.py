@@ -12,7 +12,7 @@ create extension if not exists vector;
 create table if not exists alpha_documents (
     id            bigserial primary key,
     content_hash  text        not null,
-    url_hash      text        not null unique,
+    url_hash      text        not null,
     ticker        text        not null,
     source_type   text        not null,
     published_at  timestamptz not null,
@@ -22,7 +22,12 @@ create table if not exists alpha_documents (
     title         text,
     text          text        not null,
     embedding     vector(384),
-    fts           tsvector generated always as (to_tsvector('english', text)) stored
+    fts           tsvector generated always as (to_tsvector('english', text)) stored,
+    -- Unique per CHUNK, not per document: a single article produces many
+    -- chunks that all share the same url_hash, so the conflict key must
+    -- include chunk_index or upserts fail with
+    -- "ON CONFLICT DO UPDATE command cannot affect row a second time".
+    constraint alpha_documents_url_chunk_key unique (url_hash, chunk_index)
 );
 
 -- 3. HNSW index for fast ANN search
@@ -171,7 +176,7 @@ class AlphaVectorStore:
         response = (
             self.client
             .table(self.TABLE)
-            .upsert(rows, on_conflict="url_hash")
+            .upsert(rows, on_conflict="url_hash,chunk_index")
             .execute()
         )
         count = len(response.data or [])

@@ -88,7 +88,7 @@ log = logging.getLogger("manager-agent")
 # Constants
 # ---------------------------------------------------------------------------
 
-_DEFAULT_MODEL             = "claude-sonnet-4-20250514"
+_DEFAULT_MODEL             = "claude-haiku-4-5"
 _DEFAULT_MAX_ROUTING_LOOPS = 8
 
 _VALID_ACTIONS: frozenset[str] = frozenset({
@@ -112,8 +112,8 @@ _ACTION_DESCRIPTIONS: dict[str, str] = {
 }
 
 # Build the actions block dynamically — guaranteed in sync with _VALID_ACTIONS.
-_actions_block: str = "
-".join(
+_actions_block: str = """
+""".join(
     f'  "{action}"{"." * (18 - len(action))} — {desc}'
     for action, desc in _ACTION_DESCRIPTIONS.items()
 )
@@ -143,15 +143,15 @@ Routing rules:
   6. abort if loop_counter >= max_routing_loops.
 
 Output format (strict JSON — no markdown, no preamble):
-{
+{{
   "action"           : "<one of the 8 valid actions>",
   "reasoning"        : "<1-2 sentences justifying the choice>",
-  "directive_updates": {}
-}
+  "directive_updates": {{}}
+}}
 
 directive_updates: a flat dict of manager_directives keys to update before dispatch.
-  Example: {"search_depth": "advanced", "days_back": 14}
-  Return {} if no changes needed.
+  Example: {{"search_depth": "advanced", "days_back": 14}}
+  Return {{}} if no changes needed.
 """
 
 _EVALUATOR_SYSTEM_PROMPT = """\
@@ -409,10 +409,12 @@ class ManagerAgent:
         try:
             response = await self._llm.messages.create(
                 model=self._model,
-                max_tokens=256,
+                max_tokens=768,
                 system=_ROUTER_SYSTEM_PROMPT,
                 messages=self._memory.get_messages(),
             )
+            if response.stop_reason == "max_tokens":
+                log.warning("[Brain-Route] Response truncated by max_tokens — JSON may be invalid.")
             raw = response.content[0].text.strip()
             self._memory.add_message(role="assistant", content=raw)
             raw = raw.replace("```json", "").replace("```", "").strip()
@@ -508,10 +510,12 @@ class ManagerAgent:
         try:
             response = await self._llm.messages.create(
                 model=self._model,
-                max_tokens=256,
+                max_tokens=768,
                 system=_EVALUATOR_SYSTEM_PROMPT,
                 messages=self._memory.get_messages(),
             )
+            if response.stop_reason == "max_tokens":
+                log.warning("[Brain-Evaluate] Response truncated by max_tokens — JSON may be invalid.")
             raw = response.content[0].text.strip()
             self._memory.add_message(role="assistant", content=raw)
             raw = raw.replace("```json", "").replace("```", "").strip()
@@ -609,11 +613,13 @@ class ManagerAgent:
         try:
             response = await self._llm.messages.create(
                 model=self._model,
-                max_tokens=1024,
+                max_tokens=2048,
                 system=_FINALISER_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],
             )
             report = response.content[0].text.strip()
+            if response.stop_reason == "max_tokens":
+                log.warning("[Brain-Finalise] Report may be truncated by max_tokens (%d chars).", len(report))
             log.info("[Brain-Finalise] Report generated (%d chars).", len(report))
             return report
 

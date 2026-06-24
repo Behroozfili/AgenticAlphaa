@@ -109,6 +109,8 @@ def price_to_earnings(price: float, eps: float) -> dict:
     pe = _safe_div(price, eps)
     # DC-2: removed dead _label() call — result was immediately overwritten
     # by the if/elif chain below which is the actual interpretation logic.
+    interp = "unavailable"
+    
     if pe is not None:
         if pe < 0:
             interp = "negative_earnings"
@@ -589,6 +591,95 @@ def cagr(start_value: float, end_value: float, years: float) -> dict:
         }
     except Exception as exc:
         return {"cagr_pct": None, "interpretation": "error", "formula": str(exc)}
+
+
+def compute_revenue_cagr_from_growth(annual_revenue: list[dict]) -> dict:
+    """
+    Single-purpose convenience wrapper around cagr() for the exact shape
+    returned by yahoo_finance.get_revenue_growth()["annual_revenue"]:
+        [{"year": 2025, "revenue": ..., "yoy_growth": ...}, ...]
+
+    Saves the calling agent from having to manually pick out the start/end
+    values and the year count — just pass the raw annual_revenue list.
+
+    IMPORTANT — ordering: yahoo_finance.get_revenue_growth() returns this
+    list MOST-RECENT YEAR FIRST (financials.columns from yfinance are
+    newest-first). This function does NOT assume any particular input
+    order; it sorts internally by "year" to be safe:
+        - start_value = oldest year's revenue
+        - end_value   = newest year's revenue
+        - years       = newest_year - oldest_year
+
+    Parameters
+    ----------
+    annual_revenue : list[dict]
+        Each dict must have "year" (int) and "revenue" (float | None).
+        Entries with revenue=None are dropped before computing CAGR.
+        Needs at least 2 valid entries spanning at least 1 year.
+
+    Returns
+    -------
+    dict
+        Same shape as cagr(), plus traceability fields:
+        - "cagr_pct"       (float | None)
+        - "interpretation" (str)
+        - "formula"        (str)
+        - "start_year"     (int | None)
+        - "end_year"       (int | None)
+        - "years_used"     (int | None)
+        - "error"          (str | None) : Set when input is insufficient.
+
+    Examples
+    --------
+    >>> compute_revenue_cagr_from_growth([
+    ...     {"year": 2025, "revenue": 391_000_000_000, "yoy_growth": 0.02},
+    ...     {"year": 2024, "revenue": 383_000_000_000, "yoy_growth": 0.01},
+    ...     {"year": 2023, "revenue": 379_000_000_000, "yoy_growth": -0.03},
+    ...     {"year": 2022, "revenue": 391_000_000_000, "yoy_growth": 0.08},
+    ...     {"year": 2021, "revenue": 365_000_000_000, "yoy_growth": None},
+    ... ])
+    {'cagr_pct': 1.71, 'interpretation': 'slow', ..., 'start_year': 2021, 'end_year': 2025, 'years_used': 4, 'error': None}
+    """
+    valid = [
+        e for e in (annual_revenue or [])
+        if e.get("year") is not None and e.get("revenue") is not None
+    ]
+    if len(valid) < 2:
+        return {
+            "cagr_pct": None, "interpretation": "unavailable",
+            "formula": "(End Value / Start Value)^(1 / Years) − 1",
+            "start_year": None, "end_year": None, "years_used": None,
+            "error": f"Need at least 2 years with revenue data; got {len(valid)}.",
+        }
+
+    # Sort oldest -> newest regardless of input order
+    valid.sort(key=lambda e: e["year"])
+    start_entry = valid[0]
+    end_entry   = valid[-1]
+    years       = end_entry["year"] - start_entry["year"]
+
+    if years <= 0:
+        return {
+            "cagr_pct": None, "interpretation": "unavailable",
+            "formula": "(End Value / Start Value)^(1 / Years) − 1",
+            "start_year": start_entry["year"], "end_year": end_entry["year"],
+            "years_used": years,
+            "error": "Start and end years are the same or invalid; cannot compute CAGR.",
+        }
+
+    result = cagr(
+        start_value=start_entry["revenue"],
+        end_value=end_entry["revenue"],
+        years=years,
+    )
+    result["start_year"] = start_entry["year"]
+    result["end_year"]   = end_entry["year"]
+    result["years_used"] = years
+    result["error"]      = (
+        None if result.get("cagr_pct") is not None
+        else "cagr() returned no value (see interpretation)."
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------

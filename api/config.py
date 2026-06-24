@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     # ── Anthropic ────────────────────────────────────────────
     ANTHROPIC_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-sonnet-4-20250514"
+    ANTHROPIC_MODEL: str = "claude-haiku-4-5"
     MAX_ROUTING_LOOPS: int = 8
 
     # ── Supabase ─────────────────────────────────────────────
@@ -113,8 +113,5 @@ def validate_settings() -> None:
             f"Missing required environment variables: {', '.join(missing)} — set them in .env"
         )
 
-    log.info(
-        "Settings validated — env=%s model=%s",
-        s.APP_ENV,
-        s.ANTHROPIC_MODEL,
-    )
+    
+    log.info(f"Settings validated — env={s.APP_ENV} model={s.ANTHROPIC_MODEL}")

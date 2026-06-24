@@ -252,7 +252,14 @@ def get_revenue_growth(ticker: str) -> dict:
             q_rev_row = quarterly.loc["Total Revenue"]
             q_cols = list(quarterly.columns)
             for i, col in enumerate(q_cols):
-                quarter = col.strftime("%Y-Q%q") if hasattr(col, "strftime") else str(col)
+                # NOTE: "%q" is NOT a valid strftime directive in Python
+                # (ValueError: Invalid format string) — quarter must be
+                # computed manually from the month instead.
+                if hasattr(col, "year") and hasattr(col, "month"):
+                    q_num = (col.month - 1) // 3 + 1
+                    quarter = f"{col.year}-Q{q_num}"
+                else:
+                    quarter = str(col)
                 rev = float(q_rev_row[col])
                 # YoY: compare with same quarter last year (4 periods back)
                 prev_rev = float(q_rev_row[q_cols[i + 4]]) if i + 4 < len(q_cols) else None

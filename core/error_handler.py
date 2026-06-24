@@ -166,7 +166,7 @@ async def _async_context(component: str) -> AsyncIterator[None]:
     Async context manager variant.
 
     Usage::
-س
+
         async with with_error_reporting.async_context(component="rag.vector_search"):
             results = await vector_store.search(query)
     """
