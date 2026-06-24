@@ -159,7 +159,7 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
     <span class="logo-name">Alpha<span class="logo-dot">·</span>Agent</span>
   </div>
   <div class="hdr-right">
-    <div class="api-chip"><div class="live-dot" id="live-dot"></div>localhost:8000</div>
+    <div class="api-chip"><div class="live-dot" id="live-dot"></div><span id="api-host"></span></div>
     <span id="status-label">ready</span>
   </div>
 </header>
@@ -232,6 +232,7 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
 </div>
 
 <script>
+document.getElementById('api-host').textContent = window.location.host;
 /* ═══════════════════════════════════════════
    GRAPH ENGINE
 ═══════════════════════════════════════════ */
@@ -744,7 +745,8 @@ async function runAnalysis() {
     const body={query,user_id:'anonymous',search_depth:'advanced',days_back:14,include_sentiment:true};
     if(ticker) body.ticker=ticker;
 
-    const res=await fetch('http://localhost:8000/api/v1/analyze',{
+    const API_BASE = window.location.origin;
+    const res=await fetch(`${API_BASE}/api/v1/analyze`,{
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
     });
     stopClock();

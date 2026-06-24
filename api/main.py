@@ -46,6 +46,7 @@ from api.core.exceptions import AlphaAgentError, ConfigurationError
 from api.routes.analyze import router as analyze_router
 from core.observability import init_sentry, init_langsmith
 import os
+from fastapi.responses import FileResponse
 
 
 # ─────────────────────────────────────────────────────────────
@@ -297,3 +298,6 @@ async def readiness(request: Request):
             "supabase": "ok" if supabase_ok else "unreachable",
         },
     )
+@app.get("/", include_in_schema=False)
+async def serve_index():
+    return FileResponse("frontend/alpha-agent-app (1).html")  

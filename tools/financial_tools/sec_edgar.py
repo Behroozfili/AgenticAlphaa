@@ -1,773 +1,517 @@
 """
-server.py
----------
-MCP (Model Context Protocol) server for the Financial Analyst Agent.
-
-Built with FastMCP — the modern, decorator-based MCP server API.
-Transport: stdio only (stdin → JSON-RPC requests, stdout → JSON-RPC responses).
-
-Architecture
+sec_edgar.py
 ------------
-The agent (client) launches this script as a subprocess and communicates
-with it exclusively via stdin/stdout using the MCP JSON-RPC protocol.
-No HTTP, no FastAPI, no web framework of any kind.
+Tool for retrieving data from the U.S. Securities and Exchange Commission
+(SEC) EDGAR system. No API key is required, but the SEC mandates a
+descriptive ``User-Agent`` header on every request — requests without it
+receive HTTP 403.
 
-                ┌──────────────────────┐
-                │   Financial Agent    │  ← LangGraph / Claude Desktop
-                │      (client)        │
-                └────────┬─────────────┘
-                         │  stdin / stdout  (MCP JSON-RPC over stdio)
-                ┌────────▼─────────────┐
-                │     server.py        │
-                │  FastMCP stdio server│
-                └────────┬─────────────┘
-                         │ Python function calls
-          ┌──────────────┼──────────────┐
-          ▼              ▼              ▼
-   yahoo_finance.py  sec_edgar.py  financial_ratio_calculator.py
+This module exposes four functions consumed by the Financial Analyst Agent's
+MCP server (``financial_server.py``):
 
-Tool catalogue (17 tools)
---------------------------
-Yahoo Finance  : get_price_history, get_financial_ratios,
-                 get_revenue_growth, get_peer_comparison
-SEC EDGAR      : get_cik, list_filings, get_filing_text, get_xbrl_financials
-Ratio Calc     : calc_pe, calc_pb, calc_ev_ebitda, calc_peg,
-                 calc_gross_margin, calc_operating_margin, calc_net_margin,
-                 calc_roe, calc_roa, calc_current_ratio, calc_quick_ratio,
-                 calc_debt_to_equity, calc_interest_coverage,
-                 calc_asset_turnover, calc_cagr,
-                 calc_revenue_cagr_from_growth, calc_composite_score
+    get_cik(ticker)                       -> resolve ticker  -> CIK
+    list_filings(ticker, form_type, limit)-> recent filings metadata
+    get_filing_text(accession_number, cik)-> clean plain text of a filing
+    get_xbrl_financials(ticker)           -> structured XBRL company facts
 
-Usage
------
-    python server.py
+All functions return flat dictionaries with an ``error`` key (``None`` on
+success) so they can be serialised straight back over the MCP channel and
+never raise across the tool boundary.
 
-Dependencies
-------------
-    pip install "mcp[cli]" yfinance requests
+Endpoints used
+--------------
+- https://www.sec.gov/files/company_tickers.json          (ticker -> CIK map)
+- https://data.sec.gov/submissions/CIK##########.json     (filing history)
+- https://www.sec.gov/Archives/edgar/data/...             (filing documents)
+- https://data.sec.gov/api/xbrl/companyfacts/CIK#####.json (XBRL facts)
+
+Configuration
+-------------
+Set ``SEC_EDGAR_USER_AGENT`` in the environment to your own
+``"Name contact@example.com"`` string. A safe default is provided so the
+module works out of the box, but using your own contact is the SEC's
+documented expectation for sustained use.
 """
 
-import sys
+from __future__ import annotations
+
 import os
+import re
+import time
+import html as _html
 import logging
+from typing import Any
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-from core.observability import init_sentry, sentry_enabled
+import requests
 
-# ---------------------------------------------------------------------------
-# FastMCP import — the modern MCP server API (no FastAPI, no HTTP)
-# ---------------------------------------------------------------------------
-try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError:
-    print(
-        "ERROR: 'mcp' package not found.\n"
-        "Install it with:  pip install 'mcp[cli]'\n",
-        file=sys.stderr,
-    )
-    sys.exit(1)
+log = logging.getLogger("sec_edgar")
 
 # ---------------------------------------------------------------------------
-# Local tool imports
+# Constants & shared session
 # ---------------------------------------------------------------------------
-sys.path.insert(0, os.path.dirname(__file__))
 
-from yahoo_finance import (
-    get_price_history,
-    get_financial_ratios,
-    get_revenue_growth,
-    get_peer_comparison,
-)
-from sec_edgar import (
-    get_cik,
-    list_filings,
-    get_filing_text,
-    get_xbrl_financials,
-)
-from financial_ratio_calculator import (
-    price_to_earnings,
-    price_to_book,
-    ev_to_ebitda,
-    peg_ratio,
-    gross_margin,
-    operating_margin,
-    net_margin,
-    return_on_equity,
-    return_on_assets,
-    current_ratio,
-    quick_ratio,
-    debt_to_equity,
-    interest_coverage,
-    asset_turnover,
-    cagr,
-    compute_revenue_cagr_from_growth,
-    composite_financial_score,
+# SEC requires a descriptive User-Agent. Override via env var for your org.
+_USER_AGENT = os.environ.get(
+    "SEC_EDGAR_USER_AGENT",
+    "Financial Analyst Agent admin@example.com",
 )
 
+_HEADERS = {
+    "User-Agent": _USER_AGENT,
+    "Accept-Encoding": "gzip, deflate",
+    "Host": None,  # set per-request below; placeholder kept for clarity
+}
+
+_TIMEOUT = 30  # seconds
+_MAX_RETRIES = 3
+_RETRY_BACKOFF = 1.5  # seconds, multiplied by attempt number
+
+# Reuse one session for connection pooling.
+_session = requests.Session()
+_session.headers.update({"User-Agent": _USER_AGENT,
+                         "Accept-Encoding": "gzip, deflate"})
+
+# Cache the (large) ticker->CIK map for the lifetime of the process.
+_ticker_map_cache: dict[str, dict] | None = None
+
+
 # ---------------------------------------------------------------------------
-# Logging
+# Internal helpers
 # ---------------------------------------------------------------------------
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s – %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-    # Log to stderr so it does NOT pollute the stdio MCP channel
-    stream=sys.stderr,
-)
-log = logging.getLogger("financial-mcp-server")
+
+def _get(url: str, *, host: str, as_json: bool = True) -> Any:
+    """
+    Perform a GET request against an SEC endpoint with the mandatory headers,
+    basic retry/backoff, and clear error propagation.
+
+    Parameters
+    ----------
+    url : str
+        Fully-qualified URL to fetch.
+    host : str
+        The ``Host`` header value (e.g. "www.sec.gov" or "data.sec.gov").
+        SEC's CDN is sensitive to a correct Host header.
+    as_json : bool
+        If True, parse and return JSON; otherwise return raw text.
+
+    Returns
+    -------
+    Any
+        Parsed JSON (dict/list) or raw text.
+
+    Raises
+    ------
+    RuntimeError
+        On a non-recoverable HTTP error after exhausting retries.
+    """
+    headers = {"Host": host}
+    last_exc: Exception | None = None
+
+    for attempt in range(1, _MAX_RETRIES + 1):
+        try:
+            resp = _session.get(url, headers=headers, timeout=_TIMEOUT)
+
+            # 403 almost always means a missing/blocked User-Agent.
+            if resp.status_code == 403:
+                raise RuntimeError(
+                    "SEC returned 403 Forbidden. Set a valid SEC_EDGAR_USER_AGENT "
+                    "environment variable (format: 'Name contact@example.com')."
+                )
+            # 429 = rate limited; back off and retry.
+            if resp.status_code == 429:
+                wait = _RETRY_BACKOFF * attempt
+                log.warning("SEC rate limit (429); retrying in %.1fs", wait)
+                time.sleep(wait)
+                continue
+
+            resp.raise_for_status()
+            return resp.json() if as_json else resp.text
+
+        except requests.RequestException as exc:
+            last_exc = exc
+            if attempt < _MAX_RETRIES:
+                wait = _RETRY_BACKOFF * attempt
+                log.warning("SEC request failed (%s); retry %d/%d in %.1fs",
+                            exc, attempt, _MAX_RETRIES, wait)
+                time.sleep(wait)
+            else:
+                break
+
+    raise RuntimeError(f"SEC request failed for {url}: {last_exc}")
+
+
+def _pad_cik(cik: str | int) -> str:
+    """Return a 10-digit zero-padded CIK string."""
+    return str(int(cik)).zfill(10)
+
+
+def _load_ticker_map() -> dict[str, dict]:
+    """
+    Load (and cache) the SEC ticker->CIK map.
+
+    Returns a dict keyed by upper-case ticker:
+        {"AAPL": {"cik": "0000320193", "title": "Apple Inc."}, ...}
+    """
+    global _ticker_map_cache
+    if _ticker_map_cache is not None:
+        return _ticker_map_cache
+
+    data = _get("https://www.sec.gov/files/company_tickers.json",
+                host="www.sec.gov")
+
+    mapping: dict[str, dict] = {}
+    # The payload is { "0": {cik_str, ticker, title}, "1": {...}, ... }
+    for entry in data.values():
+        ticker = str(entry.get("ticker", "")).upper().strip()
+        if not ticker:
+            continue
+        mapping[ticker] = {
+            "cik":   _pad_cik(entry["cik_str"]),
+            "title": entry.get("title", "N/A"),
+        }
+
+    _ticker_map_cache = mapping
+    return mapping
+
+
+def _strip_html(raw: str) -> str:
+    """
+    Convert an HTML/XBRL filing document into reasonably clean plain text
+    without external dependencies.
+
+    Removes script/style blocks and all tags, unescapes HTML entities,
+    and collapses excessive whitespace.
+    """
+    # Drop script & style content entirely.
+    raw = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", raw)
+    # Treat block-level closings as line breaks for readability.
+    raw = re.sub(r"(?i)</(p|div|tr|li|h[1-6]|table)>", "\n", raw)
+    raw = re.sub(r"(?i)<br\s*/?>", "\n", raw)
+    # Remove all remaining tags.
+    raw = re.sub(r"(?s)<[^>]+>", " ", raw)
+    # Unescape entities (&amp; &nbsp; &#160; …).
+    raw = _html.unescape(raw)
+    # Normalise whitespace.
+    raw = re.sub(r"[ \t\u00a0]+", " ", raw)
+    raw = re.sub(r"\n\s*\n\s*\n+", "\n\n", raw)
+    return raw.strip()
+
 
 # ---------------------------------------------------------------------------
-# FastMCP server instance
+# Public API
 # ---------------------------------------------------------------------------
-mcp = FastMCP(
-    name="financial-analyst-agent",
-    instructions="MCP server exposing financial analysis tools for the Financial Analyst Agent.",
-    
-)
 
-
-def _sentry_capture(tool_name: str, exc: Exception) -> None:
-    """Capture an exception to Sentry tagged with the tool name."""
-    if sentry_enabled():
-        import sentry_sdk
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("tool", tool_name)
-            scope.set_tag("server", "financial-agent-mcp")
-            sentry_sdk.capture_exception(exc)
-
-
-def _sentry_tool(tool_name: str, fn, *args, **kwargs):
-    """
-    Call a tool function and capture any exception to Sentry before re-raising.
-    Returns {"error": str(exc)} on failure so FastMCP can serialize it.
-    """
-    try:
-        return fn(*args, **kwargs)
-    except Exception as exc:
-        log.exception("Tool %s failed: %s", tool_name, exc)
-        _sentry_capture(tool_name, exc)
-        return {"error": str(exc), "tool": tool_name}
-
-
-# ===========================================================================
-# Yahoo Finance tools
-# ===========================================================================
-
-@mcp.tool()
-def tool_get_price_history(ticker: str, period: str = "1y") -> dict:
-    """
-    Retrieve historical OHLCV price data for a stock ticker.
-
-    Fetches Open, High, Low, Close, and Volume data for the requested period
-    using the Yahoo Finance API via the yfinance library.
-
-    Args:
-        ticker: Stock ticker symbol, e.g. 'NVDA', 'AAPL', 'MSFT'.
-        period: Time period for the data. Valid values:
-                '1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y',
-                '10y', 'ytd', 'max'. Defaults to '1y'.
-
-    Returns:
-        dict with keys:
-          - ticker      (str)        Normalised ticker symbol.
-          - period      (str)        Requested period.
-          - records     (list[dict]) OHLCV rows keyed by ISO-8601 date.
-          - start_date  (str | None) Earliest date in the result set.
-          - end_date    (str | None) Latest date in the result set.
-          - error       (str | None) Error message if the request failed.
-    """
-    log.info("tool_get_price_history called: ticker=%s period=%s", ticker, period)
-    return get_price_history(ticker, period)
-
-
-@mcp.tool()
-def tool_get_financial_ratios(ticker: str) -> dict:
-    """
-    Retrieve key financial ratios and valuation metrics for a stock ticker.
-
-    Fetches a comprehensive set of ratios including P/E, P/B, EV/EBITDA,
-    EPS (trailing and forward), dividend yield, beta, 52-week range,
-    market cap, sector, and industry classification.
-
-    Args:
-        ticker: Stock ticker symbol, e.g. 'NVDA', 'AAPL'.
-
-    Returns:
-        dict with keys:
-          - ticker, company_name, sector, industry
-          - market_cap, pe_ratio, forward_pe, peg_ratio
-          - price_to_book, price_to_sales, enterprise_value, ev_to_ebitda
-          - eps_trailing, eps_forward, dividend_yield, beta
-          - 52w_high, 52w_low, current_price
-          - error (str | None)
-    """
-    log.info("tool_get_financial_ratios called: ticker=%s", ticker)
-    return _sentry_tool("tool_get_financial_ratios", get_financial_ratios, ticker)
-
-
-@mcp.tool()
-def tool_get_revenue_growth(ticker: str) -> dict:
-    """
-    Retrieve annual and quarterly revenue and net income growth metrics.
-
-    Pulls income statement data and computes year-over-year (YoY) growth
-    rates for revenue and net income across annual and quarterly periods.
-
-    Args:
-        ticker: Stock ticker symbol.
-
-    Returns:
-        dict with keys:
-          - ticker              (str)
-          - annual_revenue      (list[dict]) [{year, revenue, yoy_growth}]
-          - quarterly_revenue   (list[dict]) [{quarter, revenue, yoy_growth}]
-          - annual_net_income   (list[dict]) [{year, net_income, yoy_growth}]
-          - revenue_growth_ttm  (float | None) Trailing 12-month YoY growth.
-          - error               (str | None)
-
-        Growth values are decimals (e.g. 1.22 = +122% growth).
-    """
-    log.info("tool_get_revenue_growth called: ticker=%s", ticker)
-    return _sentry_tool("tool_get_revenue_growth", get_revenue_growth, ticker)
-
-
-@mcp.tool()
-def tool_get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
-    """
-    Compare a stock's financial ratios against a list of peer companies.
-
-    Retrieves key ratios for the primary ticker and each peer, then
-    computes peer-average benchmarks for numeric ratio fields.
-
-    Args:
-        ticker: Primary stock ticker symbol.
-        peers:  List of peer ticker symbols, e.g. ['AMD', 'INTC', 'QCOM'].
-                Maximum 10 peers per call to avoid Yahoo Finance rate limits.
-
-    Returns:
-        dict with keys:
-          - primary  (dict)        Ratios for the primary ticker.
-          - peers    (list[dict])  Ratio dicts for each peer.
-          - summary  (dict)        Peer-average values per ratio field.
-          - error    (str | None)
-    """
-    log.info("tool_get_peer_comparison called: ticker=%s peers=%s", ticker, peers)
-    return get_peer_comparison(ticker, peers)
-
-
-# ===========================================================================
-# SEC EDGAR tools
-# ===========================================================================
-
-@mcp.tool()
-def tool_get_cik(ticker: str) -> dict:
+def get_cik(ticker: str) -> dict:
     """
     Resolve a stock ticker symbol to its SEC Central Index Key (CIK).
 
-    The CIK is required by all other SEC EDGAR tools. Uses the EDGAR
-    company-tickers index endpoint (no API key required).
+    Parameters
+    ----------
+    ticker : str
+        Stock ticker symbol (case-insensitive), e.g. "NVDA".
 
-    Args:
-        ticker: Stock ticker symbol (case-insensitive).
+    Returns
+    -------
+    dict
+        - "ticker"        (str)        Normalised (upper-case) ticker.
+        - "cik"           (str)        10-digit zero-padded CIK.
+        - "company_name"  (str)        Official company name in EDGAR.
+        - "error"         (str | None)
 
-    Returns:
-        dict with keys:
-          - ticker        (str)        Normalised ticker (upper-case).
-          - cik           (str)        10-digit zero-padded CIK.
-          - company_name  (str)        Official company name in EDGAR.
-          - error         (str | None)
-
-    Example:
-        tool_get_cik('NVDA') → {'cik': '0001045810', 'company_name': 'NVIDIA CORP', ...}
+    Examples
+    --------
+    >>> get_cik("NVDA")["cik"]
+    '0001045810'
     """
-    log.info("tool_get_cik called: ticker=%s", ticker)
-    return get_cik(ticker)
+    t = (ticker or "").upper().strip()
+    try:
+        mapping = _load_ticker_map()
+        entry = mapping.get(t)
+        if entry is None:
+            return {
+                "ticker": t, "cik": None, "company_name": None,
+                "error": f"Ticker '{t}' not found in SEC EDGAR ticker index.",
+            }
+        return {
+            "ticker":       t,
+            "cik":          entry["cik"],
+            "company_name": entry["title"],
+            "error":        None,
+        }
+    except Exception as exc:
+        return {"ticker": t, "cik": None, "company_name": None, "error": str(exc)}
 
 
-@mcp.tool()
-def tool_list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
+def list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
     """
     List the most recent SEC EDGAR filings of a given form type for a ticker.
 
-    Searches the EDGAR submissions API for filings matching the requested
-    form type and returns metadata including dates and document URLs.
+    Parameters
+    ----------
+    ticker : str
+        Stock ticker symbol.
+    form_type : str
+        SEC form type to filter by, e.g. "10-K", "10-Q", "8-K". Default "10-K".
+    limit : int
+        Maximum number of filings to return. Default 5.
 
-    Args:
-        ticker:    Stock ticker symbol.
-        form_type: SEC form type to filter by. Common values: '10-K'
-                   (annual report), '10-Q' (quarterly report), '8-K'
-                   (current/material event). Defaults to '10-K'.
-        limit:     Maximum number of filings to return. Defaults to 5.
-
-    Returns:
-        dict with keys:
-          - ticker    (str)
-          - cik       (str)
-          - form_type (str)
-          - filings   (list[dict]) Each entry contains:
-              - accession_number (str) EDGAR accession number (with dashes).
-              - filing_date      (str) Date filed (YYYY-MM-DD).
-              - report_date      (str) Period of report (YYYY-MM-DD).
-              - document_url     (str) URL to the filing index page.
-          - error     (str | None)
+    Returns
+    -------
+    dict
+        - "ticker"    (str)
+        - "cik"       (str)
+        - "form_type" (str)
+        - "filings"   (list[dict]) Each: {accession_number, filing_date,
+                                          report_date, document_url}
+        - "error"     (str | None)
     """
-    log.info("tool_list_filings called: ticker=%s form_type=%s limit=%d", ticker, form_type, limit)
-    return list_filings(ticker, form_type, limit)
+    t = (ticker or "").upper().strip()
+    form_type = (form_type or "10-K").strip()
+
+    cik_info = get_cik(t)
+    if cik_info.get("error"):
+        return {"ticker": t, "cik": None, "form_type": form_type,
+                "filings": [], "error": cik_info["error"]}
+
+    cik = cik_info["cik"]
+    try:
+        data = _get(f"https://data.sec.gov/submissions/CIK{cik}.json",
+                    host="data.sec.gov")
+
+        recent = data.get("filings", {}).get("recent", {})
+        forms      = recent.get("form", [])
+        accessions = recent.get("accessionNumber", [])
+        fil_dates  = recent.get("filingDate", [])
+        rep_dates  = recent.get("reportDate", [])
+        primaries  = recent.get("primaryDocument", [])
+
+        cik_int = str(int(cik))  # un-padded for Archives URLs
+        filings: list[dict] = []
+
+        for i, form in enumerate(forms):
+            if form != form_type:
+                continue
+
+            accession = accessions[i] if i < len(accessions) else None
+            if not accession:
+                continue
+            accession_nodash = accession.replace("-", "")
+
+            # Index page for the filing.
+            document_url = (
+                f"https://www.sec.gov/Archives/edgar/data/{cik_int}/"
+                f"{accession_nodash}/{accession}-index.htm"
+            )
+
+            filings.append({
+                "accession_number": accession,
+                "filing_date":      fil_dates[i] if i < len(fil_dates) else None,
+                "report_date":      rep_dates[i] if i < len(rep_dates) else None,
+                "document_url":     document_url,
+            })
+
+            if len(filings) >= limit:
+                break
+
+        return {
+            "ticker":    t,
+            "cik":       cik,
+            "form_type": form_type,
+            "filings":   filings,
+            "error":     None,
+        }
+
+    except Exception as exc:
+        return {"ticker": t, "cik": cik, "form_type": form_type,
+                "filings": [], "error": str(exc)}
 
 
-@mcp.tool()
-def tool_get_filing_text(accession_number: str, cik: str) -> dict:
+def get_filing_text(accession_number: str, cik: str) -> dict:
     """
     Download and extract the plain-text content of a specific SEC filing.
 
-    Fetches the primary document for the given accession number, strips
-    HTML/XBRL tags, and returns clean text suitable for chunking and
-    embedding into a vector store.
+    Fetches the filing's primary document, strips HTML/XBRL markup, and
+    returns clean text suitable for chunking and embedding.
 
-    Args:
-        accession_number: EDGAR accession number with dashes,
-                          e.g. '0001045810-24-000010'.
-                          Obtain this from tool_list_filings.
-        cik:              10-digit zero-padded CIK of the filer.
-                          Obtain this from tool_get_cik.
+    Parameters
+    ----------
+    accession_number : str
+        EDGAR accession number with dashes, e.g. "0001045810-24-000010".
+        Obtain from :func:`list_filings`.
+    cik : str
+        CIK of the filer (zero-padded or not). Obtain from :func:`get_cik`.
 
-    Returns:
-        dict with keys:
-          - accession_number  (str)
-          - cik               (str)
-          - text              (str | None) Clean plain text of the filing.
-          - word_count        (int)        Approximate word count.
-          - error             (str | None)
-
-    Note:
-        10-K filings can be very large (100k–500k words). Chunk the
-        returned text before passing it to an embedding model.
-        Parsing fails for ~8% of non-standard PDF-based filings.
+    Returns
+    -------
+    dict
+        - "accession_number" (str)
+        - "cik"              (str)
+        - "text"             (str | None)
+        - "word_count"       (int)
+        - "error"            (str | None)
     """
-    log.info("tool_get_filing_text called: accession=%s cik=%s", accession_number, cik)
-    return get_filing_text(accession_number, cik)
+    acc = (accession_number or "").strip()
+    try:
+        cik_int = str(int(cik))           # un-padded for Archives path
+        cik_padded = _pad_cik(cik)
+        accession_nodash = acc.replace("-", "")
+        base = (f"https://www.sec.gov/Archives/edgar/data/"
+                f"{cik_int}/{accession_nodash}")
+
+        # 1) Use the filing's index.json to locate the primary document.
+        index = _get(f"{base}/index.json", host="www.sec.gov")
+        items = index.get("directory", {}).get("item", [])
+
+        # Prefer the main HTML document; skip XBRL/exhibit/graphic files.
+        candidate = None
+        htm_files = [it["name"] for it in items
+                     if it.get("name", "").lower().endswith((".htm", ".html"))]
+        # Heuristic: the primary doc usually contains the form id or is the
+        # largest .htm that is not an exhibit ("ex" / "R" XBRL viewer pages).
+        preferred = [n for n in htm_files
+                     if not re.match(r"(?i)^(ex|r\d|.*-index)", n)]
+        if preferred:
+            candidate = preferred[0]
+        elif htm_files:
+            candidate = htm_files[0]
+        else:
+            # Fall back to the full submission .txt file.
+            candidate = f"{acc}.txt"
+
+        doc_url = f"{base}/{candidate}"
+        raw = _get(doc_url, host="www.sec.gov", as_json=False)
+
+        text = _strip_html(raw)
+        word_count = len(text.split())
+
+        return {
+            "accession_number": acc,
+            "cik":              cik_padded,
+            "text":             text,
+            "word_count":       word_count,
+            "error":            None,
+        }
+
+    except Exception as exc:
+        return {"accession_number": acc, "cik": str(cik),
+                "text": None, "word_count": 0, "error": str(exc)}
 
 
-@mcp.tool()
-def tool_get_xbrl_financials(ticker: str) -> dict:
+# Candidate XBRL concept tags, in priority order, per metric. Companies
+# tag the same economic figure differently, so we try several.
+_REVENUE_TAGS = [
+    "RevenueFromContractWithCustomerExcludingAssessedTax",
+    "Revenues",
+    "SalesRevenueNet",
+    "RevenueFromContractWithCustomerIncludingAssessedTax",
+]
+_NET_INCOME_TAGS = ["NetIncomeLoss", "ProfitLoss"]
+_ASSETS_TAGS = ["Assets"]
+_LIABILITIES_TAGS = ["Liabilities"]
+
+
+def _extract_annual(facts: dict, tags: list[str]) -> list[dict]:
+    """
+    From a companyfacts payload, extract annual (10-K, full-year) USD values
+    for the first tag in *tags* that has data.
+
+    Returns a list of {period_end, value, unit} dicts, deduplicated by
+    period end and limited to the 10 most recent periods (newest first).
+    """
+    us_gaap = facts.get("facts", {}).get("us-gaap", {})
+
+    for tag in tags:
+        concept = us_gaap.get(tag)
+        if not concept:
+            continue
+
+        units = concept.get("units", {})
+        # Prefer USD; fall back to the first available unit.
+        unit_key = "USD" if "USD" in units else next(iter(units), None)
+        if unit_key is None:
+            continue
+
+        rows = units[unit_key]
+        by_period: dict[str, dict] = {}
+
+        for row in rows:
+            # Keep annual figures filed on 10-K with a full fiscal-year frame.
+            form = row.get("form")
+            fp = row.get("fp")
+            end = row.get("end")
+            val = row.get("val")
+            if end is None or val is None:
+                continue
+            # Annual balance-sheet items (Assets/Liabilities) have no fp=FY
+            # distinction, so accept either FY income items or 10-K snapshots.
+            is_annual = (fp == "FY") or (form == "10-K")
+            if not is_annual:
+                continue
+
+            # Last write wins → favour the most recently filed restatement.
+            by_period[end] = {
+                "period_end": end,
+                "value":      float(val),
+                "unit":       unit_key,
+            }
+
+        if by_period:
+            ordered = sorted(by_period.values(),
+                             key=lambda r: r["period_end"], reverse=True)
+            return ordered[:10]
+
+    return []
+
+
+def get_xbrl_financials(ticker: str) -> dict:
     """
     Retrieve structured financial statement data from the SEC EDGAR XBRL API.
 
-    Fetches machine-readable XBRL company facts including annual revenue,
-    net income, total assets, and total liabilities across all reported periods.
-    No parsing of PDF documents is involved.
+    Parameters
+    ----------
+    ticker : str
+        Stock ticker symbol.
 
-    Args:
-        ticker: Stock ticker symbol.
+    Returns
+    -------
+    dict
+        - "ticker"             (str)
+        - "cik"                (str)
+        - "revenue_annual"     (list[dict]) [{period_end, value, unit}]
+        - "net_income_annual"  (list[dict])
+        - "total_assets"       (list[dict])
+        - "total_liabilities"  (list[dict])
+        - "error"              (str | None)
 
-    Returns:
-        dict with keys:
-          - ticker                (str)
-          - cik                   (str)
-          - revenue_annual        (list[dict]) [{period_end, value, unit}]
-          - net_income_annual     (list[dict])
-          - total_assets          (list[dict])
-          - total_liabilities     (list[dict])
-          - error                 (str | None)
-
-        Values are in USD. Only the 10 most recent annual data points
-        are returned per metric.
+        Values are in USD. Up to the 10 most recent annual data points per
+        metric are returned (newest first).
     """
-    log.info("tool_get_xbrl_financials called: ticker=%s", ticker)
-    return _sentry_tool("tool_get_xbrl_financials", get_xbrl_financials, ticker)
-
-
-# ===========================================================================
-# Financial Ratio Calculator tools
-# ===========================================================================
-
-@mcp.tool()
-def tool_calc_pe(price: float, eps: float) -> dict:
-    """
-    Calculate the Price-to-Earnings (P/E) ratio and classify its valuation.
-
-    Args:
-        price: Current market price per share (USD).
-        eps:   Earnings Per Share — trailing twelve months (TTM).
-
-    Returns:
-        dict with keys:
-          - pe_ratio       (float | None)
-          - interpretation (str) 'undervalued' | 'fairly_valued' | 'overvalued'
-                                 | 'negative_earnings'
-          - formula        (str) Human-readable formula.
-    """
-    log.info("tool_calc_pe called: price=%s eps=%s", price, eps)
-    return price_to_earnings(price, eps)
-
-
-@mcp.tool()
-def tool_calc_pb(price: float, book_value_per_share: float) -> dict:
-    """
-    Calculate the Price-to-Book (P/B) ratio.
-
-    Args:
-        price:                Current market price per share (USD).
-        book_value_per_share: Book value (total equity / shares outstanding)
-                              per share (USD).
-
-    Returns:
-        dict with keys:
-          - pb_ratio       (float | None)
-          - interpretation (str) 'trading_below_book' | 'fairly_valued'
-                                 | 'premium_to_book'
-          - formula        (str)
-    """
-    log.info("tool_calc_pb called: price=%s bvps=%s", price, book_value_per_share)
-    return price_to_book(price, book_value_per_share)
-
-
-@mcp.tool()
-def tool_calc_ev_ebitda(enterprise_value: float, ebitda: float) -> dict:
-    """
-    Calculate the Enterprise Value to EBITDA multiple.
-
-    Args:
-        enterprise_value: Total EV (market cap + debt − cash) in USD.
-        ebitda:           Earnings Before Interest, Taxes, Depreciation
-                          & Amortisation (TTM) in USD.
-
-    Returns:
-        dict with keys:
-          - ev_ebitda      (float | None)
-          - interpretation (str) 'undervalued' | 'fairly_valued' | 'expensive'
-          - formula        (str)
-    """
-    log.info("tool_calc_ev_ebitda called: ev=%s ebitda=%s", enterprise_value, ebitda)
-    return ev_to_ebitda(enterprise_value, ebitda)
-
-
-@mcp.tool()
-def tool_calc_peg(pe: float, earnings_growth_rate_pct: float) -> dict:
-    """
-    Calculate the PEG (Price/Earnings-to-Growth) ratio.
-
-    Args:
-        pe:                       The trailing or forward P/E ratio.
-        earnings_growth_rate_pct: Expected annual EPS growth rate as a
-                                  percentage (e.g. 25 for 25%).
-
-    Returns:
-        dict with keys:
-          - peg            (float | None)
-          - interpretation (str) 'undervalued' | 'fairly_valued' | 'overvalued'
-          - formula        (str)
-    """
-    log.info("tool_calc_peg called: pe=%s growth=%s", pe, earnings_growth_rate_pct)
-    return peg_ratio(pe, earnings_growth_rate_pct)
-
-
-@mcp.tool()
-def tool_calc_gross_margin(revenue: float, cogs: float) -> dict:
-    """
-    Calculate the Gross Profit Margin.
-
-    Args:
-        revenue: Total revenue — TTM (USD).
-        cogs:    Cost of Goods Sold — TTM (USD).
-
-    Returns:
-        dict with keys:
-          - gross_margin_pct (float | None) Percentage, e.g. 62.5 for 62.5%.
-          - interpretation   (str) 'excellent' | 'good' | 'moderate' | 'low'
-          - formula          (str)
-    """
-    log.info("tool_calc_gross_margin called: revenue=%s cogs=%s", revenue, cogs)
-    return gross_margin(revenue, cogs)
-
-
-@mcp.tool()
-def tool_calc_operating_margin(operating_income: float, revenue: float) -> dict:
-    """
-    Calculate the Operating Profit Margin (EBIT margin).
-
-    Args:
-        operating_income: EBIT — Earnings Before Interest & Taxes (USD).
-        revenue:          Total revenue (USD).
-
-    Returns:
-        dict with keys:
-          - operating_margin_pct (float | None)
-          - interpretation       (str)
-          - formula              (str)
-    """
-    log.info("tool_calc_operating_margin called: ebit=%s revenue=%s", operating_income, revenue)
-    return operating_margin(operating_income, revenue)
-
-
-@mcp.tool()
-def tool_calc_net_margin(net_income: float, revenue: float) -> dict:
-    """
-    Calculate the Net Profit Margin.
-
-    Args:
-        net_income: Net income — TTM (USD).
-        revenue:    Total revenue — TTM (USD).
-
-    Returns:
-        dict with keys:
-          - net_margin_pct (float | None)
-          - interpretation (str)
-          - formula        (str)
-    """
-    log.info("tool_calc_net_margin called: net_income=%s revenue=%s", net_income, revenue)
-    return net_margin(net_income, revenue)
-
-
-@mcp.tool()
-def tool_calc_roe(net_income: float, shareholders_equity: float) -> dict:
-    """
-    Calculate Return on Equity (ROE).
-
-    Args:
-        net_income:          Net income — TTM (USD).
-        shareholders_equity: Average total shareholders' equity (USD).
-
-    Returns:
-        dict with keys:
-          - roe_pct        (float | None)
-          - interpretation (str) 'excellent' | 'good' | 'moderate' | 'low'
-          - formula        (str)
-    """
-    log.info("tool_calc_roe called: net_income=%s equity=%s", net_income, shareholders_equity)
-    return return_on_equity(net_income, shareholders_equity)
-
-
-@mcp.tool()
-def tool_calc_roa(net_income: float, total_assets: float) -> dict:
-    """
-    Calculate Return on Assets (ROA).
-
-    Args:
-        net_income:   Net income — TTM (USD).
-        total_assets: Average total assets (USD).
-
-    Returns:
-        dict with keys:
-          - roa_pct        (float | None)
-          - interpretation (str)
-          - formula        (str)
-    """
-    log.info("tool_calc_roa called: net_income=%s assets=%s", net_income, total_assets)
-    return return_on_assets(net_income, total_assets)
-
-
-@mcp.tool()
-def tool_calc_current_ratio(current_assets: float, current_liabilities: float) -> dict:
-    """
-    Calculate the Current Ratio (short-term liquidity indicator).
-
-    Args:
-        current_assets:      Total current assets (USD).
-        current_liabilities: Total current liabilities (USD).
-
-    Returns:
-        dict with keys:
-          - current_ratio  (float | None)
-          - interpretation (str) 'strong' (>=2) | 'adequate' (1-2) | 'weak' (<1)
-          - formula        (str)
-    """
-    log.info("tool_calc_current_ratio called: assets=%s liabilities=%s",
-             current_assets, current_liabilities)
-    return current_ratio(current_assets, current_liabilities)
-
-
-@mcp.tool()
-def tool_calc_quick_ratio(
-    cash: float,
-    short_term_investments: float,
-    receivables: float,
-    current_liabilities: float,
-) -> dict:
-    """
-    Calculate the Quick Ratio (acid-test ratio), excluding inventory.
-
-    Args:
-        cash:                   Cash and cash equivalents (USD).
-        short_term_investments: Short-term marketable securities (USD).
-        receivables:            Net accounts receivable (USD).
-        current_liabilities:    Total current liabilities (USD).
-
-    Returns:
-        dict with keys:
-          - quick_ratio    (float | None)
-          - interpretation (str) 'strong' | 'moderate' | 'weak'
-          - formula        (str)
-    """
-    log.info("tool_calc_quick_ratio called")
-    return quick_ratio(cash, short_term_investments, receivables, current_liabilities)
-
-
-@mcp.tool()
-def tool_calc_debt_to_equity(total_debt: float, shareholders_equity: float) -> dict:
-    """
-    Calculate the Debt-to-Equity (D/E) ratio.
-
-    Args:
-        total_debt:          Total long-term + short-term debt (USD).
-        shareholders_equity: Total shareholders' equity (USD).
-
-    Returns:
-        dict with keys:
-          - de_ratio       (float | None)
-          - interpretation (str) 'low_leverage' | 'moderate_leverage'
-                                 | 'high_leverage'
-          - formula        (str)
-    """
-    log.info("tool_calc_debt_to_equity called: debt=%s equity=%s", total_debt, shareholders_equity)
-    return debt_to_equity(total_debt, shareholders_equity)
-
-
-@mcp.tool()
-def tool_calc_interest_coverage(ebit: float, interest_expense: float) -> dict:
-    """
-    Calculate the Interest Coverage Ratio (times-interest-earned).
-
-    Args:
-        ebit:             Earnings Before Interest & Taxes (USD).
-        interest_expense: Total interest expense (USD).
-
-    Returns:
-        dict with keys:
-          - interest_coverage (float | None)
-          - interpretation    (str) 'strong' | 'adequate' | 'at_risk'
-          - formula           (str)
-    """
-    log.info("tool_calc_interest_coverage called: ebit=%s interest=%s", ebit, interest_expense)
-    return interest_coverage(ebit, interest_expense)
-
-
-@mcp.tool()
-def tool_calc_asset_turnover(revenue: float, avg_total_assets: float) -> dict:
-    """
-    Calculate the Asset Turnover Ratio (revenue generation efficiency).
-
-    Args:
-        revenue:          Total annual revenue (USD).
-        avg_total_assets: Average total assets — (start + end) / 2 (USD).
-
-    Returns:
-        dict with keys:
-          - asset_turnover (float | None)
-          - interpretation (str) 'efficient' | 'moderate' | 'low_efficiency'
-          - formula        (str)
-    """
-    log.info("tool_calc_asset_turnover called: revenue=%s avg_assets=%s", revenue, avg_total_assets)
-    return asset_turnover(revenue, avg_total_assets)
-
-
-@mcp.tool()
-def tool_calc_cagr(start_value: float, end_value: float, years: float) -> dict:
-    """
-    Calculate the Compound Annual Growth Rate (CAGR) for any metric.
-
-    Args:
-        start_value: Value at the beginning of the period (must be > 0).
-        end_value:   Value at the end of the period.
-        years:       Number of years in the period (must be > 0).
-
-    Returns:
-        dict with keys:
-          - cagr_pct       (float | None) CAGR as a percentage.
-          - interpretation (str) 'hypergrowth' | 'strong' | 'moderate' | 'slow'
-          - formula        (str)
-    """
-    log.info("tool_calc_cagr called: start=%s end=%s years=%s", start_value, end_value, years)
-    return cagr(start_value, end_value, years)
-
-
-@mcp.tool()
-def tool_calc_revenue_cagr_from_growth(annual_revenue: list[dict]) -> dict:
-    """
-    Calculate revenue CAGR directly from the annual_revenue list returned
-    by tool_get_revenue_growth — no need to manually pick start/end values
-    or count years.
-
-    Args:
-        annual_revenue: The "annual_revenue" list from tool_get_revenue_growth,
-            e.g. [{"year": 2025, "revenue": 391000000000, "yoy_growth": 0.02}, ...].
-            Order does not matter; sorted internally by year.
-
-    Returns:
-        dict with keys:
-          - cagr_pct       (float | None) CAGR as a percentage.
-          - interpretation (str) 'hypergrowth' | 'strong' | 'moderate' | 'slow' | 'unavailable'
-          - formula        (str)
-          - start_year     (int | None)
-          - end_year       (int | None)
-          - years_used     (int | None)
-          - error          (str | None) Set when fewer than 2 valid years were supplied.
-    """
-    log.info("tool_calc_revenue_cagr_from_growth called: %d entries", len(annual_revenue or []))
-    return compute_revenue_cagr_from_growth(annual_revenue)
-
-
-@mcp.tool()
-def tool_calc_composite_score(
-    pe:                float | None = None,
-    pb:                float | None = None,
-    roe_pct:           float | None = None,
-    net_margin_pct:    float | None = None,
-    current_ratio_val: float | None = None,
-    de_ratio:          float | None = None,
-    revenue_cagr_pct:  float | None = None,
-) -> dict:
-    """
-    Compute a weighted composite financial health score (0-100) and letter grade.
-
-    All parameters are optional. The score is calculated proportionally
-    from whichever metrics are supplied. Missing metrics are listed in
-    'missing_inputs' but do not invalidate the score.
-
-    Weighting scheme:
-        ROE             25%
-        Net Margin      20%
-        Revenue CAGR    20%
-        P/E ratio       15%  (lower is better)
-        Current Ratio   10%
-        D/E ratio       10%  (lower is better)
-
-    Args:
-        pe:                Trailing P/E ratio.
-        pb:                Price-to-Book ratio (noted but not weighted).
-        roe_pct:           Return on Equity (%).
-        net_margin_pct:    Net Profit Margin (%).
-        current_ratio_val: Current ratio.
-        de_ratio:          Debt-to-Equity ratio.
-        revenue_cagr_pct:  Revenue CAGR (%).
-
-    Returns:
-        dict with keys:
-          - score          (float | None) Composite score 0-100.
-          - grade          (str)          Letter grade: A | B | C | D | F.
-          - sub_scores     (dict)         Normalised 0-10 score per metric.
-          - missing_inputs (list[str])    Metrics absent from the calculation.
-    """
-    log.info("tool_calc_composite_score called")
-    return composite_financial_score(
-        pe=pe,
-        pb=pb,
-        roe_pct=roe_pct,
-        net_margin_pct=net_margin_pct,
-        current_ratio=current_ratio_val,
-        de_ratio=de_ratio,
-        revenue_cagr_pct=revenue_cagr_pct,
-    )
-
-
-# ===========================================================================
-# Entry point — stdio transport only
-# ===========================================================================
-
-if __name__ == "__main__":
-    # mcp.run(transport="stdio") starts the MCP JSON-RPC loop over
-    # stdin/stdout. All logging is directed to stderr so it does NOT
-    # interfere with the MCP protocol byte stream on stdout.
-    init_sentry()
-    log.info("Financial Analyst MCP server starting (stdio transport)")
-    mcp.run(transport="stdio")
+    t = (ticker or "").upper().strip()
+
+    cik_info = get_cik(t)
+    if cik_info.get("error"):
+        return {"ticker": t, "cik": None, "revenue_annual": [],
+                "net_income_annual": [], "total_assets": [],
+                "total_liabilities": [], "error": cik_info["error"]}
+
+    cik = cik_info["cik"]
+    try:
+        facts = _get(
+            f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+            host="data.sec.gov",
+        )
+
+        return {
+            "ticker":            t,
+            "cik":               cik,
+            "revenue_annual":    _extract_annual(facts, _REVENUE_TAGS),
+            "net_income_annual": _extract_annual(facts, _NET_INCOME_TAGS),
+            "total_assets":      _extract_annual(facts, _ASSETS_TAGS),
+            "total_liabilities": _extract_annual(facts, _LIABILITIES_TAGS),
+            "error":             None,
+        }
+
+    except Exception as exc:
+        return {"ticker": t, "cik": cik, "revenue_annual": [],
+                "net_income_annual": [], "total_assets": [],
+                "total_liabilities": [], "error": str(exc)}
