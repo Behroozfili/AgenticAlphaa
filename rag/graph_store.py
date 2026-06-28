@@ -276,9 +276,15 @@ class AlphaGraphStore:
                 model=self.EXTRACT_MODEL,
                 max_tokens=self.max_tokens,
                 temperature=0.0,
-                messages=[{"role": "user", "content": prompt}],
+                messages=[
+                    {"role": "user", "content": prompt},
+                    # Prefill the assistant turn with "{" so the model is forced
+                    # to emit raw JSON immediately — no markdown fences, no
+                    # "Here is the JSON:" preamble. We prepend the "{" back below.
+                    {"role": "assistant", "content": "{"},
+                ],
             )
-            raw = response.content[0].text
+            raw = "{" + response.content[0].text
         except Exception as exc:
             logger.error("Claude extraction failed for %s: %s", source_url, exc)
             if sentry_enabled():
@@ -295,11 +301,54 @@ class AlphaGraphStore:
     # Parsing & validation
     # ─────────────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _extract_json_block(raw: str) -> Optional[str]:
+        """
+        Pull the first balanced {...} JSON object out of a raw model response.
+
+        Robust against:
+          - markdown fences (```json ... ```)
+          - trailing commentary after the object (e.g. "**Reasoning:** ...")
+          - leading preamble before the object
+          - braces appearing inside string values
+
+        Returns the JSON substring, or None if no object is found.
+        """
+        start = raw.find("{")
+        if start == -1:
+            return None
+
+        depth = 0
+        in_str = False
+        escaped = False
+        for i in range(start, len(raw)):
+            ch = raw[i]
+            if in_str:
+                if escaped:
+                    escaped = False
+                elif ch == "\\":
+                    escaped = True
+                elif ch == '"':
+                    in_str = False
+            else:
+                if ch == '"':
+                    in_str = True
+                elif ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        return raw[start:i + 1]
+        return None  # unbalanced / truncated
+
     def _parse_graph_doc(
         self, raw: str, source_url: str, ticker: str
     ) -> GraphDocument:
         """Parse Claude's JSON response into a validated GraphDocument."""
-        clean = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
+        clean = self._extract_json_block(raw)
+        if clean is None:
+            logger.warning("No JSON object found for %s: %s", source_url, raw[:200])
+            return GraphDocument(source_url=source_url, ticker=ticker)
 
         try:
             data = json.loads(clean)
