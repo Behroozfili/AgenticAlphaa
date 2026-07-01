@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import json
 import logging
+import asyncio
 import re
 import sys
 from typing import Any
@@ -74,6 +75,7 @@ from mcp.client.stdio import stdio_client
 from agents.state import SentimentAgentState, SharedManagerState
 from langsmith import traceable
 from core.observability import sentry_enabled
+from core.progress_bus import publish as _publish_progress, session_from_shared
 
 # ---------------------------------------------------------------------------
 # Logging — stderr only; stdout is reserved for MCP JSON-RPC
@@ -296,7 +298,7 @@ class SentimentAgent:
     # =========================================================================
 
     @traceable(name="sentiment.brain_plan", run_type="llm")
-    def _brain_plan(self, state: SentimentAgentState) -> dict[str, Any]:
+    async def _brain_plan(self, state: SentimentAgentState) -> dict[str, Any]:
         """
         BRAIN PASS 1 — Pre-Execution Retrieval Planning.
 
@@ -360,7 +362,8 @@ class SentimentAgent:
                  state["loop_counter"])
 
         try:
-            response = self._llm.messages.create(
+            response = await asyncio.to_thread(
+                self._llm.messages.create,
                 model=self._model,
                 max_tokens=256,
                 system=_BRAIN_PLAN_SYSTEM_PROMPT,
@@ -374,6 +377,11 @@ class SentimentAgent:
             plan = json.loads(raw)
             log.info("[Brain-Plan] Plan: query='%s' ticker=%s days_back=%s",
                      plan.get("retrieval_query"), plan.get("ticker"), plan.get("days_back"))
+            _publish_progress(
+                session_from_shared(state["shared_manager_ref"]), "agent_brain", agent="sentiment",
+                message="Sentiment Agent: planning market sentiment data collection",
+                detail={"query": plan.get("retrieval_query"), "ticker": plan.get("ticker")},
+            )
             return plan
 
         except (json.JSONDecodeError, Exception) as exc:
@@ -395,7 +403,7 @@ class SentimentAgent:
             return default_plan
 
     @traceable(name="sentiment.brain_analyze", run_type="llm")
-    def _brain_analyze(self, state: SentimentAgentState) -> str:
+    async def _brain_analyze(self, state: SentimentAgentState) -> str:
         """
         BRAIN PASS 2 — Post-Execution Sentiment Interpretation.
 
@@ -458,7 +466,8 @@ class SentimentAgent:
         log.info("[Brain-Analyze] Invoking Claude for sentiment interpretation...")
 
         try:
-            response = self._llm.messages.create(
+            response = await asyncio.to_thread(
+                self._llm.messages.create,
                 model=self._model,
                 max_tokens=768,
                 system=_BRAIN_ANALYZE_SYSTEM_PROMPT,
@@ -468,6 +477,10 @@ class SentimentAgent:
             state["messages"].append({"role": "assistant", "content": raw})
             raw = raw.replace("```json", "").replace("```", "").strip()
             log.info("[Brain-Analyze] Interpretation complete.")
+            _publish_progress(
+                session_from_shared(state["shared_manager_ref"]), "agent_checker", agent="sentiment",
+                message="Sentiment Agent: final sentiment interpretation ready",
+            )
             return raw
 
         except Exception as exc:
@@ -555,7 +568,14 @@ class SentimentAgent:
         """
 
         # -- Internal helper: safe MCP call -----------------------------------
+        session_id = session_from_shared(state["shared_manager_ref"])
+
         async def _call(tool: str, args: dict) -> dict:
+            _publish_progress(
+                session_id, "agent_tool_call", agent="sentiment",
+                message=f"Sentiment Agent: running '{tool}'...",
+                detail={"tool": tool},
+            )
             try:
                 if sentry_enabled():
                     import sentry_sdk
@@ -572,10 +592,26 @@ class SentimentAgent:
                         f"{tool} error: {payload['error']}"
                     )
                     log.warning("[Executor] %s returned error: %s", tool, payload["error"])
+                    _publish_progress(
+                        session_id, "agent_tool_result", agent="sentiment",
+                        message=f"Sentiment Agent: '{tool}' returned an error",
+                        detail={"tool": tool, "outcome": "error", "error": payload["error"]},
+                    )
+                else:
+                    _publish_progress(
+                        session_id, "agent_tool_result", agent="sentiment",
+                        message=f"Sentiment Agent: '{tool}' completed",
+                        detail={"tool": tool, "outcome": "success"},
+                    )
                 return payload
             except Exception as exc:
                 state["extraction_errors"].append(f"{tool} exception: {exc}")
                 log.exception("[Executor] %s call failed: %s", tool, exc)
+                _publish_progress(
+                    session_id, "agent_tool_result", agent="sentiment",
+                    message=f"Sentiment Agent: '{tool}' failed",
+                    detail={"tool": tool, "outcome": "error", "error": str(exc)},
+                )
                 if sentry_enabled():
                     import sentry_sdk
                     with sentry_sdk.push_scope() as scope:
@@ -767,7 +803,7 @@ class SentimentAgent:
                     log.info("[Run] Iteration %d / %d", state["loop_counter"], max_loops)
 
                     # Brain Pass 1: plan the retrieval
-                    plan = self._brain_plan(state)
+                    plan = await self._brain_plan(state)
 
                     # Executor: run the four-step sentiment pipeline
                     await self._execute_sentiment_pipeline(session, state, plan)
@@ -789,7 +825,7 @@ class SentimentAgent:
 
         # -- Brain Pass 2: interpret all signals (outside MCP session) --------
         # Runs after the MCP session closes; pure LLM call, no tools needed.
-        raw_analysis = self._brain_analyze(state)
+        raw_analysis = await self._brain_analyze(state)
         state["brain_reasoning"] = raw_analysis
 
         # Parse Brain's analysis JSON (graceful fallback if malformed)

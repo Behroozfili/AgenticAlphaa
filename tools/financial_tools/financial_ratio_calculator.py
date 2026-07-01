@@ -727,7 +727,13 @@ def composite_financial_score(
     dict
         - "score"          (float | None) : Composite score 0–100.
         - "grade"          (str)          : "A", "B", "C", "D", or "F".
-        - "sub_scores"     (dict)         : Normalised 0–10 score per metric.
+        - "sub_scores"     (dict)         : Normalised 0–10 score per metric,
+                                            keyed as "<metric>_normalised" to
+                                            avoid being confused with the raw
+                                            metric value under the same base
+                                            name elsewhere in the state
+                                            (e.g. "current_ratio_normalised"
+                                            vs. the raw "current_ratio").
         - "missing_inputs" (list[str])    : Metrics that could not be scored.
     """
     sub_scores     = {}
@@ -747,7 +753,14 @@ def composite_financial_score(
         norm     = (clamped - min_val) / (max_val - min_val) * 10
         if invert:
             norm = 10 - norm
-        sub_scores[name] = round(norm, 2)
+        # Suffix intentionally distinguishes this normalised 0-10 score from
+        # the raw metric of the same base name (e.g. "de_ratio_normalised"
+        # vs. the raw "de_ratio" reported elsewhere in
+        # financial_metrics_summary). See DC-4 postmortem: a prior version
+        # stored this under the bare metric name, which let a downstream LLM
+        # synthesis step cite the normalised score as if it were the actual
+        # ratio (e.g. reporting "current ratio of 3.57" instead of 1.07).
+        sub_scores[f"{name}_normalised"] = round(norm, 2)
         weighted_total  += norm * weight
         weight_used     += weight
 

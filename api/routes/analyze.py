@@ -79,7 +79,18 @@ class AnalyzeRequest(BaseModel):
     search_depth: str = Field(default="advanced")
     days_back: int = Field(default=14, ge=1, le=365)
     include_sentiment: bool = Field(default=True)
-    
+    session_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional client-generated id. If provided, ManagerAgent uses it "
+            "verbatim as the analysis/session id, and it doubles as the "
+            "channel for the live progress stream at "
+            "GET /api/v1/analyze/stream/{session_id} — the frontend should "
+            "open that stream BEFORE posting here, using this same id, so no "
+            "early progress events are missed. If omitted, a server-side id "
+            "is generated and no live stream is available for this request."
+        ),
+    )
 
     @field_validator("ticker")
     @classmethod
@@ -219,7 +230,13 @@ async def analyze(
     Orchestrates the full Alpha-Agent Node pipeline for a single query.
     ManagerMemory is injected via Depends() — not created manually.
     """
-    analysis_id = str(uuid.uuid4())
+    # analysis_id doubles as the progress-stream session_id: if the client
+    # supplied one (because it already opened GET /analyze/stream/{id}
+    # before this POST), use it verbatim so ManagerAgent's progress events
+    # land in the stream the frontend is already listening on. Otherwise
+    # generate one as before — the pipeline runs identically either way,
+    # just without a live stream to attach to.
+    analysis_id = req.session_id or str(uuid.uuid4())
     created_at  = datetime.now(timezone.utc).isoformat()
     started_at  = time.monotonic()
 
@@ -266,6 +283,7 @@ async def analyze(
             task_query=req.query,
             manager_directives=manager_directives,
             user_preferences=user_preferences,
+            client_session_id=analysis_id,
         )
     except Exception as exc:
         log.exception("[analyze] ManagerAgent.run() failed: %s", exc)

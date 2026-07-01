@@ -75,6 +75,7 @@ from agents.state import (
 )
 from memory.manager_memory import EvaluationFeedback, ManagerMemory
 from core.observability import sentry_enabled
+from core.progress_bus import publish as _publish_progress
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -212,6 +213,13 @@ Your output must be a clean, well-structured investment analysis report in plain
 
 Write in professional, analytical English. Be concise — target 400-600 words.
 Do NOT include any JSON or code blocks.
+
+IMPORTANT — numeric fidelity: When citing a financial ratio (P/E, ROE, net
+margin, current ratio, D/E, revenue CAGR, etc.), always use the top-level raw
+value provided for that metric (e.g. the "current_ratio" or "de_ratio" key).
+NEVER use the numbers inside "composite_score.sub_scores" as if they were the
+ratio itself — those are normalised 0-10 contributions to the composite
+score, not the actual metric value, even though some share the same name.
 """
 
 
@@ -581,6 +589,20 @@ class ManagerAgent:
             "pe_ratio":          fm.get("pe_ratio", {}).get("pe_ratio"),
             "roe":               fm.get("roe", {}).get("roe_pct"),
             "net_margin":        fm.get("net_margin", {}).get("net_margin_pct"),
+            # NOTE: current_ratio/de_ratio were previously OMITTED here while
+            # every other ratio got its raw value extracted. That left
+            # "current_ratio" and "de_ratio" only reachable via
+            # composite_score["sub_scores"] — which holds 0-10 NORMALISED
+            # contributions to the composite score, not the raw ratios — but
+            # under the SAME key names. The finaliser LLM had no raw value to
+            # cite for these two metrics, so it pulled the normalised
+            # sub-scores instead (e.g. reporting "current ratio of 3.57"
+            # when the actual ratio was 1.07, and "debt-to-equity of 0.0"
+            # when the actual ratio was 3.87 / "high_leverage"). Providing
+            # the raw values explicitly, under unambiguous keys, removes the
+            # only path by which that misattribution could happen.
+            "current_ratio":     fm.get("current_ratio"),
+            "de_ratio":          fm.get("de_ratio", {}).get("de_ratio"),
             "revenue_cagr":      fm.get("revenue_cagr", {}).get("cagr_pct"),
             "validation_passed": fm.get("validation_passed"),
         }
@@ -672,6 +694,18 @@ class ManagerAgent:
         log.info("[Dispatch] Dispatching %s (action=%s)...", agent_class, action)
         t0 = time.time()
 
+        session_id = directives.get("_progress_session_id")
+        friendly = {
+            "research": "Research Agent",
+            "financial": "Financial Analyst Agent",
+            "sentiment": "Sentiment Agent",
+        }.get(agent_key, agent_class)
+        _publish_progress(
+            session_id, "dispatch_start", agent=agent_key,
+            message=f"Manager is dispatching {friendly}...",
+            detail={"agent_class": agent_class, "action": action},
+        )
+
         try:
             if sentry_enabled():
                 import sentry_sdk
@@ -703,6 +737,11 @@ class ManagerAgent:
                 f"[SUCCESS] {agent_class} completed in {elapsed}s — keys={result_keys}"
             )
             log.info("[Dispatch] %s completed in %.2fs.", agent_class, elapsed)
+            _publish_progress(
+                session_id, "dispatch_end", agent=agent_key,
+                message=f"{friendly} completed successfully ({elapsed}s) — returning to Manager",
+                detail={"outcome": "success", "duration_s": elapsed, "result_keys": result_keys},
+            )
 
         except Exception as exc:
             elapsed = round(time.time() - t0, 2)
@@ -730,6 +769,11 @@ class ManagerAgent:
                 f"[ERROR] {agent_class} failed: {exc}"
             )
             log.exception("[Dispatch] %s raised an exception.", agent_class)
+            _publish_progress(
+                session_id, "dispatch_end", agent=agent_key,
+                message=f"{friendly} failed — returning to Manager",
+                detail={"outcome": "error", "duration_s": elapsed, "error": str(exc)},
+            )
 
         return state
 
@@ -805,6 +849,11 @@ class ManagerAgent:
 
         ticker = directives.get("ticker")
         log.info("[Node:Hydrate] session=%s ticker=%s", g["session_id"], ticker)
+        _publish_progress(
+            g["session_id"], "hydrate", agent="manager",
+            message=f"Initial state prepared for {ticker or 'analysis'}",
+            detail={"ticker": ticker},
+        )
         return {"shared_state": shared, "ticker": ticker}
 
     @traceable(name="brain_route", run_type="chain")
@@ -841,6 +890,11 @@ class ManagerAgent:
         )
 
         updated_ticker = shared["manager_directives"].get("ticker", ticker)
+        _publish_progress(
+            g["session_id"], "route", agent="manager",
+            message=f"Manager decided: {action}",
+            detail={"action": action, "reasoning": decision.get("reasoning", ""), "loop": new_counter},
+        )
         return {
             "loop_counter": new_counter,
             "last_action":  action,
@@ -899,6 +953,19 @@ class ManagerAgent:
             "[Node:Evaluate] %s → passed=%s score=%d next=%s",
             agent_class, evaluation.passed, evaluation.score, evaluation.next_action,
         )
+        _publish_progress(
+            g["session_id"], "evaluate", agent="manager",
+            message=(
+                f"Evaluating {agent_class} output: "
+                f"{'passed ✓' if evaluation.passed else 'needs revision'} (score={evaluation.score})"
+            ),
+            detail={
+                "target_agent": agent_key,
+                "passed": evaluation.passed,
+                "score": evaluation.score,
+                "next_action": evaluation.next_action,
+            },
+        )
         return {
             "evaluation_passed": evaluation.passed,
             "last_evaluation":   snapshot,
@@ -912,8 +979,14 @@ class ManagerAgent:
         Reads last_evaluation directly from graph state (not memory layer)
         so routing is deterministic regardless of memory availability.
 
-        When evaluation failed, overrides last_action to the rerun_* action
-        so _should_continue_after_persist() routes back to dispatch correctly.
+        When evaluation failed, the next action is only forced to a
+        rerun_* action if the evaluator's own next_action targets the SAME
+        agent that just failed (i.e. it genuinely is a retry). If the
+        evaluator instead recommends advancing to a different, not-yet-run
+        agent despite the failure, that agent's action keeps its original
+        run_/rerun_ label as recommended — it is not force-relabelled as a
+        rerun, since it never ran before. See DC-5 below for why this
+        distinction matters.
         """
         agent_key = g["last_agent_key"]
         shared    = g["shared_state"]
@@ -937,14 +1010,43 @@ class ManagerAgent:
         # Determine updated action for routing
         updated_action = g["last_action"]
         if not g["evaluation_passed"] and snapshot is not None:
-            rerun_action = snapshot["next_action"]
-            # Ensure we always produce a rerun_* action on failure
-            if rerun_action.startswith("run_") and not rerun_action.startswith("rerun_"):
-                rerun_action = "rerun_" + rerun_action.removeprefix("run_")
-            updated_action = rerun_action
-            log.info(
-                "[Node:Persist] Eval failed — overriding action to '%s'", updated_action
-            )
+            next_action    = snapshot["next_action"]
+            next_agent_key = next_action.removeprefix("rerun_").removeprefix("run_")
+
+            if next_agent_key == agent_key:
+                # The evaluator wants THIS SAME agent retried — that is a
+                # genuine rerun, so force the rerun_* prefix regardless of
+                # whether the evaluator's raw next_action already said
+                # "rerun_X" or (loosely) "run_X" — this is the one case the
+                # original unconditional rewrite was actually meant for.
+                updated_action = "rerun_" + next_agent_key
+                log.info(
+                    "[Node:Persist] Eval failed — retrying same agent '%s', "
+                    "action='%s'", agent_key, updated_action,
+                )
+            else:
+                # The evaluator wants to move on to a DIFFERENT agent
+                # despite this failure (e.g. "financial data is incomplete,
+                # but proceed to sentiment anyway"). That is a genuine
+                # first-time dispatch of that other agent, not a rerun.
+                #
+                # DC-5: the previous version unconditionally rewrote next_action
+                # to a rerun_* action on any evaluation failure, which mislabeled
+                # this case in orchestrator_logs as "action=rerun_sentiment" even
+                # though SentimentAgent had never run before — corrupting the
+                # audit trail this logging exists to provide, even though the
+                # actual dispatch still worked (agent_key is re-derived from
+                # the action string via removeprefix on both "run_" and
+                # "rerun_", so the wrong label never affected which agent was
+                # actually called). Preserve the evaluator's own action here
+                # instead of forcing a rerun_* prefix onto it.
+                updated_action = next_action
+                log.info(
+                    "[Node:Persist] Eval failed on '%s' — evaluator recommends "
+                    "advancing to a different agent, action='%s' (label "
+                    "preserved, not forced to rerun_*)",
+                    agent_key, updated_action,
+                )
 
         log.info("[Node:Persist] Memory persisted for agent_key=%s", agent_key)
         return {"last_action": updated_action}
@@ -961,6 +1063,10 @@ class ManagerAgent:
         ticker     = g["ticker"]
         session_id = g["session_id"]
 
+        _publish_progress(
+            session_id, "finalise", agent="manager",
+            message="Manager is writing the final investment report...",
+        )
         final_report = await self._brain_finalise(shared)
         shared["final_report"] = final_report
 
@@ -1158,6 +1264,7 @@ class ManagerAgent:
         task_query:         str,
         manager_directives: dict[str, Any] | None = None,
         user_preferences:   dict[str, Any] | None = None,
+        client_session_id:  str | None = None,
     ) -> SharedManagerState:
         """
         PRIMARY ENTRY POINT — Invoke the compiled LangGraph StateGraph.
@@ -1171,6 +1278,14 @@ class ManagerAgent:
             days_back, peers.
         user_preferences : dict[str, Any] | None
             Cross-session preferences stored in long-term memory.
+        client_session_id : str | None
+            If the caller (e.g. the API route) already generated a
+            session_id — typically because the frontend needs to know it
+            BEFORE the analysis starts, in order to open an SSE progress
+            stream (see core/progress_bus.py) without racing the first
+            events — that id is used verbatim instead of generating a new
+            one. Falls back to a fresh UUID if not provided, so existing
+            callers are unaffected.
 
         Returns
         -------
@@ -1178,9 +1293,16 @@ class ManagerAgent:
             Fully populated state with ``final_report`` and all specialist
             agent outputs committed.
         """
-        session_id  = str(uuid.uuid4())[:8]
+        session_id  = client_session_id or str(uuid.uuid4())[:8]
         directives  = dict(manager_directives or {})
         preferences = dict(user_preferences or {})
+
+        # Propagate the session id to specialist agents via manager_directives
+        # (the one free-form channel that's part of the public SharedManagerState
+        # contract) so their internal Brain/Executor/Checker layers can publish
+        # their own progress events under the same session, via
+        # state["shared_manager_ref"]["manager_directives"]["_progress_session_id"].
+        directives["_progress_session_id"] = session_id
 
         self._memory.new_session(session_id=session_id, task_query=task_query)
         for k, v in preferences.items():
@@ -1189,6 +1311,11 @@ class ManagerAgent:
         log.info(
             "ManagerAgent.run() started — session=%s task='%s'",
             session_id, task_query[:80],
+        )
+        _publish_progress(
+            session_id, "pipeline_start", agent="manager",
+            message="Analysis started — Manager is preparing",
+            detail={"task_query": task_query, "ticker": directives.get("ticker")},
         )
 
         shared_state = self._hydrate_state(
@@ -1214,6 +1341,10 @@ class ManagerAgent:
             )
         except Exception as exc:
             log.exception("ManagerAgent graph execution failed: %s", exc)
+            _publish_progress(
+                session_id, "pipeline_error", agent="manager",
+                message=f"Internal orchestration graph error: {exc}",
+            )
             raise RuntimeError(f"ManagerAgent internal graph failed: {exc}") from exc
 
         final_shared = final["shared_state"]
@@ -1222,6 +1353,11 @@ class ManagerAgent:
             session_id,
             final["loop_counter"],
             len(final_shared.get("final_report", "")),
+        )
+        _publish_progress(
+            session_id, "pipeline_complete", agent="manager",
+            message="Analysis complete — final report ready",
+            detail={"loops": final["loop_counter"]},
         )
         return final_shared
 

@@ -1,5 +1,6 @@
 import logging
 import re
+import html as _html
 import httpx
 from typing import Optional
 
@@ -65,9 +66,32 @@ async def sec_edgar_search(
     if form_type:
         params["forms"] = form_type
     if ticker:
-        cik = await _resolve_cik(ticker)
-        if cik:
-            params["ciks"] = cik.zfill(10)
+        try:
+            cik = await _resolve_cik(ticker)
+        except Exception as exc:
+            # CIK resolution failing must NEVER silently widen the search to
+            # the entire EDGAR corpus — log it and surface it to the caller
+            # so an unfiltered, ticker-less query is never mistaken for a
+            # ticker-scoped one.
+            logger.warning(
+                "sec_edgar_search: CIK resolution failed for ticker=%r: %s",
+                ticker, exc,
+            )
+            return {
+                "query": query, "filings": [],
+                "error": f"CIK resolution failed for {ticker!r}: {exc}",
+            }
+        if cik is None:
+            logger.warning(
+                "sec_edgar_search: no CIK found for ticker=%r — refusing to run "
+                "an unscoped full-text search.", ticker,
+            )
+            return {
+                "query": query, "filings": [],
+                "error": f"CIK not found for ticker {ticker!r}; search aborted "
+                         f"to avoid returning unrelated results from all filers.",
+            }
+        params["ciks"] = cik.zfill(10)
 
     try:
         async with httpx.AsyncClient(timeout=20.0, headers=HEADERS) as client:
@@ -90,12 +114,29 @@ async def sec_edgar_search(
     filings = []
     for hit in data.get("hits", {}).get("hits", [])[:max_results]:
         src = hit.get("_source", {})
+
+        # SEC's efts.sec.gov full-text search index does NOT use the field
+        # names this code previously assumed ("entity_name", "form_type",
+        # "accession_no", "period_of_report"). Those keys don't exist in the
+        # real response, so every filing silently came back with empty
+        # strings for company/form_type/accession_number/period — the only
+        # field that was ever populated was "filed_at" (file_date), which is
+        # why prior traces showed filings with real dates but blank
+        # everything else. The actual field names are:
+        #   display_names      list[str]  e.g. ["APPLE INC (0000320193)"]
+        #   root_forms         list[str]  e.g. ["10-Q"]
+        #   adsh               str        e.g. "0000320193-26-000013"
+        #   period_ending      str        e.g. "2026-03-28"
+        #   file_date          str        e.g. "2026-05-01"
+        display_names = src.get("display_names") or []
+        root_forms    = src.get("root_forms") or []
+
         filings.append({
-            "company":          src.get("entity_name", ""),
-            "form_type":        src.get("form_type", ""),
+            "company":          display_names[0] if display_names else "",
+            "form_type":        root_forms[0] if root_forms else "",
             "filed_at":         src.get("file_date", ""),
-            "accession_number": src.get("accession_no", ""),
-            "period":           src.get("period_of_report", ""),
+            "accession_number": src.get("adsh", ""),
+            "period":           src.get("period_ending", ""),
         })
 
     return {"query": query, "filings": filings}
@@ -108,7 +149,7 @@ async def sec_edgar_filing(
     ticker: str,
     form_type: str = "10-K",
     sections: list = None,             # ["business","risk_factors","mda","all"]
-    max_chars: int = 8000,
+    max_chars: int = 25000,
 ) -> dict:
     """
     Fetch the latest SEC filing (10-K / 10-Q) for a ticker.
@@ -129,10 +170,10 @@ async def sec_edgar_filing(
     if not filing_meta:
         return {"ticker": ticker, "error": f"No {form_type} found"}
 
-    acc_no     = filing_meta["accessionNumber"].replace("-", "")
-    cik_padded = cik.zfill(10)
-    raw_text   = await _fetch_text(cik_padded, acc_no)
-    parsed     = _extract_sections(raw_text, sections, max_chars)
+    acc_dash   = filing_meta["accessionNumber"]          # e.g. 0000320193-26-000013
+    acc_nodash = acc_dash.replace("-", "")               # e.g. 000032019326000013
+    raw_text   = await _fetch_text(cik, acc_dash, acc_nodash)
+    parsed     = _extract_sections(raw_text, sections, max_chars, form_type)
 
     return {
         "ticker":           ticker,
@@ -147,18 +188,66 @@ async def sec_edgar_filing(
 # ─────────────────────────────────────────────
 # Private helpers
 # ─────────────────────────────────────────────
+_TICKER_MAP_URL = "https://www.sec.gov/files/company_tickers.json"
+_TICKER_TO_CIK: dict[str, str] | None = None   # lazily loaded, shared across calls
+
+
 async def _resolve_cik(ticker: str) -> Optional[str]:
-    t = ticker.upper()
+    """
+    Resolve a stock ticker to its zero-unpadded SEC CIK using the official
+    ``company_tickers.json`` index (the same source used by
+    financial_tools/sec_edgar.py's get_cik()), instead of scraping the
+    ``browse-edgar`` HTML page with a regex.
+
+    The previous implementation searched an atom/HTML page for the FIRST
+    occurrence of ``CIK=(\\d+)``, which is fragile in two ways:
+      1. It raised uncaught exceptions on network failure (no try/except),
+         so a transient error propagated up as an unhandled exception.
+      2. The page can contain multiple "CIK=" occurrences (pagination links,
+         related-filer links), so the first match is not guaranteed to be
+         the queried ticker's own CIK.
+    Both failure modes result in ``_resolve_cik`` returning ``None`` or a
+    wrong CIK, which upstream causes ``sec_edgar_search`` to silently drop
+    the ``ciks`` filter and search the ENTIRE EDGAR corpus unscoped —
+    exactly the behaviour that produced unrelated 2010–2013 filings in
+    place of the requested ticker's filings.
+
+    company_tickers.json is a simple, official, complete ticker→CIK map
+    published by SEC itself, so a single exact-match lookup replaces the
+    scraping heuristic entirely and can raise/return None explicitly on
+    failure instead of failing silently.
+    """
+    global _TICKER_TO_CIK
+
+    t = ticker.upper().strip()
     if t in _CIK_CACHE:
         return _CIK_CACHE[t]
-    url = f"{EDGAR_BASE}/cgi-bin/browse-edgar?CIK={t}&action=getcompany&output=atom"
-    async with httpx.AsyncClient(timeout=15.0, headers=HEADERS) as client:
-        resp = await client.get(url)
-        match = re.search(r"CIK=(\d+)", resp.text)
-        if match:
-            _CIK_CACHE[t] = match.group(1)
-            return match.group(1)
-    return None
+
+    if _TICKER_TO_CIK is None:
+        async with httpx.AsyncClient(timeout=15.0, headers=HEADERS) as client:
+            resp = await client.get(_TICKER_MAP_URL)
+            resp.raise_for_status()
+            raw = resp.json()
+        # raw is a dict keyed by stringified row index: {"0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."}, ...}
+        _TICKER_TO_CIK = {
+            row["ticker"].upper(): str(row["cik_str"])
+            for row in raw.values()
+        }
+        logger.info("sec_edgar: loaded %d tickers from company_tickers.json", len(_TICKER_TO_CIK))
+
+    cik = _TICKER_TO_CIK.get(t)
+
+    # Multi-class share tickers (e.g. Berkshire Hathaway) are sometimes typed
+    # with a dot ("BRK.B") and sometimes stored/typed with a hyphen ("BRK-B").
+    # An LLM-generated ticker directive could use either form, so try the
+    # other separator before giving up — this is generic to ANY dotted/
+    # hyphenated ticker, not special-cased to one company.
+    if cik is None and ("." in t or "-" in t):
+        alt = t.replace(".", "-") if "." in t else t.replace("-", ".")
+        cik = _TICKER_TO_CIK.get(alt)
+    if cik is not None:
+        _CIK_CACHE[t] = cik
+    return cik
 
 
 async def _get_submissions(cik: str) -> Optional[dict]:
@@ -180,37 +269,78 @@ def _find_latest(submissions: dict, form_type: str) -> Optional[dict]:
     return None
 
 
-async def _fetch_text(cik_padded: str, acc_no: str) -> str:
-    url = f"{EDGAR_BASE}/Archives/edgar/data/{cik_padded}/{acc_no}/{acc_no}.txt"
-    async with httpx.AsyncClient(timeout=30.0, headers=HEADERS) as client:
+async def _fetch_text(cik: str, acc_dash: str, acc_nodash: str) -> str:
+    # EDGAR's Archives path uses the un-padded integer CIK, an accession-number
+    # *directory* WITHOUT dashes, and a full-submission *file* WITH dashes.
+    # Getting either wrong yields a 404 and silently empty section output.
+    cik_int = str(int(cik))
+    url = f"{EDGAR_BASE}/Archives/edgar/data/{cik_int}/{acc_nodash}/{acc_dash}.txt"
+    async with httpx.AsyncClient(timeout=30.0, headers=HEADERS, follow_redirects=True) as client:
         resp = await client.get(url)
         if resp.status_code == 200:
-            return resp.text[:500_000]
+            return resp.text[:2_000_000]
+    logger.warning("sec_edgar_filing: filing text fetch returned %s for %s",
+                   resp.status_code, url)
     return ""
 
 
-def _extract_sections(text: str, sections: list, max_chars: int) -> dict:
-    PATTERNS = {
+def _html_to_text(raw: str) -> str:
+    """
+    Convert a raw SEC submission (HTML/SGML) into reasonably clean plain text
+    so the item-header regexes can match. Without this, tags and HTML entities
+    sit between e.g. 'Item 2.' and 'Management', breaking contiguous matches.
+    """
+    raw = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", raw)
+    raw = re.sub(r"(?s)<[^>]+>", " ", raw)        # drop all remaining tags
+    raw = _html.unescape(raw)                      # &#160; &amp; &#8217; ...
+    raw = raw.replace("\u00a0", " ")               # non-breaking space
+    raw = re.sub(r"[ \t]+", " ", raw)
+    return raw
+
+
+# Item-header numbering differs by form type. A 10-Q's MD&A is "Item 2" and
+# its financial statements are "Item 1" (and it has no standalone "Business"
+# section), whereas a 10-K uses Item 1 / 1A / 7 / 8.
+_SECTION_PATTERNS = {
+    "10-K": {
         "business":             r"item\s+1[.\s]+business",
         "risk_factors":         r"item\s+1a[.\s]+risk\s+factors",
         "mda":                  r"item\s+7[.\s]+management",
         "financial_statements": r"item\s+8[.\s]+financial\s+statements",
-    }
-    want_all = "all" in sections
-    text_low = text.lower()
+    },
+    "10-Q": {
+        "financial_statements": r"item\s+1[.\s]+financial\s+statements",
+        "mda":                  r"item\s+2[.\s]+management",
+        "risk_factors":         r"item\s+1a[.\s]+risk\s+factors",
+    },
+}
 
-    positions = {
-        name: m.start()
-        for name, pat in PATTERNS.items()
-        if (m := re.search(pat, text_low))
-    }
+
+def _extract_sections(text: str, sections: list, max_chars: int,
+                      form_type: str = "10-K") -> dict:
+    if not text:
+        return {}
+
+    patterns = _SECTION_PATTERNS.get(form_type.upper(), _SECTION_PATTERNS["10-K"])
+    clean    = _html_to_text(text)
+    text_low = clean.lower()
+    want_all = "all" in sections
+
+    # Use the LAST occurrence of each header: the first hit is almost always
+    # the table-of-contents link; the real section body comes later.
+    positions = {}
+    for name, pat in patterns.items():
+        matches = list(re.finditer(pat, text_low))
+        if matches:
+            positions[name] = matches[-1].start()
+
     sorted_pos = sorted(positions.items(), key=lambda x: x[1])
 
     result = {}
     for idx, (name, start) in enumerate(sorted_pos):
         if not want_all and name not in sections:
             continue
-        end   = sorted_pos[idx + 1][1] if idx + 1 < len(sorted_pos) else len(text)
-        result[name] = text[start:end].strip()[:max_chars]
+        end = sorted_pos[idx + 1][1] if idx + 1 < len(sorted_pos) else len(clean)
+        result[name] = clean[start:end].strip()[:max_chars]
 
     return result

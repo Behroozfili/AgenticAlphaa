@@ -6,6 +6,7 @@ Multi-source document ingestion with UTC normalization and circuit breaker resil
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -33,6 +34,74 @@ class RawDocument:
     source_type: SourceType
     ticker: str
     published_at: str  # UTC ISO-8601, e.g. "2024-03-15T14:32:00+00:00"
+
+
+# ---------------------------------------------------------------------------
+# Ticker-mention validation
+# ---------------------------------------------------------------------------
+# DC-6: yfinance's per-ticker news feed and the general-purpose Reddit
+# subreddit feeds both surface content that is NOT necessarily about the
+# ticker it's being ingested for. yfinance's stock.news for AAPL can include
+# broader sector/market articles that are actually about a different company
+# (e.g. a Microsoft-focused piece surfaced in Apple's news feed due to sector
+# correlation); Reddit's r/investing and r/wallstreetbets are not
+# ticker-specific at all — every post there discusses whatever the author
+# chose, independent of any particular ingestion batch.
+#
+# The previous implementation blindly tagged every fetched item with the
+# ticker it was fetched *for* (yfinance) or the first ticker in the batch
+# (Reddit), regardless of what the item's title/content actually discussed.
+# That mislabeling later let the RAG layer's "ticker_filter" correctly
+# narrow a query to e.g. AAPL and still surface a chunk that is entirely
+# about Microsoft, because the chunk's stored `ticker` metadata was wrong
+# from the moment it was ingested — no query-time filter can fix a label
+# that was incorrect at write time.
+#
+# This validator is a simple, low-cost heuristic (word-boundary ticker
+# match OR company-name substring match) applied BEFORE a document is
+# tagged with a given ticker. It intentionally errs on the side of
+# excluding ambiguous content rather than risking another mislabeled
+# document in the knowledge base — for a financial RAG system, a smaller
+# but accurately-labeled corpus is more valuable than a larger,
+# contamination-prone one.
+
+def _mentions_ticker(text: str, ticker: str, company_name: str | None = None) -> bool:
+    """
+    Return True if `text` plausibly discusses `ticker` — either the ticker
+    symbol itself (as a whole word, case-insensitive) or, if provided, the
+    company's short name (as a case-insensitive substring, using just the
+    first "word" of the name to tolerate suffixes like "Inc.", "Corp",
+    "Corporation" that articles often omit or abbreviate differently).
+    """
+    if not text:
+        return False
+    if re.search(rf"\b{re.escape(ticker)}\b", text, re.IGNORECASE):
+        return True
+    if company_name:
+        # Use the first token of the company name (e.g. "Apple" from
+        # "Apple Inc.", "Microsoft" from "Microsoft Corporation") — matching
+        # the full legal name is too strict since articles rarely spell it
+        # out verbatim.
+        first_word = company_name.split()[0] if company_name.split() else ""
+        if len(first_word) >= 3 and re.search(re.escape(first_word), text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _get_company_name(ticker: str) -> str | None:
+    """
+    Best-effort lookup of a ticker's short company name via yfinance, for
+    use as a secondary signal in _mentions_ticker(). Returns None (not an
+    exception) on any failure — a missing company name just means
+    _mentions_ticker() falls back to symbol-only matching, it never blocks
+    ingestion outright.
+    """
+    try:
+        info = yf.Ticker(ticker).info
+        return info.get("shortName") or info.get("longName")
+    except Exception as exc:
+        logger.debug("Could not resolve company name for %s: %s", ticker, exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +217,8 @@ class AlphaLoader:
         stock = yf.Ticker(ticker)
         news_items = stock.news or []
         docs: list[RawDocument] = []
+        company_name = _get_company_name(ticker)
+        skipped_mismatched = 0
 
         for item in news_items[: self.max_news_per_ticker]:
             
@@ -174,6 +245,22 @@ class AlphaLoader:
                 logger.debug("Skipping item with empty URL: %s", title)
                 continue
 
+            # DC-6: yfinance's per-ticker news feed sometimes surfaces
+            # broader sector/market articles that are actually about a
+            # different company (sector correlation, "related stocks"
+            # sidebars, etc). Blindly tagging every returned item with
+            # `ticker` mislabels those in the knowledge base in a way no
+            # later query-time filter can correct. Verify the article
+            # actually mentions this ticker or its company name before
+            # tagging it as such.
+            if not _mentions_ticker(f"{title} {summary}", ticker, company_name):
+                logger.debug(
+                    "[yfinance] Skipping article not actually about %s: %r",
+                    ticker, title[:80],
+                )
+                skipped_mismatched += 1
+                continue
+
             docs.append(RawDocument(
                 title=title,
                 content=summary,
@@ -183,6 +270,11 @@ class AlphaLoader:
                 published_at=_safe_timestamp(pub_raw, fallback_label=url),
             ))
 
+        if skipped_mismatched:
+            logger.info(
+                "[yfinance] ticker=%s skipped %d article(s) not actually about this ticker.",
+                ticker, skipped_mismatched,
+            )
         return docs
     # ------------------------------------------------------------------
     # Reddit RSS Provider
@@ -191,19 +283,36 @@ class AlphaLoader:
     def _fetch_reddit_rss(self, tickers: list[str]) -> list[RawDocument]:
         """
         Fetches RSS entries from configured subreddits.
-        Tickers are used as metadata only (Reddit feeds are not ticker-specific).
-        Circuit-breaker wraps each individual feed.
+
+        DC-6: r/investing and r/wallstreetbets are general-purpose subreddits
+        — no post there is inherently "about" any particular ticker. The
+        previous implementation tagged every single post from these feeds
+        with `tickers[0]` regardless of content, which silently poisoned the
+        knowledge base with e.g. an NVDA-focused Reddit thread stored under
+        `ticker="AAPL"` whenever AAPL happened to be first in the ingestion
+        batch. A query later filtered to ticker="AAPL" would then legitimately
+        (and invisibly) surface content that has nothing to do with Apple.
+
+        Fix: each post is now checked against every ticker in the current
+        batch (via _mentions_ticker). A post that mentions N tickers from the
+        batch produces N tagged copies (one per mentioned ticker) so it can
+        be correctly retrieved under each; a post that mentions none of the
+        batch's tickers is dropped rather than mislabeled under an arbitrary
+        one. Circuit-breaker wraps each individual feed.
         """
         docs: list[RawDocument] = []
-        primary_ticker = tickers[0] if tickers else "GENERAL"
+        if not tickers:
+            return docs
+
+        company_names = {t: _get_company_name(t) for t in tickers}
 
         for feed_label, feed_url in self.REDDIT_FEEDS.items():
             try:
                 t0 = time.perf_counter()
-                entries = self._parse_rss(feed_url, primary_ticker)
+                entries = self._parse_rss(feed_url, tickers, company_names)
                 latency = time.perf_counter() - t0
                 logger.info(
-                    "[reddit-rss] feed=%s fetched=%d latency=%.2fs",
+                    "[reddit-rss] feed=%s fetched=%d tagged_doc(s) latency=%.2fs",
                     feed_label, len(entries), latency,
                 )
                 docs.extend(entries)
@@ -212,12 +321,19 @@ class AlphaLoader:
 
         return docs
 
-    def _parse_rss(self, feed_url: str, ticker: str) -> list[RawDocument]:
+    def _parse_rss(
+        self,
+        feed_url: str,
+        tickers: list[str],
+        company_names: dict[str, str | None],
+    ) -> list[RawDocument]:
         feed = feedparser.parse(feed_url)
         if feed.bozo and feed.bozo_exception:
             raise RuntimeError(f"feedparser error: {feed.bozo_exception}")
 
         docs: list[RawDocument] = []
+        skipped_unmatched = 0
+
         for entry in feed.entries[: self.max_rss_per_feed]:
             url = entry.get("link", "")
             if not url:
@@ -232,14 +348,32 @@ class AlphaLoader:
                 entry.get("summary", "")
                 or entry.get("content", [{}])[0].get("value", "")
             )
+            title = entry.get("title", "")
+            combined_text = f"{title} {content}"
 
-            docs.append(RawDocument(
-                title=entry.get("title", ""),
-                content=content,
-                url=url,
-                source_type=source_type,
-                ticker=ticker,
-                published_at=_safe_timestamp(pub_raw, fallback_label=url),
-            ))
+            matched_tickers = [
+                t for t in tickers
+                if _mentions_ticker(combined_text, t, company_names.get(t))
+            ]
 
+            if not matched_tickers:
+                skipped_unmatched += 1
+                continue
+
+            published_at = _safe_timestamp(pub_raw, fallback_label=url)
+            for t in matched_tickers:
+                docs.append(RawDocument(
+                    title=title,
+                    content=content,
+                    url=url,
+                    source_type=source_type,
+                    ticker=t,
+                    published_at=published_at,
+                ))
+
+        if skipped_unmatched:
+            logger.info(
+                "[reddit-rss] %s: skipped %d post(s) matching none of %s.",
+                feed_url, skipped_unmatched, tickers,
+            )
         return docs

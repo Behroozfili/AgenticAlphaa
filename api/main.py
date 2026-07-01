@@ -44,6 +44,7 @@ from memory.manager_memory import ManagerMemory
 from api.config import settings, validate_settings
 from api.core.exceptions import AlphaAgentError, ConfigurationError
 from api.routes.analyze import router as analyze_router
+from api.routes.progress import router as progress_router
 from core.observability import init_sentry, init_langsmith
 import os
 from fastapi.responses import FileResponse
@@ -260,6 +261,7 @@ async def unhandled_exception_handler(
 # ─────────────────────────────────────────────────────────────
 
 app.include_router(analyze_router, prefix="/api/v1", tags=["Analysis"])
+app.include_router(progress_router, prefix="/api/v1", tags=["Progress"])
 
 
 # ─────────────────────────────────────────────────────────────
@@ -300,4 +302,4 @@ async def readiness(request: Request):
     )
 @app.get("/", include_in_schema=False)
 async def serve_index():
-    return FileResponse("frontend/alpha-agent-app (1).html")  
+    return FileResponse("frontend/alpha-agent-app.html")

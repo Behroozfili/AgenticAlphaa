@@ -51,6 +51,7 @@ from agents.state import ResearchAgentState, SharedManagerState
 from dotenv import load_dotenv
 from langsmith import traceable
 from core.observability import sentry_enabled
+from core.progress_bus import publish as _publish_progress, session_from_shared
 
 load_dotenv()
 
@@ -73,14 +74,53 @@ You are the Research Brain for Alpha-Agent Node, a production-grade financial in
 Your role: Given a research task and optional validator feedback, produce a precise JSON action plan
 that directs the Executor which MCP tools to call next.
 
-Available MCP tools (call by exact name):
-  - tavily_search         : Real-time web search (best for breaking news, macro events)
-  - news_search           : NewsAPI financial articles (best for recent press coverage)
-  - sec_edgar_search      : SEC EDGAR full-text filing search
-  - sec_edgar_filing      : Fetch and parse a specific SEC 10-K / 10-Q filing
-  - rag_vector_search     : Semantic search over pre-ingested knowledge base
-  - rag_graph_traverse    : Neo4j entity-relationship traversal (competitors, supply chain)
-  - rag_hybrid_query      : Combined vector + graph search (best for complex queries)
+Available MCP tools and their EXACT argument schema (call by exact name,
+use EXACTLY these argument key names — they differ between tools):
+
+  - tavily_search
+      arguments: {"query": "<search text>"}
+
+  - news_search
+      arguments: {"query": "<search text>"}
+
+  - sec_edgar_search
+      arguments: {"query": "<search text>", "ticker": "<TICKER>", "form_type": "<optional 10-K/10-Q/8-K>"}
+      "ticker" is REQUIRED whenever a specific company is being researched —
+      omitting it runs an unscoped full-text search across ALL filers and
+      returns irrelevant results.
+
+  - sec_edgar_filing
+      arguments: {"ticker": "<TICKER>", "form_type": "<10-K or 10-Q>"}
+      "ticker" is REQUIRED — this call fails validation without it.
+
+  - rag_vector_search
+      arguments: {"query": "<search text>", "ticker_filter": "<TICKER>"}
+      "ticker_filter" is REQUIRED whenever the task concerns a specific
+      company — omitting it searches the ENTIRE vector store unfiltered
+      and can return chunks about unrelated companies.
+
+  - rag_graph_traverse
+      arguments: {"entity": "<TICKER>"}
+      "entity" is REQUIRED — without it the tool cannot run at all.
+
+  - rag_hybrid_query
+      arguments: {"query": "<search text>", "entity": "<TICKER>"}
+      "entity" is REQUIRED whenever a specific company is being researched.
+      Do NOT rely on the ticker symbol appearing inside "query" — this tool
+      only has a weak, best-effort fallback that looks for an ALL-CAPS
+      token in the query text (and fails silently whenever the query is
+      phrased using the company's name instead of its ticker symbol, e.g.
+      "Microsoft AI infrastructure spending" contains no extractable
+      ticker). Passing "entity" explicitly is the only reliable path —
+      never omit it.
+
+THE TICKER: the target company's ticker symbol is provided to you in
+MANAGER DIRECTIVES as "ticker" (e.g. "MSFT"). Whenever it is present,
+you MUST include it as the relevant argument (see schemas above — the
+key name differs per tool: "ticker", "ticker_filter", or "entity") on
+EVERY call to a ticker-scoped tool. This is not optional and does not
+depend on whether the ticker symbol happens to appear in your own
+"query" text.
 
 Output format (strict JSON, no markdown fences):
 {
@@ -88,7 +128,7 @@ Output format (strict JSON, no markdown fences):
   "actions": [
     {
       "tool": "<exact tool name>",
-      "arguments": { <key-value pairs matching the tool's inputSchema> }
+      "arguments": { <key-value pairs matching the exact schema above> }
     }
   ]
 }
@@ -99,6 +139,8 @@ Rules:
 - Incorporate validator feedback when provided to target missing information.
 - Prefer rag_hybrid_query for complex multi-faceted queries.
 - Always include "query" in arguments for search tools.
+- Always include the ticker argument (see per-tool schema above) whenever
+  MANAGER DIRECTIVES provides one and the tool is ticker-scoped.
 """
 
 # ── Checker node system prompt ───────────────────────────────────
@@ -106,27 +148,108 @@ _CHECKER_SYSTEM_PROMPT = """\
 You are the Research Validator for Alpha-Agent Node.
 
 Your role: Audit the gathered context chunks and decide if they are sufficient
-to answer the original research query completely and accurately.
+to answer the original research query as completely as the available authoritative
+sources allow.
 
 Completeness criteria:
-  1. Recent data: at least one source from the last 30 days.
+  1. Recent data: at least one source from the last 30 days (or the most recent
+     periodic filing available, e.g. the latest 10-Q/10-K).
   2. Factual depth: numbers, dates, or named entities relevant to the query.
   3. Multi-source coverage: results from at least 2 different tool types.
   4. No hallucination risk: findings are grounded in retrieved text, not assumed.
+
+CRITICAL — negative findings are valid findings:
+  - If an authoritative primary source has already been retrieved (e.g. the
+    relevant 10-Q/10-K sections are present in the context) and it simply does
+    NOT separately disclose the specific figure the query asks for (e.g. a
+    company reports R&D as a single line and does not break out "AI capex"),
+    then the correct, COMPLETE answer is that the source does not disclose it.
+    Mark is_complete=true and state the absence as the finding. Do NOT keep
+    demanding a number that the source does not contain.
+  - Do NOT request a section or document that is already present in the gathered
+    context. Check what was retrieved before asking for more.
+  - Distinguish "not yet retrieved" (→ keep searching) from "retrieved but the
+    data does not exist in the source" (→ complete). Only the former justifies
+    is_complete=false.
 
 Output format (strict JSON, no markdown fences):
 {
   "is_complete": true | false,
   "score": <int 0-100>,
-  "missing": "<what specific information is still needed, or 'nothing' if complete>",
-  "feedback": "<actionable instruction for the Brain to improve the next search, or '' if complete>"
+  "missing": "<specific information still genuinely missing AND obtainable, or 'nothing' if complete>",
+  "feedback": "<actionable instruction for the Brain to retrieve genuinely-missing AND obtainable data, or '' if complete>"
 }
 
 Rules:
 - Output ONLY valid JSON.
-- Be strict: partial data or vague summaries are NOT sufficient.
+- Be rigorous, but do not penalise the agent for data that authoritative sources
+  genuinely do not contain — that absence is itself the answer.
 - If is_complete is true, feedback must be an empty string "".
 """
+
+
+# Maps each ticker-scoped MCP tool to the exact argument key it expects for
+# the ticker/entity. Names deliberately differ between tools (see
+# tools/research_tools/research_server.py / rag/hybrid_rag.py):
+#   rag_vector_search  -> ticker_filter
+#   rag_graph_traverse -> entity
+#   rag_hybrid_query   -> entity
+#   sec_edgar_search   -> ticker
+#   sec_edgar_filing   -> ticker
+_TICKER_ARG_BY_TOOL: dict[str, str] = {
+    "rag_vector_search":  "ticker_filter",
+    "rag_graph_traverse": "entity",
+    "rag_hybrid_query":   "entity",
+    "sec_edgar_search":   "ticker",
+    "sec_edgar_filing":   "ticker",
+}
+
+
+def _ensure_ticker_argument(
+    tool_name: str,
+    arguments: dict[str, Any],
+    directives: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Defensive safety net, independent of LLM Brain behaviour: if this tool
+    is ticker-scoped and the Brain's plan omitted the ticker argument (or
+    supplied it under the wrong key), inject it from manager_directives.
+
+    Root cause this guards against: rag_hybrid_query's built-in fallback
+    (_extract_ticker_from_query in rag/hybrid_rag.py) only works when the
+    literal ticker symbol happens to appear inside the free-text query
+    (e.g. "Apple AAPL earnings" -> "AAPL" extracted by luck). Queries
+    phrased using the company name instead ("Microsoft AI infrastructure
+    spending") have no extractable ticker, silently degrading
+    rag_hybrid_query to vector-only mode AND removing the ticker filter
+    from the underlying vector search entirely — letting chunks from
+    unrelated tickers leak into the results. The system prompt now
+    instructs the Brain to always pass the ticker explicitly, but a prompt
+    instruction can be missed; this function makes correctness NOT depend
+    on the LLM remembering.
+
+    A ticker already present in `arguments` (whatever the LLM supplied) is
+    always preserved — this only fills in a MISSING value, never overrides
+    an explicit one.
+    """
+    arg_key = _TICKER_ARG_BY_TOOL.get(tool_name)
+    if not arg_key:
+        return arguments  # not a ticker-scoped tool — nothing to do
+
+    if arguments.get(arg_key):
+        return arguments  # Brain already supplied it
+
+    ticker = directives.get("ticker")
+    if not ticker:
+        return arguments  # nothing to inject (no ticker known for this task)
+
+    patched = dict(arguments)
+    patched[arg_key] = ticker
+    logger.info(
+        "[Executor] Injected missing ticker argument for '%s': %s='%s'",
+        tool_name, arg_key, ticker,
+    )
+    return patched
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -336,7 +459,8 @@ class ResearchAgent:
         history = state["messages"]
         messages_for_api = history + [{"role": "user", "content": user_content}]
 
-        response = self._llm.messages.create(
+        response = await asyncio.to_thread(
+            self._llm.messages.create,
             model=self._model,
             max_tokens=1024,
             system=_BRAIN_SYSTEM_PROMPT,
@@ -344,6 +468,12 @@ class ResearchAgent:
         )
         plan_text = response.content[0].text.strip()
         logger.debug("[Brain] plan output: %s", plan_text[:300])
+
+        _publish_progress(
+            session_from_shared(ref), "agent_brain", agent="research",
+            message=f"Research Agent: planning research (iteration {loop_num + 1})",
+            detail={"loop": loop_num + 1},
+        )
 
         return {
             "messages": [
@@ -392,6 +522,7 @@ class ResearchAgent:
         """
         new_counter = state["loop_counter"] + 1
         logger.info("[Executor] loop_counter → %d", new_counter)
+        session_id = session_from_shared(state["shared_manager_ref"])
 
         # ── Parse Brain's JSON plan ──────────────────────────────
         plan_text = state["messages"][-1]["content"]
@@ -426,7 +557,17 @@ class ResearchAgent:
                         logger.warning("[Executor] Skipping action with no tool name.")
                         continue
 
+                    arguments = _ensure_ticker_argument(
+                        tool_name, arguments,
+                        state["shared_manager_ref"].get("manager_directives", {}),
+                    )
+
                     logger.info("[Executor] calling tool='%s' args=%s", tool_name, arguments)
+                    _publish_progress(
+                        session_id, "agent_tool_call", agent="research",
+                        message=f"Research Agent: calling tool '{tool_name}'...",
+                        detail={"tool": tool_name},
+                    )
 
                     try:
                         if sentry_enabled():
@@ -449,6 +590,11 @@ class ResearchAgent:
                         logger.info(
                             "[Executor] tool='%s' → %d chars", tool_name, len(raw_text)
                         )
+                        _publish_progress(
+                            session_id, "agent_tool_result", agent="research",
+                            message=f"Research Agent: tool '{tool_name}' succeeded",
+                            detail={"tool": tool_name, "outcome": "success", "chars": len(raw_text)},
+                        )
 
                     except Exception as tool_exc:
                         err_msg = (
@@ -462,6 +608,11 @@ class ResearchAgent:
                                 scope.set_tag("component", "mcp.research")
                                 sentry_sdk.capture_exception(tool_exc)
                         new_chunks.append(err_msg)
+                        _publish_progress(
+                            session_id, "agent_tool_result", agent="research",
+                            message=f"Research Agent: tool '{tool_name}' failed",
+                            detail={"tool": tool_name, "outcome": "error", "error": str(tool_exc)},
+                        )
 
         except Exception as mcp_exc:
             err_msg = f"[MCP CONNECTION ERROR] Could not connect to research_server: {mcp_exc}"
@@ -543,7 +694,8 @@ class ResearchAgent:
             "Audit the context and return your JSON verdict."
         )
 
-        response = self._llm.messages.create(
+        response = await asyncio.to_thread(
+            self._llm.messages.create,
             model=self._model,
             max_tokens=512,
             system=_CHECKER_SYSTEM_PROMPT,
@@ -567,6 +719,14 @@ class ResearchAgent:
             is_complete,
             verdict.get("score", "N/A"),
             verdict.get("missing", "")[:80],
+        )
+        _publish_progress(
+            session_from_shared(state["shared_manager_ref"]), "agent_checker", agent="research",
+            message=(
+                f"Research Agent: checking data quality — "
+                f"{'sufficient ✓' if is_complete else 'needs more data'}"
+            ),
+            detail={"is_complete": is_complete, "score": verdict.get("score")},
         )
 
         return {

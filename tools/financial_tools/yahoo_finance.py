@@ -13,6 +13,8 @@ All functions return structured dictionaries suitable for downstream
 consumption by the Financial Analyst Agent or MCP server.
 """
 
+import math
+
 import yfinance as yf
 from datetime import datetime, timedelta
 from typing import Any
@@ -21,6 +23,49 @@ from typing import Any
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+def _safe_float(value: Any) -> float | None:
+    """
+    Convert a pandas/numpy cell value to a plain Python float, collapsing
+    NaN/Inf to None instead of a real (but JSON-illegal) NaN float.
+
+    Root cause this guards against: pandas represents a *missing* cell
+    within an otherwise-present row/column as ``numpy.nan`` — NOT as
+    ``None``. ``float(numpy.nan)`` succeeds and returns a real Python
+    ``nan``, so a bare ``float(cell) if row is not None else None`` check
+    (which only verifies the row exists, not that this specific cell has
+    data) silently lets NaN through as if it were a valid number.
+
+    Two concrete failures this caused downstream, both traced from a real
+    run:
+      1. A NaN "oldest" revenue value passed every truthiness/None check
+         (``nan is not None`` is True, ``bool(nan)`` is True) but failed
+         every ordering comparison (``nan > 0`` is False), so the CAGR
+         guard's ``oldest > 0`` check silently evaluated False and CAGR
+         was reported as "unavailable" even though 4 valid years of
+         revenue history were actually present.
+      2. The raw NaN value survived into financial_metrics_summary and
+         broke JSON persistence to Supabase with
+         "Out of range float values are not JSON compliant: nan", since
+         strict JSON (RFC 8259) has no NaN token.
+
+    Returns
+    -------
+    float | None
+        The value as a plain float, or None if it is missing, NaN, or
+        +/-Infinity (all of which are equally "no data" from a financial-
+        reporting standpoint and equally illegal in strict JSON).
+    """
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return f
+
 
 def _safe_get(info: dict, key: str, default: Any = None) -> Any:
     """
@@ -147,6 +192,8 @@ def get_financial_ratios(ticker: str) -> dict:
         - "eps_forward"         (float | None)  : Forward EPS estimate.
         - "dividend_yield"      (float | None)  : As a decimal (e.g. 0.012).
         - "beta"                (float | None)
+        - "current_ratio"       (float | None)  : Current assets / current liabilities.
+        - "quick_ratio"         (float | None)  : (Current assets − inventory) / current liabilities.
         - "52w_high"            (float | None)
         - "52w_low"             (float | None)
         - "current_price"       (float | None)
@@ -178,6 +225,11 @@ def get_financial_ratios(ticker: str) -> dict:
             "eps_forward":      _safe_get(info, "forwardEps"),
             "dividend_yield":   _safe_get(info, "dividendYield"),
             "beta":             _safe_get(info, "beta"),
+            # Liquidity ratios — present in yfinance's financialData module.
+            # Without these the composite score can never receive a
+            # current_ratio input and always flags it as missing.
+            "current_ratio":    _safe_get(info, "currentRatio"),
+            "quick_ratio":      _safe_get(info, "quickRatio"),
             "52w_high":         _safe_get(info, "fiftyTwoWeekHigh"),
             "52w_low":          _safe_get(info, "fiftyTwoWeekLow"),
             "current_price":    _safe_get(info, "currentPrice"),
@@ -233,16 +285,33 @@ def get_revenue_growth(ticker: str) -> dict:
             for i, col in enumerate(cols):
                 year = col.year if hasattr(col, "year") else str(col)
 
-                # Revenue
-                rev = float(rev_row[col]) if rev_row is not None else None
-                prev_rev = float(rev_row[cols[i + 1]]) if (rev_row is not None and i + 1 < len(cols)) else None
-                rev_growth = round((rev - prev_rev) / abs(prev_rev), 4) if (rev and prev_rev) else None
+                # Revenue — _safe_float() collapses pandas NaN cells (a
+                # present row with a missing value for THIS specific column,
+                # e.g. the oldest fiscal year often isn't fully populated)
+                # to None. A bare `float(rev_row[col])` would instead return
+                # a real `nan`, which passes every `is not None` check
+                # downstream and breaks both CAGR calculation (nan fails
+                # numeric comparisons) and JSON persistence (nan is not
+                # valid JSON).
+                rev = _safe_float(rev_row[col]) if rev_row is not None else None
+                prev_rev = _safe_float(rev_row[cols[i + 1]]) if (rev_row is not None and i + 1 < len(cols)) else None
+                # `is not None` (not truthiness) so a legitimate revenue of
+                # exactly 0 isn't silently treated as "missing".
+                rev_growth = (
+                    round((rev - prev_rev) / abs(prev_rev), 4)
+                    if (rev is not None and prev_rev is not None and prev_rev != 0)
+                    else None
+                )
                 annual_revenue.append({"year": year, "revenue": rev, "yoy_growth": rev_growth})
 
                 # Net Income
-                ni = float(inc_row[col]) if inc_row is not None else None
-                prev_ni = float(inc_row[cols[i + 1]]) if (inc_row is not None and i + 1 < len(cols)) else None
-                ni_growth = round((ni - prev_ni) / abs(prev_ni), 4) if (ni and prev_ni) else None
+                ni = _safe_float(inc_row[col]) if inc_row is not None else None
+                prev_ni = _safe_float(inc_row[cols[i + 1]]) if (inc_row is not None and i + 1 < len(cols)) else None
+                ni_growth = (
+                    round((ni - prev_ni) / abs(prev_ni), 4)
+                    if (ni is not None and prev_ni is not None and prev_ni != 0)
+                    else None
+                )
                 annual_net_income.append({"year": year, "net_income": ni, "yoy_growth": ni_growth})
 
         # --- Quarterly revenue ---
@@ -260,10 +329,14 @@ def get_revenue_growth(ticker: str) -> dict:
                     quarter = f"{col.year}-Q{q_num}"
                 else:
                     quarter = str(col)
-                rev = float(q_rev_row[col])
+                rev = _safe_float(q_rev_row[col])
                 # YoY: compare with same quarter last year (4 periods back)
-                prev_rev = float(q_rev_row[q_cols[i + 4]]) if i + 4 < len(q_cols) else None
-                growth = round((rev - prev_rev) / abs(prev_rev), 4) if prev_rev else None
+                prev_rev = _safe_float(q_rev_row[q_cols[i + 4]]) if i + 4 < len(q_cols) else None
+                growth = (
+                    round((rev - prev_rev) / abs(prev_rev), 4)
+                    if (rev is not None and prev_rev is not None and prev_rev != 0)
+                    else None
+                )
                 quarterly_revenue.append({"quarter": quarter, "revenue": rev, "yoy_growth": growth})
 
         # TTM growth from info dict

@@ -47,6 +47,54 @@ log = logging.getLogger("research-mcp")
 
 app = Server("research-agent-mcp")
 
+# ── Loose-term mapping for `sections` normalization ────────────────
+# Models occasionally send raw 10-K/10-Q item numbers or casual phrasing
+# instead of our canonical keywords. Map the common variants here so a
+# slightly-off call still succeeds instead of round-tripping a schema
+# validation error back to the model.
+_SECTION_ALIASES = {
+    "item 1":              "business",
+    "item1":               "business",
+    "item 1a":             "risk_factors",
+    "item1a":              "risk_factors",
+    "item 7":              "mda",
+    "item7":               "mda",
+    "item 8":              "financial_statements",
+    "item8":               "financial_statements",
+    "md&a":                "mda",
+    "management discussion and analysis": "mda",
+    "risk factors":        "risk_factors",
+    "financial statements": "financial_statements",
+}
+_VALID_SECTIONS = {"business", "risk_factors", "mda", "financial_statements", "all"}
+
+
+def _normalize_sections(raw) -> list[str]:
+    """
+    Coerce a `sections` argument into a clean list of valid section keywords.
+
+    Accepts a single string or a list of strings. Lower-cases, strips
+    whitespace, and maps known loose terms (e.g. "Item 7") to the
+    canonical keyword (e.g. "mda"). Unrecognized values are dropped
+    (rather than raising) so a partially-wrong call still returns
+    whatever sections it can, instead of failing outright.
+    """
+    if raw is None:
+        return ["all"]
+    if isinstance(raw, str):
+        raw = [raw]
+
+    normalized = []
+    for item in raw:
+        key = str(item).strip().lower()
+        key = _SECTION_ALIASES.get(key, key)
+        if key in _VALID_SECTIONS and key not in normalized:
+            normalized.append(key)
+        else:
+            log.warning("Dropping unrecognized 'sections' value: %r", item)
+
+    return normalized or ["all"]
+
 
 # ══════════════════════════════════════════════════════════════════
 # LIST TOOLS  —  advertise every tool to the MCP client
@@ -178,13 +226,27 @@ async def list_tools() -> ListToolsResult:
                         "default": "10-K"
                     },
                     "sections": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "enum": ["business", "risk_factors", "mda", "financial_statements", "all"]
-                        },
-                        "description": "Sections to extract",
-                        "default": ["all"]
+                        "description": (
+                            "Sections to extract. MUST use one of these exact keywords: "
+                            "'business', 'risk_factors', 'mda', 'financial_statements', 'all'. "
+                            "Do NOT use raw item numbers like 'Item 7' — use 'mda' instead. "
+                            "Can be passed as a single string (e.g. 'mda') or a list of "
+                            "strings (e.g. ['mda', 'risk_factors'])."
+                        ),
+                        "default": ["all"],
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "enum": ["business", "risk_factors", "mda", "financial_statements", "all"]
+                            },
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["business", "risk_factors", "mda", "financial_statements", "all"]
+                                }
+                            }
+                        ]
                     },
                     "max_chars": {
                         "type": "integer",
@@ -329,12 +391,27 @@ async def list_tools() -> ListToolsResult:
                         "default": "10-Q"
                     },
                     "sections": {
-                        "type": "array",
-                        "items": {
-                            "type": "string",
-                            "enum": ["business", "risk_factors", "mda", "financial_statements", "all"]
-                        },
-                        "default": ["mda"]
+                        "description": (
+                            "Sections to extract from the filing. MUST use one of these exact "
+                            "keywords: 'business', 'risk_factors', 'mda', 'financial_statements', "
+                            "'all'. Do NOT use raw item numbers like 'Item 7' — use 'mda' instead. "
+                            "Can be passed as a single string (e.g. 'mda') or a list of strings "
+                            "(e.g. ['mda', 'risk_factors'])."
+                        ),
+                        "default": ["mda"],
+                        "oneOf": [
+                            {
+                                "type": "string",
+                                "enum": ["business", "risk_factors", "mda", "financial_statements", "all"]
+                            },
+                            {
+                                "type": "array",
+                                "items": {
+                                    "type": "string",
+                                    "enum": ["business", "risk_factors", "mda", "financial_statements", "all"]
+                                }
+                            }
+                        ]
                     },
                     "max_results": {
                         "type": "integer",
@@ -388,9 +465,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             case "sec_edgar_filing":
                 result = await sec_edgar_filing(
                     ticker=arguments["ticker"],
-                    form_type=arguments.get("form_type", "10-K"),
-                    sections=arguments.get("sections", ["all"]),
-                    max_chars=arguments.get("max_chars", 8000),
+                    form_type=arguments.get("form_type") or arguments.get("filing_type") or "10-K",
+                    sections=_normalize_sections(arguments.get("sections", ["all"])),
+                    # Floor the cap: section bodies (esp. MD&A) routinely exceed
+                    # small values, cutting off the R&D / capex discussion.
+                    max_chars=max(arguments.get("max_chars", 25000), 25000),
                 )
 
             case "rag_vector_search":
@@ -423,8 +502,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     ticker=arguments["ticker"],
                     company_name=arguments.get("company_name"),
                     topic_query=arguments.get("topic_query"),
-                    form_type=arguments.get("form_type", "10-Q"),
-                    sections=arguments.get("sections", ["mda"]),
+                    form_type=arguments.get("form_type") or arguments.get("filing_type") or "10-Q",
+                    sections=_normalize_sections(arguments.get("sections", ["mda"])),
                     max_results=arguments.get("max_results", 5),
                 )
 

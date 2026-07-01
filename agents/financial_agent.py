@@ -44,6 +44,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+import asyncio
 import re
 import sys
 from typing import Any
@@ -62,6 +64,7 @@ import os
 from agents.state import FinancialAgentState, SharedManagerState
 from langsmith import traceable
 from core.observability import sentry_enabled
+from core.progress_bus import publish as _publish_progress, session_from_shared
 
 # ---------------------------------------------------------------------------
 # Logging — stderr only; stdout is reserved for MCP JSON-RPC
@@ -125,6 +128,33 @@ Rules:
 - feedback must be specific and actionable — name the exact tools to re-call
   and what data is missing, so the Brain can plan the next iteration precisely.
 """
+
+
+def _sanitize_nans(value: Any) -> Any:
+    """
+    Recursively replace any float NaN/Infinity in a nested dict/list
+    structure with None, so the result is always strict-JSON-safe
+    (RFC 8259 has no NaN/Infinity token; Python's json module allows it
+    by default, but downstream persistence clients — e.g. Supabase's
+    postgrest client — reject it with
+    "Out of range float values are not JSON compliant: nan").
+
+    This is a defensive last resort, not a substitute for fixing NaN at
+    its source (see _safe_float() in yahoo_finance.py and the
+    _is_valid_number() guard in the CAGR block above) — but it guarantees
+    financial_metrics_summary can never crash persistence regardless of
+    which upstream data source introduces a stray NaN in the future.
+    """
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if isinstance(value, float) and math.isinf(value):
+        return None
+    if isinstance(value, dict):
+        return {k: _sanitize_nans(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_nans(v) for v in value]
+    return value
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # FinancialAnalystAgent
@@ -280,9 +310,20 @@ class FinancialAnalystAgent:
 
         state["raw_numerical_data"]["ticker"] = ticker
         errors: list[str] = []
+        session_id = session_from_shared(state["shared_manager_ref"])
+        _publish_progress(
+            session_id, "agent_brain", agent="financial",
+            message=f"Financial Agent: starting raw data extraction for {ticker}",
+            detail={"ticker": ticker},
+        )
 
         # -- Yahoo Finance: key ratios ----------------------------------------
         log.info("Executor: calling tool_get_financial_ratios for %s", ticker)
+        _publish_progress(
+            session_id, "agent_tool_call", agent="financial",
+            message="Financial Agent: calling tool 'tool_get_financial_ratios'...",
+            detail={"tool": "tool_get_financial_ratios"},
+        )
         try:
             if sentry_enabled():
                 import sentry_sdk
@@ -313,6 +354,16 @@ class FinancialAnalystAgent:
 
         # -- Yahoo Finance: revenue growth ------------------------------------
         log.info("Executor: calling tool_get_revenue_growth for %s", ticker)
+        _publish_progress(
+            session_id, "agent_tool_result", agent="financial",
+            message="Financial Agent: 'tool_get_financial_ratios' completed",
+            detail={"tool": "tool_get_financial_ratios"},
+        )
+        _publish_progress(
+            session_id, "agent_tool_call", agent="financial",
+            message="Financial Agent: calling tool 'tool_get_revenue_growth'...",
+            detail={"tool": "tool_get_revenue_growth"},
+        )
         try:
             if sentry_enabled():
                 import sentry_sdk
@@ -343,6 +394,16 @@ class FinancialAnalystAgent:
 
         # -- SEC EDGAR: XBRL structured financials ----------------------------
         log.info("Executor: calling tool_get_xbrl_financials for %s", ticker)
+        _publish_progress(
+            session_id, "agent_tool_result", agent="financial",
+            message="Financial Agent: 'tool_get_revenue_growth' completed",
+            detail={"tool": "tool_get_revenue_growth"},
+        )
+        _publish_progress(
+            session_id, "agent_tool_call", agent="financial",
+            message="Financial Agent: calling tool 'tool_get_xbrl_financials'...",
+            detail={"tool": "tool_get_xbrl_financials"},
+        )
         try:
             if sentry_enabled():
                 import sentry_sdk
@@ -375,6 +436,11 @@ class FinancialAnalystAgent:
             state["raw_numerical_data"]["extraction_errors"] = errors
         log.info(
             "Executor: data extraction complete — %d error(s) recorded.", len(errors)
+        )
+        _publish_progress(
+            session_id, "agent_tool_result", agent="financial",
+            message="Financial Agent: 'tool_get_xbrl_financials' completed — data extraction done",
+            detail={"tool": "tool_get_xbrl_financials", "errors": len(errors)},
         )
 
     @traceable(name="financial.compute", run_type="tool")
@@ -418,9 +484,15 @@ class FinancialAnalystAgent:
         ratios_src = raw.get("yahoo_ratios", {})
         growth_src = raw.get("revenue_growth", {})
         xbrl_src   = raw.get("xbrl_financials", {})
+        session_id = session_from_shared(state["shared_manager_ref"])
 
         # -- Helper: safe MCP tool call ---------------------------------------
         async def _call(tool: str, args: dict) -> dict:
+            _publish_progress(
+                session_id, "agent_tool_call", agent="financial",
+                message=f"Financial Agent: computing '{tool}'...",
+                detail={"tool": tool},
+            )
             try:
                 if sentry_enabled():
                     import sentry_sdk
@@ -431,9 +503,20 @@ class FinancialAnalystAgent:
                         level="info",
                     )
                 result = await session.call_tool(tool, arguments=args)
-                return json.loads(result.content[0].text)
+                parsed = json.loads(result.content[0].text)
+                _publish_progress(
+                    session_id, "agent_tool_result", agent="financial",
+                    message=f"Financial Agent: '{tool}' computed",
+                    detail={"tool": tool, "outcome": "success"},
+                )
+                return parsed
             except Exception as exc:
                 log.warning("Ratio computation tool '%s' failed: %s", tool, exc)
+                _publish_progress(
+                    session_id, "agent_tool_result", agent="financial",
+                    message=f"Financial Agent: '{tool}' failed",
+                    detail={"tool": tool, "outcome": "error", "error": str(exc)},
+                )
                 if sentry_enabled():
                     import sentry_sdk
                     with sentry_sdk.push_scope() as scope:
@@ -522,11 +605,36 @@ class FinancialAnalystAgent:
             state["calculated_ratios"]["de_ratio"] = {"de_ratio": None, "interpretation": "unavailable"}
 
         # -- Revenue CAGR (using oldest & newest annual revenue points) --------
-        if len(annual_rev) >= 2:
-            newest = annual_rev[0]["revenue"]
-            oldest = annual_rev[-1]["revenue"]
-            years  = len(annual_rev) - 1
-            if newest and oldest and oldest > 0:
+        # IMPORTANT: annual_rev may contain entries whose "revenue" is None
+        # (e.g. the oldest fiscal year often has no value from yfinance). Using
+        # annual_rev[-1] blindly picks that null and voids the whole CAGR, even
+        # when 3-4 valid years are present. Filter to valid points first.
+        #
+        # DEFENSE-IN-DEPTH: this also excludes NaN, not just None. yfinance/
+        # pandas represents a missing cell in an otherwise-present row as
+        # `numpy.nan`, and `nan is not None` is True — so a None-only check
+        # let a NaN "revenue" through as if it were valid data. That NaN then
+        # silently failed the `oldest > 0` guard below (NaN fails every
+        # ordering comparison) and made every CAGR computation report
+        # "unavailable" even with 4 good years of history, and separately
+        # broke JSON persistence downstream ("NaN is not JSON compliant").
+        # yahoo_finance.py's get_revenue_growth() now converts NaN cells to
+        # None at the source (_safe_float()); this check stays as a second
+        # line of defense in case any other upstream source ever supplies a
+        # raw NaN here.
+        def _is_valid_number(x: Any) -> bool:
+            return x is not None and not (isinstance(x, float) and math.isnan(x))
+
+        valid_rev = [
+            e for e in annual_rev
+            if _is_valid_number(e.get("revenue")) and e.get("year") is not None
+        ]
+        valid_rev.sort(key=lambda e: e["year"])  # oldest -> newest
+        if len(valid_rev) >= 2:
+            oldest = valid_rev[0]["revenue"]
+            newest = valid_rev[-1]["revenue"]
+            years  = valid_rev[-1]["year"] - valid_rev[0]["year"]
+            if newest and oldest and oldest > 0 and years > 0:
                 log.info("Computing Revenue CAGR: start=%.0f end=%.0f years=%d", oldest, newest, years)
                 state["calculated_ratios"]["cagr"] = await _call(
                     "tool_calc_cagr",
@@ -540,14 +648,19 @@ class FinancialAnalystAgent:
         # -- Composite Financial Score ----------------------------------------
         log.info("Computing composite financial score")
         cr   = state["calculated_ratios"]
+        # current_ratio now comes through from tool_get_financial_ratios
+        # (yfinance .info "currentRatio"). Without passing it here the composite
+        # score always flagged current_ratio as a missing input.
+        current_ratio_val = ratios_src.get("current_ratio")
         state["calculated_ratios"]["composite_score"] = await _call(
             "tool_calc_composite_score",
             {
-                "pe":               cr.get("pe", {}).get("pe_ratio"),
-                "roe_pct":          cr.get("roe", {}).get("roe_pct"),
-                "net_margin_pct":   cr.get("net_margin", {}).get("net_margin_pct"),
-                "de_ratio":         cr.get("de_ratio", {}).get("de_ratio"),
-                "revenue_cagr_pct": cr.get("cagr", {}).get("cagr_pct"),
+                "pe":                cr.get("pe", {}).get("pe_ratio"),
+                "roe_pct":           cr.get("roe", {}).get("roe_pct"),
+                "net_margin_pct":    cr.get("net_margin", {}).get("net_margin_pct"),
+                "de_ratio":          cr.get("de_ratio", {}).get("de_ratio"),
+                "revenue_cagr_pct":  cr.get("cagr", {}).get("cagr_pct"),
+                "current_ratio_val": current_ratio_val,
             },
         )
 
@@ -558,7 +671,7 @@ class FinancialAnalystAgent:
     # =========================================================================
 
     @traceable(name="financial.checker", run_type="llm")
-    def _check_data_quality(self, state: FinancialAgentState) -> dict[str, Any]:
+    async def _check_data_quality(self, state: FinancialAgentState) -> dict[str, Any]:
         """
         CHECKER — Claude-Powered Financial Data Critic.
 
@@ -679,7 +792,8 @@ class FinancialAnalystAgent:
 
         # -- Call Claude as the Financial Critic ------------------------------
         try:
-            response = self._llm.messages.create(
+            response = await asyncio.to_thread(
+                self._llm.messages.create,
                 model=self._model,
                 max_tokens=768,
                 system=_CHECKER_SYSTEM_PROMPT,
@@ -738,6 +852,15 @@ class FinancialAnalystAgent:
                 score, failed, issues,
             )
 
+        _publish_progress(
+            session_from_shared(state["shared_manager_ref"]), "agent_checker", agent="financial",
+            message=(
+                f"Financial Agent: checking data quality — "
+                f"{'sufficient ✓' if is_complete else 'needs more data'} (score={score})"
+            ),
+            detail={"is_complete": is_complete, "score": score, "failed": failed},
+        )
+
         return {
             "is_complete": is_complete,
             "score":       score,
@@ -752,7 +875,7 @@ class FinancialAnalystAgent:
     # =========================================================================
 
     @traceable(name="financial.brain", run_type="llm")
-    def _brain(self, state: FinancialAgentState) -> dict[str, Any]:
+    async def _brain(self, state: FinancialAgentState) -> dict[str, Any]:
         """
         BRAIN — Planning Node for the Internal Execution Loop.
 
@@ -808,7 +931,8 @@ class FinancialAnalystAgent:
 
         log.info("Brain: invoking Claude for iteration %d planning...", iteration)
         try:
-            response = self._llm.messages.create(
+            response = await asyncio.to_thread(
+                self._llm.messages.create,
                 model=self._model,
                 max_tokens=512,
                 system=system_prompt,
@@ -940,7 +1064,7 @@ class FinancialAnalystAgent:
                     )
 
                     # Layer 3: Brain plans this iteration
-                    brain_output = self._brain(state)
+                    brain_output = await self._brain(state)
                     log.info("Brain plan: %s", brain_output["plan"])
 
                     # Layer 1a: Extract raw market and SEC data
@@ -950,7 +1074,7 @@ class FinancialAnalystAgent:
                     await self._execute_ratio_computation(session, state)
 
                     # Layer 2: Claude-powered Checker audits the extracted data
-                    check_result = self._check_data_quality(state)
+                    check_result = await self._check_data_quality(state)
                     state["is_complete"]         = check_result["is_complete"]
                     state["validation_feedback"] = check_result["feedback"]
 
@@ -1001,6 +1125,7 @@ class FinancialAnalystAgent:
             "net_margin":    calc.get("net_margin", {}),
             "de_ratio":      calc.get("de_ratio", {}),
             "revenue_cagr":  calc.get("cagr", {}),
+            "current_ratio": raw.get("yahoo_ratios", {}).get("current_ratio"),
             "composite_score": calc.get("composite_score", {}),
 
             # Raw revenue history (for downstream charting / narration)
@@ -1020,6 +1145,22 @@ class FinancialAnalystAgent:
             "validation_passed":     state["is_complete"],
             "extraction_errors":     raw.get("extraction_errors", []),
         }
+
+        # -- Final safety net: strip any NaN/Inf that slipped through ---------
+        # This is deliberately the LAST step before the summary leaves the
+        # agent. Root cause: pandas represents a missing cell in an
+        # otherwise-present row as `numpy.nan`, which `float()` happily
+        # converts to a real (but JSON-illegal) `nan` — and that value can
+        # pass ordinary `is not None` checks anywhere upstream. A single
+        # surviving NaN anywhere in this dict crashes downstream JSON
+        # persistence to Supabase with "Out of range float values are not
+        # JSON compliant: nan". Rather than rely on every upstream call site
+        # remembering to guard against NaN individually (yahoo_finance.py's
+        # _safe_float() and this module's CAGR filter both do, but a future
+        # data source might not), recursively sanitize the whole summary
+        # once, here, so this class of crash cannot recur regardless of
+        # where a NaN originates.
+        financial_metrics_summary = _sanitize_nans(financial_metrics_summary)
 
         # Commit to the shared state contract
         shared_state["financial_metrics_summary"] = financial_metrics_summary  # type: ignore[literal-required]

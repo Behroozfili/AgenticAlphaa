@@ -84,12 +84,31 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
 .a-row{display:flex;align-items:center;gap:10px;padding:10px 13px;background:var(--bg2);opacity:.3;transition:opacity .4s,background .3s}
 .a-row.active{opacity:1;background:rgba(99,130,255,.04)}
 .a-row.done{opacity:.75}
+.a-row.errored{opacity:1;background:rgba(240,96,128,.06)}
 .a-dot{width:7px;height:7px;border-radius:50%;background:var(--t3);flex-shrink:0;transition:background .3s,box-shadow .3s}
 .a-row.active .a-dot{background:var(--amber);box-shadow:0 0 0 3px rgba(245,166,35,.2);animation:throb .9s ease-in-out infinite}
 .a-row.done .a-dot{background:var(--green);box-shadow:0 0 0 2px rgba(45,212,160,.15);animation:none}
+.a-row.errored .a-dot{background:var(--red);box-shadow:0 0 0 2px rgba(240,96,128,.2);animation:none}
 .a-name{font-size:11px;font-weight:500;color:var(--t2);width:110px;flex-shrink:0}
-.a-tools{font-family:var(--mono);font-size:9.5px;color:var(--t3);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.a-tools{font-family:var(--mono);font-size:9.5px;color:var(--t3);flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;transition:color .2s}
+.a-row.active .a-tools{color:var(--amber)}
 .a-time{font-family:var(--mono);font-size:10px;color:var(--green);width:36px;text-align:right;flex-shrink:0}
+
+/* Live log */
+.livelog-section{padding:20px 22px 0;flex-shrink:0}
+.livelog-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.livelog-head{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border)}
+.livelog-title{font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--t3)}
+.livelog-count{font-family:var(--mono);font-size:9.5px;color:var(--t3)}
+.livelog-body{max-height:210px;overflow-y:auto;padding:6px 0;display:flex;flex-direction:column-reverse}
+.ll-row{display:flex;align-items:flex-start;gap:8px;padding:5px 14px;font-size:10.5px;line-height:1.5;animation:ll-in .25s ease}
+@keyframes ll-in{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.ll-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:4px}
+.ll-dot.manager{background:var(--blue)}.ll-dot.research{background:var(--purple)}
+.ll-dot.financial{background:var(--amber)}.ll-dot.sentiment{background:var(--green)}
+.ll-dot.error{background:var(--red)}
+.ll-msg{color:var(--t2);flex:1}
+.ll-ts{font-family:var(--mono);font-size:9px;color:var(--t3);flex-shrink:0;margin-top:1px}
 
 /* Results */
 .results-section{padding:20px 22px 32px;display:flex;flex-direction:column;gap:12px}
@@ -226,6 +245,17 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
       </div>
     </div>
 
+    <div class="livelog-section" id="livelog-section" style="display:none">
+      <div class="section-eyebrow" style="margin-bottom:10px">Live Activity</div>
+      <div class="livelog-card">
+        <div class="livelog-head">
+          <span class="livelog-title">Pipeline Log</span>
+          <span class="livelog-count" id="livelog-count">0 events</span>
+        </div>
+        <div class="livelog-body" id="livelog-body"></div>
+      </div>
+    </div>
+
     <div class="results-section" id="results-section" style="display:none"></div>
 
   </div>
@@ -310,71 +340,19 @@ function idleTick() {
 }
 
 // Active run packets
-let runSequence = null;
-let runStep = 0;
 let runTimer = 0;
-
-const RUN_STEPS = [
-  { delay:0,   action:'activateNode', node:'manager', msg:{ from:'manager', text:'Routing query…\nselecting agents' } },
-  { delay:60,  action:'activateNode', node:'research' },
-  { delay:140, action:'spawnFlow',    from:'manager', to:'research', color:'#A78BFA', msg:{ from:'manager', text:'dispatch →\nResearchAgent' } },
-  { delay:200, action:'msg',          from:'research', text:'Searching Tavily…\n7 results found' },
-  { delay:280, action:'msg',          from:'research', text:'SEC filing\nretrieved ✓' },
-  { delay:360, action:'spawnFlow',    from:'research', to:'manager', color:'#A78BFA', msg:{ from:'research', text:'18 chunks ready\nsending back ✓' } },
-  { delay:380, action:'completeNode', node:'research' },
-  { delay:400, action:'activateNode', node:'financial' },
-  { delay:410, action:'spawnFlow',    from:'manager', to:'financial', color:'#F5A623', msg:{ from:'manager', text:'dispatch →\nFinancialAgent' } },
-  { delay:470, action:'msg',          from:'financial', text:'P/E ratio: 45.2\nROE: 31.4%' },
-  { delay:550, action:'msg',          from:'financial', text:'Composite score\ncalculated ✓' },
-  { delay:600, action:'spawnFlow',    from:'financial', to:'manager', color:'#F5A623', msg:{ from:'financial', text:'Metrics complete\n9 ratios ✓' } },
-  { delay:620, action:'completeNode', node:'financial' },
-  { delay:640, action:'activateNode', node:'sentiment' },
-  { delay:650, action:'spawnFlow',    from:'manager', to:'sentiment', color:'#2DD4A0', msg:{ from:'manager', text:'dispatch →\nSentimentAgent' } },
-  { delay:720, action:'msg',          from:'sentiment', text:'FinBERT: +0.71\nVADER: +0.64' },
-  { delay:800, action:'spawnFlow',    from:'sentiment', to:'manager', color:'#2DD4A0', msg:{ from:'sentiment', text:'Bullish signal\nF&G: 72 ✓' } },
-  { delay:820, action:'completeNode', node:'sentiment' },
-  { delay:860, action:'msg',          from:'manager', text:'Synthesizing\nfinal report…' },
-  { delay:1000,action:'completeNode', node:'manager' },
-  { delay:1020,action:'done' },
-];
 
 function triggerRunAnimation() {
   globalRunning = true;
-  runStep = 0;
   runTimer = 0;
-  nodes.forEach(n => { n.active = false; n.done = false; n.pulse = 0; });
+  nodes.forEach(n => { n.active = false; n.done = false; n.errored = false; n.pulse = 0; });
   packets = [];
 }
 
-function processRunStep(t) {
-  while (runStep < RUN_STEPS.length && t >= RUN_STEPS[runStep].delay) {
-    const s = RUN_STEPS[runStep];
-    if (s.action === 'activateNode') {
-      const n = nodes.find(x=>x.id===s.node);
-      if (n) { n.active = true; n.done = false; }
-      activateAgentRow(s.node);
-    }
-    if (s.action === 'completeNode') {
-      const n = nodes.find(x=>x.id===s.node);
-      if (n) { n.active = false; n.done = true; }
-      completeAgentRow(s.node);
-    }
-    if (s.action === 'spawnFlow') {
-      const e = edges.find(x=>x.from===s.from && x.to===s.to);
-      if (e) {
-        const idx = edges.indexOf(e);
-        spawnPacket(idx, s.color);
-        e.active = true;
-        setTimeout(() => { e.active = false; }, 2500);
-      }
-      if (s.msg) showBubble(s.msg.from, s.msg.text);
-    }
-    if (s.action === 'activateNode' && s.msg) showBubble(s.msg.from, s.msg.text);
-    if (s.action === 'msg') showBubble(s.from, s.text);
-    if (s.action === 'done') { globalRunning = false; }
-    runStep++;
-  }
-}
+// No-op: the pipeline is now driven entirely by real SSE events via
+// handleProgressEvent() below, not a scripted fake timeline. Kept as a
+// stub so frame()'s call site doesn't need to change.
+function processRunStep(t) {}
 
 /* ── DRAW ── */
 function lerp(a,b,t){return a+(b-a)*t}
@@ -441,7 +419,7 @@ function drawPacket(p) {
 }
 
 function drawNode(n) {
-  const {px:x,py:y,r,color,active,done,pulse} = n;
+  const {px:x,py:y,r,color,active,done,errored,pulse} = n;
 
   // outer ring (active pulse)
   if (active) {
@@ -455,8 +433,11 @@ function drawNode(n) {
     ctx.strokeStyle=hexAlpha(color,.4);ctx.lineWidth=1.5;ctx.stroke();
   }
 
-  // done subtle ring
-  if (done) {
+  // error ring (takes priority over the plain done ring)
+  if (errored) {
+    ctx.beginPath();ctx.arc(x,y,r+5,0,Math.PI*2);
+    ctx.strokeStyle=hexAlpha('#F06080',.4);ctx.lineWidth=1.4;ctx.stroke();
+  } else if (done) {
     ctx.beginPath();ctx.arc(x,y,r+5,0,Math.PI*2);
     ctx.strokeStyle=hexAlpha('#2DD4A0',.25);ctx.lineWidth=1;ctx.stroke();
   }
@@ -576,6 +557,7 @@ let timerID = null, startT = null;
 function activateAgentRow(id) {
   const el = document.getElementById('ar-'+id);
   if (!el) return;
+  el.classList.remove('errored');
   el.classList.add('active');
   agentT[id] = Date.now();
 }
@@ -591,6 +573,25 @@ function completeAgentRow(id) {
   }
 }
 
+function errorAgentRow(id) {
+  const el = document.getElementById('ar-'+id);
+  if (!el) return;
+  el.classList.remove('active');
+  el.classList.add('errored');
+  if (agentT[id]) {
+    const t = document.getElementById('atime-'+id);
+    if (t) t.textContent = ((Date.now()-agentT[id])/1000).toFixed(1)+'s';
+  }
+}
+
+// Live-updates the small mono-font line under an agent's name in the rail
+// (originally a static tool list, e.g. "tavily · sec_edgar · rag_hybrid")
+// to reflect the actual current step, e.g. "calling rag_hybrid_query...".
+function setAgentDetail(id, text) {
+  const el = document.getElementById('at-'+id);
+  if (el && text) el.textContent = text;
+}
+
 function resetRail() {
   ['manager','research','financial','sentiment'].forEach(id => {
     const el = document.getElementById('ar-'+id);
@@ -598,6 +599,52 @@ function resetRail() {
     const t = document.getElementById('atime-'+id);
     if (t) t.textContent='';
   });
+  const DEFAULT_TOOLS = {
+    manager:    'brain_route · hydrate · evaluate · finalise',
+    research:   'tavily · sec_edgar · rag_hybrid',
+    financial:  'ratios · xbrl · pe · roe · composite',
+    sentiment:  'finbert · vader · fear_greed',
+  };
+  Object.entries(DEFAULT_TOOLS).forEach(([id, text]) => setAgentDetail(id, text));
+}
+
+/* ── LIVE LOG ── */
+let logCount = 0;
+
+function resetLog() {
+  const body = document.getElementById('livelog-body');
+  const sec  = document.getElementById('livelog-section');
+  if (body) body.innerHTML = '';
+  if (sec)  sec.style.display = 'none';
+  logCount = 0;
+  updateLogCount();
+}
+
+function updateLogCount() {
+  const el = document.getElementById('livelog-count');
+  if (el) el.textContent = logCount + (logCount === 1 ? ' event' : ' events');
+}
+
+function appendLogLine(agent, text, ts, isError) {
+  const sec  = document.getElementById('livelog-section');
+  const body = document.getElementById('livelog-body');
+  if (!body) return;
+  if (sec && sec.style.display === 'none') sec.style.display = 'block';
+
+  const row = document.createElement('div');
+  row.className = 'll-row';
+  const dotClass = isError ? 'error' : (agent || 'manager');
+  const time = ts
+    ? new Date(ts * 1000).toLocaleTimeString('en-GB', { hour12: false })
+    : new Date().toLocaleTimeString('en-GB', { hour12: false });
+  row.innerHTML = `<div class="ll-dot ${dotClass}"></div><span class="ll-msg">${text}</span><span class="ll-ts">${time}</span>`;
+  body.appendChild(row);
+
+  logCount++;
+  updateLogCount();
+
+  // Cap DOM growth for very long runs — drop the oldest (first) row.
+  if (body.children.length > 200) body.removeChild(body.firstChild);
 }
 
 function startClock() {
@@ -723,6 +770,102 @@ function copyReport(btn) {
   });
 }
 
+/* ── LIVE PROGRESS EVENT HANDLING ── */
+
+function findEdgeIndex(from, to) {
+  return edges.findIndex(e => e.from === from && e.to === to);
+}
+
+const AGENT_COLOR = { manager: '#6382FF', research: '#A78BFA', financial: '#F5A623', sentiment: '#2DD4A0' };
+
+// Maps a single event pushed by core/progress_bus.py (see manager_agent.py /
+// research_agent.py / financial_agent.py / sentiment_agent.py instrumentation)
+// into the existing graph/rail/bubble visual primitives, plus a persistent
+// log line. This is the live replacement for the old scripted RUN_STEPS
+// timeline — every call here corresponds to something that actually just
+// happened on the backend.
+function handleProgressEvent(evt) {
+  const { type, agent, message, detail } = evt;
+
+  switch (type) {
+    case 'pipeline_start':
+      activateAgentRow('manager');
+      { const n = nodes.find(x => x.id === 'manager'); if (n) { n.active = true; n.done = false; } }
+      showBubble('manager', message);
+      break;
+
+    case 'hydrate':
+    case 'route':
+    case 'evaluate':
+    case 'finalise':
+      showBubble('manager', message);
+      if (type === 'route' && detail?.action) setAgentDetail('manager', 'action: ' + detail.action);
+      break;
+
+    case 'dispatch_start': {
+      activateAgentRow(agent);
+      const n = nodes.find(x => x.id === agent);
+      if (n) { n.active = true; n.done = false; }
+      const idx = findEdgeIndex('manager', agent);
+      if (idx >= 0) {
+        spawnPacket(idx, AGENT_COLOR[agent]);
+        edges[idx].active = true;
+        setTimeout(() => { edges[idx].active = false; }, 2500);
+      }
+      showBubble('manager', message);
+      break;
+    }
+
+    case 'agent_brain':
+    case 'agent_tool_call':
+    case 'agent_tool_result':
+    case 'agent_checker':
+      showBubble(agent, message);
+      if (detail?.tool) {
+        const suffix = detail.outcome === 'error' ? ' ✗' : (detail.outcome === 'success' ? ' ✓' : '…');
+        setAgentDetail(agent, detail.tool + suffix);
+      }
+      break;
+
+    case 'dispatch_end': {
+      const idx = findEdgeIndex(agent, 'manager');
+      if (idx >= 0) {
+        spawnPacket(idx, AGENT_COLOR[agent]);
+        edges[idx].active = true;
+        setTimeout(() => { edges[idx].active = false; }, 2500);
+      }
+      const n = nodes.find(x => x.id === agent);
+      if (detail?.outcome === 'error') {
+        errorAgentRow(agent);
+        if (n) { n.active = false; n.errored = true; }
+      } else {
+        completeAgentRow(agent);
+        if (n) { n.active = false; n.done = true; }
+      }
+      showBubble(agent, message);
+      break;
+    }
+
+    case 'pipeline_complete': {
+      const n = nodes.find(x => x.id === 'manager');
+      if (n) { n.active = false; n.done = true; }
+      completeAgentRow('manager');
+      showBubble('manager', message);
+      break;
+    }
+
+    case 'pipeline_error': {
+      const n = nodes.find(x => x.id === 'manager');
+      if (n) { n.active = false; n.errored = true; }
+      errorAgentRow('manager');
+      showBubble('manager', message);
+      break;
+    }
+  }
+
+  appendLogLine(agent, message, evt.ts, type === 'pipeline_error' || detail?.outcome === 'error');
+}
+
 /* ── RUN ── */
 async function runAnalysis() {
   const query=document.getElementById('query-input').value.trim();
@@ -732,20 +875,35 @@ async function runAnalysis() {
   document.getElementById('results-section').style.display='none';
   document.getElementById('results-section').innerHTML='';
   resetRail();
+  resetLog();
   document.getElementById('live-dot').className='live-dot running';
   document.getElementById('status-label').textContent='analyzing…';
   document.getElementById('run-btn').disabled=true;
   document.getElementById('run-btn').innerHTML='<span style="opacity:.6">Running…</span>';
 
-  // trigger graph animation
   triggerRunAnimation();
   startClock();
 
+  const API_BASE = window.location.origin;
+  const sessionId = (crypto.randomUUID ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2))).replace(/-/g,'').slice(0,12);
+
+  // Open the live progress stream FIRST, using the same session_id we're
+  // about to send in the POST body below — core/progress_bus.py buffers
+  // events per session_id regardless of subscriber timing, but connecting
+  // before the POST fires is the safest order.
+  let es = null;
   try {
-    const body={query,user_id:'anonymous',search_depth:'advanced',days_back:14,include_sentiment:true};
+    es = new EventSource(`${API_BASE}/api/v1/analyze/stream/${sessionId}`);
+    es.onmessage = (e) => {
+      try { handleProgressEvent(JSON.parse(e.data)); } catch (_) {}
+    };
+    es.onerror = () => { /* stream hiccup — the POST response is still authoritative */ };
+  } catch (_) { /* SSE unsupported/blocked — analysis still runs, just without live view */ }
+
+  try {
+    const body={query,user_id:'anonymous',search_depth:'advanced',days_back:14,include_sentiment:true,session_id:sessionId};
     if(ticker) body.ticker=ticker;
 
-    const API_BASE = window.location.origin;
     const res=await fetch(`${API_BASE}/api/v1/analyze`,{
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
     });
@@ -754,18 +912,18 @@ async function runAnalysis() {
     if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail?.message||e.message||`HTTP ${res.status}`);}
     const data=await res.json();
 
-    // mark completed nodes
+    // Safety net: if any node never received a completing event (e.g. a
+    // dropped SSE message), reconcile final state from the authoritative
+    // POST response so the UI never ends up visually "stuck".
     if(data.agent_execution_history?.length){
       const map={ResearchAgent:'research',FinancialAnalystAgent:'financial',SentimentAgent:'sentiment'};
       data.agent_execution_history.forEach(r=>{
         const k=Object.keys(map).find(k=>r.agent_name&&r.agent_name.includes(k));
         if(k){completeAgentRow(map[k]);const n=nodes.find(x=>x.id===map[k]);if(n){n.active=false;n.done=true;}}
       });
-    } else {
-      ['manager','research','financial','sentiment'].forEach(id=>{
-        completeAgentRow(id);const n=nodes.find(x=>x.id===id);if(n){n.active=false;n.done=true;}
-      });
     }
+    completeAgentRow('manager');
+    { const n = nodes.find(x=>x.id==='manager'); if(n){n.active=false;n.done=true;} }
 
     document.getElementById('live-dot').className='live-dot done';
     document.getElementById('status-label').textContent='done · '+data.duration_s+'s';
@@ -780,6 +938,7 @@ async function runAnalysis() {
   } finally {
     document.getElementById('run-btn').disabled=false;
     document.getElementById('run-btn').innerHTML=`<svg width="11" height="11" viewBox="0 0 11 11"><path d="M1 1L10 5.5L1 10V1Z" fill="white"/></svg> Run Analysis`;
+    if (es) es.close();
   }
 }
 
