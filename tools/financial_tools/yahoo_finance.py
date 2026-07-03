@@ -339,16 +339,31 @@ def get_revenue_growth(ticker: str) -> dict:
                 )
                 quarterly_revenue.append({"quarter": quarter, "revenue": rev, "yoy_growth": growth})
 
-        # TTM growth from info dict
+        # NOTE: despite the key name "revenue_growth_ttm" (kept for backward
+        # compatibility with existing consumers), Yahoo Finance's
+        # info["revenueGrowth"] is NOT a true trailing-twelve-month
+        # calculation — it's the YoY growth of the most recently reported
+        # quarter only. This is a known Yahoo/yfinance field-naming quirk,
+        # not something we can fix at the source. Concretely: for AAPL this
+        # returned 0.166 (16.6%) while the full FY2025 annual yoy_growth in
+        # annual_revenue was 0.0643 (6.43%) — a single strong quarter can
+        # diverge a lot from the full-year average. Treat this as
+        # "most recent quarter's YoY growth", NOT as annual/TTM growth, and
+        # do not directly compare it to annual_revenue's yoy_growth values
+        # without noting the period mismatch.
         revenue_growth_ttm = _safe_get(info, "revenueGrowth")
 
         return {
-            "ticker":             ticker.upper(),
-            "annual_revenue":     annual_revenue,
-            "quarterly_revenue":  quarterly_revenue,
-            "annual_net_income":  annual_net_income,
-            "revenue_growth_ttm": revenue_growth_ttm,
-            "error":              None,
+            "ticker":                    ticker.upper(),
+            "annual_revenue":            annual_revenue,
+            "quarterly_revenue":         quarterly_revenue,
+            "annual_net_income":         annual_net_income,
+            "revenue_growth_ttm":        revenue_growth_ttm,
+            # Explicit period label so downstream consumers (LLM narrative
+            # generation, reports) don't conflate this with true annual/TTM
+            # growth — see note above.
+            "revenue_growth_ttm_period": "most_recent_quarter_yoy",
+            "error":                     None,
         }
 
     except Exception as exc:
@@ -377,6 +392,10 @@ def get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
         - "primary"     (dict) : Ratios for the primary ticker.
         - "peers"       (list) : List of ratio dicts for each peer.
         - "summary"     (dict) : Peer-average values for each ratio.
+        - "growth_adjusted_comparison" (dict) : PEG-based comparison —
+          primary vs peer-average PEG ratio, since raw P/E or EV/EBITDA
+          comparisons don't account for differing growth rates between
+          the primary ticker and its peers.
         - "error"       (str | None)
 
     Notes
@@ -404,18 +423,65 @@ def get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
             r = get_financial_ratios(p)
             peer_ratios.append(r)
 
-        # Compute peer averages for numeric fields
+        # Compute peer averages for numeric fields.
+        # NOTE: peg_ratio is included specifically to give a growth-
+        # ADJUSTED comparison, not just raw multiples. Raw P/E or
+        # EV/EBITDA comparisons treat a 5%-growth company and a 30%-
+        # growth company as directly comparable, which is misleading —
+        # PEG (P/E ÷ expected earnings growth) already normalises for
+        # growth, so "primary PEG vs peer-average PEG" answers "is this
+        # stock expensive RELATIVE TO ITS OWN GROWTH RATE compared to
+        # peers" rather than just "is its P/E higher".
         numeric_fields = ["pe_ratio", "forward_pe", "price_to_book",
-                          "price_to_sales", "ev_to_ebitda", "beta"]
+                          "price_to_sales", "ev_to_ebitda", "beta",
+                          "peg_ratio"]
         summary = {}
         for field in numeric_fields:
             values = [r[field] for r in peer_ratios if r.get(field) is not None]
             summary[f"avg_{field}"] = round(sum(values) / len(values), 4) if values else None
 
+        # -- Growth-adjusted comparison (PEG-based) --------------------------
+        primary_peg = primary_ratios.get("peg_ratio")
+        peer_peg_values = [r["peg_ratio"] for r in peer_ratios if r.get("peg_ratio") is not None]
+        growth_adjusted_comparison: dict = {
+            "primary_peg_ratio": primary_peg,
+            "peer_avg_peg_ratio": summary.get("avg_peg_ratio"),
+            "interpretation": "insufficient_data",
+            "note": (
+                "PEG (P/E ÷ expected earnings growth) normalises P/E for "
+                "growth differences between companies, unlike a raw P/E "
+                "comparison. A stock can have a higher P/E than peers but "
+                "still be CHEAPER on a growth-adjusted basis if it's "
+                "growing faster — and vice versa."
+            ),
+        }
+        if primary_peg is not None and peer_peg_values:
+            peer_avg_peg = summary["avg_peg_ratio"]
+            if peer_avg_peg and peer_avg_peg > 0:
+                relative_pct = round((primary_peg - peer_avg_peg) / peer_avg_peg * 100, 1)
+                growth_adjusted_comparison["relative_to_peers_pct"] = relative_pct
+                if relative_pct <= -15:
+                    growth_adjusted_comparison["interpretation"] = "cheap_relative_to_growth"
+                elif relative_pct >= 15:
+                    growth_adjusted_comparison["interpretation"] = "expensive_relative_to_growth"
+                else:
+                    growth_adjusted_comparison["interpretation"] = "in_line_with_peers"
+        elif primary_peg is None:
+            growth_adjusted_comparison["note"] += (
+                " Primary ticker's PEG ratio was unavailable from Yahoo "
+                "Finance — growth-adjusted comparison could not be computed."
+            )
+        elif not peer_peg_values:
+            growth_adjusted_comparison["note"] += (
+                " None of the peer tickers had a PEG ratio available — "
+                "growth-adjusted comparison could not be computed."
+            )
+
         return {
             "primary": primary_ratios,
             "peers":   peer_ratios,
             "summary": summary,
+            "growth_adjusted_comparison": growth_adjusted_comparison,
             "error":   None,
         }
 

@@ -90,8 +90,16 @@ use EXACTLY these argument key names — they differ between tools):
       returns irrelevant results.
 
   - sec_edgar_filing
-      arguments: {"ticker": "<TICKER>", "form_type": "<10-K or 10-Q>"}
+      arguments: {"ticker": "<TICKER>", "form_type": "<10-K or 10-Q>", "sections": [<list>]}
       "ticker" is REQUIRED — this call fails validation without it.
+      "sections" accepts: "business", "risk_factors", "mda", "financial_statements",
+      or "all". Can be a single string or a list. Defaults to "all" if omitted.
+      For a comprehensive investment analysis task, explicitly request
+      ["mda", "risk_factors"] together — risk_factors covers competitive
+      threats, supply chain dependencies, and geopolitical/regulatory
+      exposure (e.g. export restrictions) that MD&A alone does not, and is
+      needed for a complete risk picture. Do not restrict to a single
+      section like ["financial_statements"] alone for this kind of task.
 
   - rag_vector_search
       arguments: {"query": "<search text>", "ticker_filter": "<TICKER>"}
@@ -122,6 +130,21 @@ EVERY call to a ticker-scoped tool. This is not optional and does not
 depend on whether the ticker symbol happens to appear in your own
 "query" text.
 
+QUERY TEXT FORMAT — this differs by tool and matters a lot:
+  - news_search and sec_edgar_search are KEYWORD/boolean full-text search
+    engines, not semantic search. They match literal words, not meaning.
+    Use 2-5 concise keywords, e.g. "AAPL earnings Q2" or "Apple analyst
+    rating upgrade" — NEVER a full sentence like "Apple stock price
+    movement analyst ratings sentiment". A long natural-language query
+    against a keyword engine routinely returns zero or near-zero results,
+    even when the topic is well-covered — this has been observed in
+    production and is not a data availability problem, it's a query
+    phrasing problem.
+  - tavily_search, rag_vector_search, rag_graph_traverse, and
+    rag_hybrid_query use semantic/embedding-based search and handle
+    natural-language phrasing fine — you don't need to compress these
+    into keywords.
+
 Output format (strict JSON, no markdown fences):
 {
   "reasoning": "<one sentence: why these tools in this order>",
@@ -139,6 +162,8 @@ Rules:
 - Incorporate validator feedback when provided to target missing information.
 - Prefer rag_hybrid_query for complex multi-faceted queries.
 - Always include "query" in arguments for search tools.
+- For news_search and sec_edgar_search, keep "query" to 2-5 keywords
+  (see QUERY TEXT FORMAT above) — never a full sentence.
 - Always include the ticker argument (see per-tool schema above) whenever
   MANAGER DIRECTIVES provides one and the tool is ticker-scoped.
 """
@@ -463,6 +488,7 @@ class ResearchAgent:
             self._llm.messages.create,
             model=self._model,
             max_tokens=1024,
+            temperature=0,
             system=_BRAIN_SYSTEM_PROMPT,
             messages=messages_for_api,
         )
@@ -698,6 +724,7 @@ class ResearchAgent:
             self._llm.messages.create,
             model=self._model,
             max_tokens=512,
+            temperature=0,
             system=_CHECKER_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_content}],
         )

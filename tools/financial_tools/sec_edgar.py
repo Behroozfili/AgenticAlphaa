@@ -409,6 +409,30 @@ _NET_INCOME_TAGS = ["NetIncomeLoss", "ProfitLoss"]
 _ASSETS_TAGS = ["Assets"]
 _LIABILITIES_TAGS = ["Liabilities"]
 
+# Cash-flow-statement tags — shared foundation for both Capital Allocation
+# analysis (buybacks/dividends/capex) and DCF's Free Cash Flow input
+# (FCF = operating cash flow − capex). Multiple candidate tags per metric
+# because companies tag the same line item differently; _extract_annual
+# already tries each in order and uses the first with data, same pattern
+# as the existing revenue/net-income tags above.
+_OPERATING_CASH_FLOW_TAGS = [
+    "NetCashProvidedByUsedInOperatingActivities",
+    "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+]
+_CAPEX_TAGS = [
+    "PaymentsToAcquirePropertyPlantAndEquipment",
+    "PaymentsForCapitalImprovements",
+    "PaymentsToAcquireProductiveAssets",
+]
+_DIVIDENDS_PAID_TAGS = [
+    "PaymentsOfDividends",
+    "PaymentsOfDividendsCommonStock",
+]
+_BUYBACKS_TAGS = [
+    "PaymentsForRepurchaseOfCommonStock",
+    "PaymentsForRepurchaseOfEquity",
+]
+
 
 def _extract_annual(facts: dict, tags: list[str]) -> list[dict]:
     """
@@ -475,24 +499,39 @@ def get_xbrl_financials(ticker: str) -> dict:
     Returns
     -------
     dict
-        - "ticker"             (str)
-        - "cik"                (str)
-        - "revenue_annual"     (list[dict]) [{period_end, value, unit}]
-        - "net_income_annual"  (list[dict])
-        - "total_assets"       (list[dict])
-        - "total_liabilities"  (list[dict])
-        - "error"              (str | None)
+        - "ticker"                    (str)
+        - "cik"                       (str)
+        - "revenue_annual"            (list[dict]) [{period_end, value, unit}]
+        - "net_income_annual"         (list[dict])
+        - "total_assets"              (list[dict])
+        - "total_liabilities"         (list[dict])
+        - "operating_cash_flow_annual" (list[dict])  Cash from operations —
+                                        used for Capital Allocation and as
+                                        the starting point for DCF's FCF.
+        - "capex_annual"              (list[dict])  Capital expenditures
+                                        (payments to acquire PP&E).
+                                        FCF = operating_cash_flow − capex.
+        - "dividends_paid_annual"     (list[dict])  Cash dividends paid.
+        - "buybacks_annual"           (list[dict])  Common stock repurchases.
+        - "error"                     (str | None)
 
         Values are in USD. Up to the 10 most recent annual data points per
-        metric are returned (newest first).
+        metric are returned (newest first). Any series may come back empty
+        if the company doesn't tag that concept (e.g. no dividends paid) —
+        an empty list means "none reported", not a fetch failure.
     """
     t = (ticker or "").upper().strip()
 
+    empty_series = {
+        "revenue_annual": [], "net_income_annual": [],
+        "total_assets": [], "total_liabilities": [],
+        "operating_cash_flow_annual": [], "capex_annual": [],
+        "dividends_paid_annual": [], "buybacks_annual": [],
+    }
+
     cik_info = get_cik(t)
     if cik_info.get("error"):
-        return {"ticker": t, "cik": None, "revenue_annual": [],
-                "net_income_annual": [], "total_assets": [],
-                "total_liabilities": [], "error": cik_info["error"]}
+        return {"ticker": t, "cik": None, **empty_series, "error": cik_info["error"]}
 
     cik = cik_info["cik"]
     try:
@@ -502,16 +541,18 @@ def get_xbrl_financials(ticker: str) -> dict:
         )
 
         return {
-            "ticker":            t,
-            "cik":               cik,
-            "revenue_annual":    _extract_annual(facts, _REVENUE_TAGS),
-            "net_income_annual": _extract_annual(facts, _NET_INCOME_TAGS),
-            "total_assets":      _extract_annual(facts, _ASSETS_TAGS),
-            "total_liabilities": _extract_annual(facts, _LIABILITIES_TAGS),
-            "error":             None,
+            "ticker":                     t,
+            "cik":                        cik,
+            "revenue_annual":             _extract_annual(facts, _REVENUE_TAGS),
+            "net_income_annual":          _extract_annual(facts, _NET_INCOME_TAGS),
+            "total_assets":               _extract_annual(facts, _ASSETS_TAGS),
+            "total_liabilities":          _extract_annual(facts, _LIABILITIES_TAGS),
+            "operating_cash_flow_annual": _extract_annual(facts, _OPERATING_CASH_FLOW_TAGS),
+            "capex_annual":               _extract_annual(facts, _CAPEX_TAGS),
+            "dividends_paid_annual":      _extract_annual(facts, _DIVIDENDS_PAID_TAGS),
+            "buybacks_annual":            _extract_annual(facts, _BUYBACKS_TAGS),
+            "error":                      None,
         }
 
     except Exception as exc:
-        return {"ticker": t, "cik": cik, "revenue_annual": [],
-                "net_income_annual": [], "total_assets": [],
-                "total_liabilities": [], "error": str(exc)}
+        return {"ticker": t, "cik": cik, **empty_series, "error": str(exc)}

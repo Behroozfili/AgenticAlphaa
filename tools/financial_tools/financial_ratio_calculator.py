@@ -25,6 +25,7 @@ Ratio categories
 
 from __future__ import annotations
 import math
+import random
 from typing import Any
 
 
@@ -786,3 +787,465 @@ def composite_financial_score(
         "sub_scores":     sub_scores,
         "missing_inputs": missing_inputs,
     }
+
+# ---------------------------------------------------------------------------
+# 5. Discounted Cash Flow (DCF) Valuation
+# ---------------------------------------------------------------------------
+
+def discounted_cash_flow(
+    fcf_base: float,
+    beta: float,
+    shares_outstanding: float | None = None,
+    fcf_growth_rate_pct: float = 8.0,
+    terminal_growth_rate_pct: float = 2.5,
+    risk_free_rate_pct: float = 4.3,
+    market_risk_premium_pct: float = 5.0,
+    projection_years: int = 5,
+) -> dict:
+    """
+    Compute a simplified Discounted Cash Flow (DCF) valuation.
+
+    IMPORTANT — simplifications and required disclosure:
+      1. Discount rate is cost-of-equity via CAPM (risk_free_rate +
+         beta * market_risk_premium), used as a stand-in for WACC. The
+         cost of debt / capital-structure weighting component of a true
+         WACC is NOT included — this pipeline does not have a reliable
+         cost-of-debt or debt/equity weighting input (see the de_ratio
+         approximation note in financial_agent.py). For a low-leverage
+         company this is a reasonable approximation; for a highly
+         levered one it will overstate the discount rate and understate
+         value.
+      2. FCF is projected at a CONSTANT growth rate for projection_years,
+         then a terminal value is computed via Gordon Growth from the
+         final projected year — no fade-down to terminal growth is
+         modelled (a real DCF often tapers growth year by year; this is
+         a simplified single-stage-then-terminal model).
+      3. The result is an ENTERPRISE value, not equity value — no net
+         debt adjustment (total debt − cash) is applied, because this
+         pipeline does not have a reliable standalone cash figure (only
+         total_assets, which includes far more than cash). Do not
+         present "intrinsic_value_per_share" as a directly actionable
+         target price without accounting for net debt separately.
+      4. fcf_growth_rate_pct, terminal_growth_rate_pct, risk_free_rate_pct,
+         and market_risk_premium_pct are ASSUMPTIONS with sensible
+         defaults (terminal growth ≈ long-run GDP growth, risk-free rate
+         ≈ recent 10Y Treasury yield, equity risk premium ≈ long-run
+         historical average) — not live market data. Callers should
+         override them with current values where precision matters, and
+         the output always echoes back exactly which assumptions were
+         used so nothing is hidden.
+
+    Parameters
+    ----------
+    fcf_base : float
+        Most recent annual Free Cash Flow (operating cash flow − capex),
+        in USD. The starting point for the projection.
+    beta : float
+        Equity beta (from Yahoo Finance / yahoo_ratios), used for CAPM.
+    shares_outstanding : float | None
+        If provided, also computes per-share values. If None, only
+        aggregate enterprise value is returned.
+    fcf_growth_rate_pct : float
+        Assumed annual FCF growth rate during the projection window, as
+        a percentage (e.g. 8.0 for 8%). Default is a generic placeholder
+        — callers should pass something grounded in the company's own
+        revenue_cagr or analyst estimates where available.
+    terminal_growth_rate_pct : float
+        Perpetual growth rate applied after the projection window.
+        Default 2.5% (rough long-run nominal GDP growth proxy).
+    risk_free_rate_pct : float
+        Risk-free rate for CAPM, as a percentage. Default 4.3%
+        (approximate recent 10-year US Treasury yield — update this to
+        the current value for precision; it is NOT fetched live).
+    market_risk_premium_pct : float
+        Equity market risk premium for CAPM, as a percentage. Default
+        5.0% (commonly cited long-run historical average).
+    projection_years : int
+        Number of explicit projection years before the terminal value.
+        Default 5.
+
+    Returns
+    -------
+    dict
+        - "enterprise_value"      (float | None)
+        - "intrinsic_value_per_share" (float | None) — only if
+          shares_outstanding was provided; see simplification #3 above.
+        - "discount_rate_pct"     (float) — the CAPM cost-of-equity used.
+        - "terminal_value"        (float)
+        - "pv_of_terminal_value"  (float)
+        - "projected_fcf"         (list[float]) — undiscounted, by year.
+        - "assumptions"           (dict) — every input assumption used,
+          echoed back for transparency.
+        - "interpretation"        (str)
+        - "error"                 (str | None)
+    """
+    assumptions = {
+        "fcf_growth_rate_pct":      fcf_growth_rate_pct,
+        "terminal_growth_rate_pct": terminal_growth_rate_pct,
+        "risk_free_rate_pct":       risk_free_rate_pct,
+        "market_risk_premium_pct":  market_risk_premium_pct,
+        "projection_years":         projection_years,
+    }
+
+    if fcf_base is None or fcf_base <= 0:
+        return {
+            "enterprise_value": None,
+            "intrinsic_value_per_share": None,
+            "discount_rate_pct": None,
+            "terminal_value": None,
+            "pv_of_terminal_value": None,
+            "projected_fcf": [],
+            "assumptions": assumptions,
+            "interpretation": "unavailable",
+            "error": (
+                "fcf_base is missing, zero, or negative — cannot run a "
+                "growth-based DCF off a negative or absent starting FCF."
+            ),
+        }
+
+    if beta is None:
+        return {
+            "enterprise_value": None,
+            "intrinsic_value_per_share": None,
+            "discount_rate_pct": None,
+            "terminal_value": None,
+            "pv_of_terminal_value": None,
+            "projected_fcf": [],
+            "assumptions": assumptions,
+            "interpretation": "unavailable",
+            "error": "beta is required for the CAPM discount rate and was not provided.",
+        }
+
+    discount_rate = (risk_free_rate_pct + beta * market_risk_premium_pct) / 100.0
+    terminal_growth = terminal_growth_rate_pct / 100.0
+    fcf_growth = fcf_growth_rate_pct / 100.0
+
+    if discount_rate <= terminal_growth:
+        return {
+            "enterprise_value": None,
+            "intrinsic_value_per_share": None,
+            "discount_rate_pct": round(discount_rate * 100, 2),
+            "terminal_value": None,
+            "pv_of_terminal_value": None,
+            "projected_fcf": [],
+            "assumptions": assumptions,
+            "interpretation": "unavailable",
+            "error": (
+                f"Discount rate ({discount_rate*100:.2f}%) must exceed terminal "
+                f"growth rate ({terminal_growth_rate_pct:.2f}%) — Gordon Growth "
+                "terminal value is undefined/negative otherwise. This usually "
+                "means beta is unrealistically low for the assumptions given."
+            ),
+        }
+
+    # -- Project FCF and discount each year -----------------------------
+    projected_fcf: list[float] = []
+    pv_fcf_sum = 0.0
+    fcf = fcf_base
+    for year in range(1, projection_years + 1):
+        fcf = fcf * (1 + fcf_growth)
+        projected_fcf.append(round(fcf, 2))
+        pv_fcf_sum += fcf / ((1 + discount_rate) ** year)
+
+    # -- Terminal value (Gordon Growth from the final projected year) ---
+    terminal_value = (projected_fcf[-1] * (1 + terminal_growth)) / (discount_rate - terminal_growth)
+    pv_terminal_value = terminal_value / ((1 + discount_rate) ** projection_years)
+
+    enterprise_value = pv_fcf_sum + pv_terminal_value
+
+    intrinsic_value_per_share = (
+        _safe_div(enterprise_value, shares_outstanding)
+        if shares_outstanding else None
+    )
+
+    return {
+        "enterprise_value":           round(enterprise_value, 2),
+        "intrinsic_value_per_share":  (
+            round(intrinsic_value_per_share, 2)
+            if intrinsic_value_per_share is not None else None
+        ),
+        "discount_rate_pct":          round(discount_rate * 100, 2),
+        "terminal_value":             round(terminal_value, 2),
+        "pv_of_terminal_value":       round(pv_terminal_value, 2),
+        "projected_fcf":              projected_fcf,
+        "assumptions":                assumptions,
+        "interpretation": (
+            "This is an enterprise value estimate with simplified WACC "
+            "(CAPM cost-of-equity only, no debt-cost component) and no "
+            "net-debt adjustment to equity value — see function docstring "
+            "for full disclosure of simplifications. Treat as a rough "
+            "sanity-check range, not a precise target price."
+        ),
+        "error": None,
+    }
+
+
+def dcf_scenario_range(
+    fcf_base: float,
+    beta: float,
+    base_growth_rate_pct: float,
+    shares_outstanding: float | None = None,
+    bear_growth_rate_pct: float | None = None,
+    bull_growth_rate_pct: float | None = None,
+    terminal_growth_rate_pct: float = 2.5,
+    risk_free_rate_pct: float = 4.3,
+    market_risk_premium_pct: float = 5.0,
+    projection_years: int = 5,
+) -> dict:
+    """
+    Run discounted_cash_flow() three times at different FCF growth
+    assumptions (bear / base / bull) instead of returning a single point
+    estimate.
+
+    WHY THIS EXISTS: a single-point DCF using trailing growth (e.g. a
+    company's own historical revenue CAGR) routinely lands far below the
+    current market price for a stock the market is pricing on much higher
+    forward growth expectations (e.g. an AI-infrastructure supercycle
+    narrative). That gap is not necessarily a modelling error — it can
+    correctly show how much "growth premium" is embedded in the price —
+    but presenting only ONE number invites exactly that misreading ("the
+    model must be wrong, or the market must be about to crash"). Showing
+    the value across a growth-rate range makes the sensitivity explicit
+    instead of hiding it behind a single figure, and gives the Bull/Base/
+    Bear narrative scenarios an actual numeric anchor (still not a
+    probability — see the caller's guidance on that).
+
+    Parameters
+    ----------
+    fcf_base, beta, shares_outstanding, terminal_growth_rate_pct,
+    risk_free_rate_pct, market_risk_premium_pct, projection_years :
+        Same as discounted_cash_flow().
+    base_growth_rate_pct : float
+        The "Base case" FCF growth assumption — typically the company's
+        own trailing revenue/FCF CAGR.
+    bear_growth_rate_pct : float | None
+        Bear case growth. Defaults to half of base_growth_rate_pct
+        (floored at terminal_growth_rate_pct + 0.5 to stay valid) if
+        not provided.
+    bull_growth_rate_pct : float | None
+        Bull case growth. Defaults to 1.75x base_growth_rate_pct if not
+        provided — a rough stand-in for "the market's more optimistic
+        growth case", not a specific forecast.
+
+    Returns
+    -------
+    dict
+        - "bear", "base", "bull" (dict each) — full discounted_cash_flow()
+          output for that growth assumption.
+        - "note" (str) — explains what the range does and doesn't mean.
+    """
+    if bear_growth_rate_pct is None:
+        bear_growth_rate_pct = max(
+            base_growth_rate_pct * 0.5, terminal_growth_rate_pct + 0.5
+        )
+    if bull_growth_rate_pct is None:
+        bull_growth_rate_pct = base_growth_rate_pct * 1.75
+
+    def _run(growth_pct: float) -> dict:
+        return discounted_cash_flow(
+            fcf_base=fcf_base,
+            beta=beta,
+            shares_outstanding=shares_outstanding,
+            fcf_growth_rate_pct=growth_pct,
+            terminal_growth_rate_pct=terminal_growth_rate_pct,
+            risk_free_rate_pct=risk_free_rate_pct,
+            market_risk_premium_pct=market_risk_premium_pct,
+            projection_years=projection_years,
+        )
+
+    return {
+        "bear": _run(bear_growth_rate_pct),
+        "base": _run(base_growth_rate_pct),
+        "bull": _run(bull_growth_rate_pct),
+        "note": (
+            "Three DCF runs at different FCF growth assumptions (bear/base/"
+            "bull), NOT weighted or averaged into a single 'expected value' "
+            "— no probability is assigned to any of the three. A wide gap "
+            "between the bull case and current market price indicates the "
+            "market is pricing in growth beyond even the optimistic case "
+            "modelled here; a narrow gap suggests current price is closer "
+            "to what a strong-growth scenario would justify."
+        ),
+    }
+
+
+def dcf_monte_carlo(
+    fcf_base: float,
+    beta: float,
+    base_growth_rate_pct: float,
+    shares_outstanding: float | None = None,
+    growth_std_pct: float | None = None,
+    terminal_growth_rate_pct: float = 2.5,
+    risk_free_rate_pct: float = 4.3,
+    market_risk_premium_pct: float = 5.0,
+    projection_years: int = 5,
+    n_simulations: int = 2000,
+    seed: int | None = None,
+) -> dict:
+    """
+    Probabilistic DCF via Monte Carlo simulation on the FCF growth-rate
+    assumption, producing a distribution of enterprise values (P10/P50/P90)
+    instead of a single point or three fixed scenarios.
+
+    SCOPE — what this does and does NOT model:
+      - Randomises FCF growth_rate_pct only, sampled from a normal
+        distribution centred on base_growth_rate_pct. Growth rate is the
+        single biggest driver of variance in this DCF's output (see the
+        bear/base/bull spread in dcf_scenario_range), so it's the highest-
+        value variable to randomise first.
+      - Does NOT randomise margin, discount rate (beta), or terminal
+        growth — those are held fixed at the values given. A fuller
+        multi-factor Monte Carlo (margin, discount rate, terminal growth
+        all varying jointly, ideally with realistic correlations between
+        them) is a larger extension than this function provides.
+      - Growth samples are clamped to stay above
+        (terminal_growth_rate_pct + 0.5) so every simulation run is valid
+        (the underlying DCF formula is undefined when growth >= discount
+        rate); simulations that would violate this are floored rather
+        than discarded, which means the resulting distribution is not a
+        pure unclamped normal — this is disclosed in the output, not
+        hidden.
+      - This is a genuinely wider, more honest picture of valuation
+        uncertainty than a single point estimate, but it is NOT a
+        calibrated statistical model — the growth_std_pct is a
+        judgment-call input (default derived from the same spread used
+        in dcf_scenario_range), not fit to historical forecast errors.
+
+    Parameters
+    ----------
+    fcf_base, beta, shares_outstanding, terminal_growth_rate_pct,
+    risk_free_rate_pct, market_risk_premium_pct, projection_years :
+        Same as discounted_cash_flow().
+    base_growth_rate_pct : float
+        Mean of the growth-rate distribution — typically the company's
+        own trailing revenue/FCF CAGR.
+    growth_std_pct : float | None
+        Standard deviation of the growth-rate distribution, in
+        percentage points. If None, defaults to
+        max(base_growth_rate_pct * 0.4, 2.0) — a moderate spread
+        proportional to the base growth rate, floored at 2 percentage
+        points so low-growth companies still get meaningful dispersion.
+    n_simulations : int
+        Number of Monte Carlo draws. Default 2000 (enough for stable
+        percentile estimates without being slow — this runs in pure
+        Python, no external dependencies).
+    seed : int | None
+        Optional RNG seed for reproducible results (e.g. in tests).
+
+    Returns
+    -------
+    dict
+        - "n_simulations"    (int) — successful simulation count.
+        - "enterprise_value_p10/p50/p90" (float)
+        - "intrinsic_value_per_share_p10/p50/p90" (float | None) — only
+          if shares_outstanding was provided.
+        - "growth_rate_mean_pct", "growth_rate_std_pct" (float) — echoed
+          back for transparency.
+        - "discount_rate_pct" (float) — fixed CAPM rate used throughout.
+        - "note" (str) — scope disclosure, see above.
+        - "error" (str | None)
+    """
+    if fcf_base is None or fcf_base <= 0:
+        return {
+            "n_simulations": 0,
+            "enterprise_value_p10": None, "enterprise_value_p50": None, "enterprise_value_p90": None,
+            "intrinsic_value_per_share_p10": None, "intrinsic_value_per_share_p50": None, "intrinsic_value_per_share_p90": None,
+            "growth_rate_mean_pct": base_growth_rate_pct,
+            "growth_rate_std_pct": growth_std_pct,
+            "discount_rate_pct": None,
+            "note": "",
+            "error": "fcf_base is missing, zero, or negative — cannot run Monte Carlo DCF.",
+        }
+    if beta is None:
+        return {
+            "n_simulations": 0,
+            "enterprise_value_p10": None, "enterprise_value_p50": None, "enterprise_value_p90": None,
+            "intrinsic_value_per_share_p10": None, "intrinsic_value_per_share_p50": None, "intrinsic_value_per_share_p90": None,
+            "growth_rate_mean_pct": base_growth_rate_pct,
+            "growth_rate_std_pct": growth_std_pct,
+            "discount_rate_pct": None,
+            "note": "",
+            "error": "beta is required for the CAPM discount rate and was not provided.",
+        }
+
+    if growth_std_pct is None:
+        growth_std_pct = max(base_growth_rate_pct * 0.4, 2.0)
+
+    rng = random.Random(seed)
+    ev_samples: list[float] = []
+    per_share_samples: list[float] = []
+    discount_rate_pct = None
+    clamped_count = 0
+
+    floor_growth = terminal_growth_rate_pct + 0.5
+
+    for _ in range(n_simulations):
+        g = rng.gauss(base_growth_rate_pct, growth_std_pct)
+        if g < floor_growth:
+            g = floor_growth
+            clamped_count += 1
+
+        result = discounted_cash_flow(
+            fcf_base=fcf_base,
+            beta=beta,
+            shares_outstanding=shares_outstanding,
+            fcf_growth_rate_pct=g,
+            terminal_growth_rate_pct=terminal_growth_rate_pct,
+            risk_free_rate_pct=risk_free_rate_pct,
+            market_risk_premium_pct=market_risk_premium_pct,
+            projection_years=projection_years,
+        )
+        if result.get("error") is None:
+            ev_samples.append(result["enterprise_value"])
+            if result.get("intrinsic_value_per_share") is not None:
+                per_share_samples.append(result["intrinsic_value_per_share"])
+            if discount_rate_pct is None:
+                discount_rate_pct = result["discount_rate_pct"]
+
+    if not ev_samples:
+        return {
+            "n_simulations": 0,
+            "enterprise_value_p10": None, "enterprise_value_p50": None, "enterprise_value_p90": None,
+            "intrinsic_value_per_share_p10": None, "intrinsic_value_per_share_p50": None, "intrinsic_value_per_share_p90": None,
+            "growth_rate_mean_pct": base_growth_rate_pct,
+            "growth_rate_std_pct": growth_std_pct,
+            "discount_rate_pct": None,
+            "note": "",
+            "error": "All simulations failed — beta may be unrealistically low relative to the assumptions given.",
+        }
+
+    def _percentile(sorted_vals: list[float], p: float) -> float:
+        idx = min(int(len(sorted_vals) * p), len(sorted_vals) - 1)
+        return round(sorted_vals[idx], 2)
+
+    ev_samples.sort()
+    result_dict = {
+        "n_simulations": len(ev_samples),
+        "enterprise_value_p10": _percentile(ev_samples, 0.10),
+        "enterprise_value_p50": _percentile(ev_samples, 0.50),
+        "enterprise_value_p90": _percentile(ev_samples, 0.90),
+        "growth_rate_mean_pct": base_growth_rate_pct,
+        "growth_rate_std_pct": growth_std_pct,
+        "discount_rate_pct": discount_rate_pct,
+        "note": (
+            f"Monte Carlo over FCF growth rate only (mean={base_growth_rate_pct}%, "
+            f"std={growth_std_pct}%), {n_simulations} simulations "
+            f"({clamped_count} clamped to the minimum valid growth rate). "
+            "Margin, discount rate, and terminal growth were held fixed — "
+            "see function docstring for full scope disclosure. This shows "
+            "the range of outcomes from growth-rate uncertainty alone, not "
+            "a fully calibrated probabilistic valuation."
+        ),
+        "error": None,
+    }
+    if per_share_samples:
+        per_share_samples.sort()
+        result_dict["intrinsic_value_per_share_p10"] = _percentile(per_share_samples, 0.10)
+        result_dict["intrinsic_value_per_share_p50"] = _percentile(per_share_samples, 0.50)
+        result_dict["intrinsic_value_per_share_p90"] = _percentile(per_share_samples, 0.90)
+    else:
+        result_dict["intrinsic_value_per_share_p10"] = None
+        result_dict["intrinsic_value_per_share_p50"] = None
+        result_dict["intrinsic_value_per_share_p90"] = None
+
+    return result_dict

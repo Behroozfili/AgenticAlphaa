@@ -102,6 +102,9 @@ from financial_ratio_calculator import (
     cagr,
     compute_revenue_cagr_from_growth,
     composite_financial_score,
+    discounted_cash_flow,
+    dcf_scenario_range,
+    dcf_monte_carlo,
 )
 
 # ---------------------------------------------------------------------------
@@ -218,12 +221,22 @@ def tool_get_revenue_growth(ticker: str) -> dict:
 
     Returns:
         dict with keys:
-          - ticker              (str)
-          - annual_revenue      (list[dict]) [{year, revenue, yoy_growth}]
-          - quarterly_revenue   (list[dict]) [{quarter, revenue, yoy_growth}]
-          - annual_net_income   (list[dict]) [{year, net_income, yoy_growth}]
-          - revenue_growth_ttm  (float | None) Trailing 12-month YoY growth.
-          - error               (str | None)
+          - ticker                     (str)
+          - annual_revenue             (list[dict]) [{year, revenue, yoy_growth}]
+          - quarterly_revenue          (list[dict]) [{quarter, revenue, yoy_growth}]
+          - annual_net_income          (list[dict]) [{year, net_income, yoy_growth}]
+          - revenue_growth_ttm         (float | None) NOT a true trailing-12-
+                                        month figure — this is Yahoo Finance's
+                                        info["revenueGrowth"], which is the
+                                        YoY growth of the MOST RECENT QUARTER
+                                        only (a known Yahoo/yfinance naming
+                                        quirk). Do not treat this as
+                                        comparable to annual_revenue's
+                                        yoy_growth values without accounting
+                                        for the period mismatch.
+          - revenue_growth_ttm_period  (str) Always "most_recent_quarter_yoy" —
+                                        explicit label for the above caveat.
+          - error                      (str | None)
 
         Growth values are decimals (e.g. 1.22 = +122% growth).
     """
@@ -621,6 +634,178 @@ def tool_calc_debt_to_equity(total_debt: float, shareholders_equity: float) -> d
     """
     log.info("tool_calc_debt_to_equity called: debt=%s equity=%s", total_debt, shareholders_equity)
     return debt_to_equity(total_debt, shareholders_equity)
+
+
+@mcp.tool()
+def tool_calc_dcf(
+    fcf_base: float,
+    beta: float,
+    shares_outstanding: float | None = None,
+    fcf_growth_rate_pct: float = 8.0,
+    terminal_growth_rate_pct: float = 2.5,
+    risk_free_rate_pct: float = 4.3,
+    market_risk_premium_pct: float = 5.0,
+    projection_years: int = 5,
+) -> dict:
+    """
+    Compute a simplified Discounted Cash Flow (DCF) valuation.
+
+    IMPORTANT: this is a simplified model — CAPM cost-of-equity is used as
+    a stand-in for WACC (no cost-of-debt component), and the result is an
+    ENTERPRISE value with no net-debt adjustment to equity value. See
+    discounted_cash_flow()'s docstring in financial_ratio_calculator.py
+    for full disclosure. Treat output as a rough sanity-check range, not
+    a precise target price.
+
+    Args:
+        fcf_base:                  Most recent annual Free Cash Flow
+                                    (operating cash flow − capex), USD.
+                                    Get both from tool_get_xbrl_financials'
+                                    operating_cash_flow_annual / capex_annual.
+        beta:                      Equity beta (from tool_get_financial_ratios).
+        shares_outstanding:        Optional — enables per-share output.
+        fcf_growth_rate_pct:       Assumed FCF growth during projection window.
+                                    Consider grounding this in the company's
+                                    own revenue_cagr rather than the default.
+        terminal_growth_rate_pct:  Perpetual growth after projection window.
+        risk_free_rate_pct:        CAPM risk-free rate — update to current
+                                    10-year Treasury yield for precision.
+        market_risk_premium_pct:   CAPM equity risk premium.
+        projection_years:          Number of explicit projection years.
+
+    Returns:
+        dict with keys:
+          - enterprise_value, intrinsic_value_per_share (float | None)
+          - discount_rate_pct, terminal_value, pv_of_terminal_value
+          - projected_fcf (list[float])
+          - assumptions (dict) — every assumption used, echoed back
+          - interpretation (str), error (str | None)
+    """
+    log.info(
+        "tool_calc_dcf called: fcf_base=%s beta=%s shares_outstanding=%s",
+        fcf_base, beta, shares_outstanding,
+    )
+    return discounted_cash_flow(
+        fcf_base=fcf_base,
+        beta=beta,
+        shares_outstanding=shares_outstanding,
+        fcf_growth_rate_pct=fcf_growth_rate_pct,
+        terminal_growth_rate_pct=terminal_growth_rate_pct,
+        risk_free_rate_pct=risk_free_rate_pct,
+        market_risk_premium_pct=market_risk_premium_pct,
+        projection_years=projection_years,
+    )
+
+
+@mcp.tool()
+def tool_calc_dcf_scenarios(
+    fcf_base: float,
+    beta: float,
+    base_growth_rate_pct: float,
+    shares_outstanding: float | None = None,
+    bear_growth_rate_pct: float | None = None,
+    bull_growth_rate_pct: float | None = None,
+    terminal_growth_rate_pct: float = 2.5,
+    risk_free_rate_pct: float = 4.3,
+    market_risk_premium_pct: float = 5.0,
+    projection_years: int = 5,
+) -> dict:
+    """
+    Run DCF at three FCF growth assumptions (bear/base/bull) instead of a
+    single point estimate. Prefer this over tool_calc_dcf for report
+    generation — a single-point DCF using trailing growth routinely lands
+    far below market price for a high-growth stock, which reads as "the
+    model is broken" unless the growth-rate sensitivity is shown
+    explicitly. See dcf_scenario_range()'s docstring for full rationale.
+
+    Args:
+        fcf_base, beta, shares_outstanding, terminal_growth_rate_pct,
+        risk_free_rate_pct, market_risk_premium_pct, projection_years:
+            Same as tool_calc_dcf.
+        base_growth_rate_pct: Base case growth — typically the company's
+            own trailing revenue/FCF CAGR (e.g. from tool_calc_cagr).
+        bear_growth_rate_pct: Optional override; defaults to ~half of base.
+        bull_growth_rate_pct: Optional override; defaults to ~1.75x base.
+
+    Returns:
+        dict with keys "bear", "base", "bull" (each a full DCF result
+        dict) and "note" explaining how to read the range.
+    """
+    log.info(
+        "tool_calc_dcf_scenarios called: fcf_base=%s beta=%s base_growth=%s",
+        fcf_base, beta, base_growth_rate_pct,
+    )
+    return dcf_scenario_range(
+        fcf_base=fcf_base,
+        beta=beta,
+        base_growth_rate_pct=base_growth_rate_pct,
+        shares_outstanding=shares_outstanding,
+        bear_growth_rate_pct=bear_growth_rate_pct,
+        bull_growth_rate_pct=bull_growth_rate_pct,
+        terminal_growth_rate_pct=terminal_growth_rate_pct,
+        risk_free_rate_pct=risk_free_rate_pct,
+        market_risk_premium_pct=market_risk_premium_pct,
+        projection_years=projection_years,
+    )
+
+
+@mcp.tool()
+def tool_calc_dcf_monte_carlo(
+    fcf_base: float,
+    beta: float,
+    base_growth_rate_pct: float,
+    shares_outstanding: float | None = None,
+    growth_std_pct: float | None = None,
+    terminal_growth_rate_pct: float = 2.5,
+    risk_free_rate_pct: float = 4.3,
+    market_risk_premium_pct: float = 5.0,
+    projection_years: int = 5,
+    n_simulations: int = 2000,
+) -> dict:
+    """
+    Probabilistic DCF via Monte Carlo simulation on the FCF growth rate,
+    returning P10/P50/P90 percentiles instead of a single point or three
+    fixed scenarios.
+
+    SCOPE: randomises growth rate ONLY (the biggest driver of variance in
+    this model) — margin, discount rate, and terminal growth are held
+    fixed. This is a wider, more honest picture of valuation uncertainty
+    than a single number, but is NOT a fully calibrated multi-factor
+    probabilistic model. See dcf_monte_carlo()'s docstring in
+    financial_ratio_calculator.py for complete scope disclosure.
+
+    Args:
+        fcf_base, beta, shares_outstanding, terminal_growth_rate_pct,
+        risk_free_rate_pct, market_risk_premium_pct, projection_years:
+            Same as tool_calc_dcf.
+        base_growth_rate_pct: Mean of the growth-rate distribution —
+            typically the company's own trailing revenue/FCF CAGR.
+        growth_std_pct: Std dev of the growth-rate distribution in
+            percentage points. Defaults to max(base*0.4, 2.0) if omitted.
+        n_simulations: Number of Monte Carlo draws (default 2000).
+
+    Returns:
+        dict with enterprise_value_p10/p50/p90,
+        intrinsic_value_per_share_p10/p50/p90 (if shares_outstanding
+        given), growth_rate_mean_pct/std_pct, discount_rate_pct, note,
+        and error.
+    """
+    log.info(
+        "tool_calc_dcf_monte_carlo called: fcf_base=%s beta=%s base_growth=%s n_sim=%s",
+        fcf_base, beta, base_growth_rate_pct, n_simulations,
+    )
+    return dcf_monte_carlo(
+        fcf_base=fcf_base,
+        beta=beta,
+        base_growth_rate_pct=base_growth_rate_pct,
+        shares_outstanding=shares_outstanding,
+        growth_std_pct=growth_std_pct,
+        terminal_growth_rate_pct=terminal_growth_rate_pct,
+        risk_free_rate_pct=risk_free_rate_pct,
+        market_risk_premium_pct=market_risk_premium_pct,
+        projection_years=projection_years,
+        n_simulations=n_simulations,
+    )
 
 
 @mcp.tool()

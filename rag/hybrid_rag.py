@@ -23,6 +23,10 @@ from core.observability import sentry_enabled
 logger = logging.getLogger(__name__)
 
 # ── Optional imports — graceful degradation ────────────────────────────────
+# NOTE: _sb (raw Supabase client) and _embed() below are no longer used by
+# rag_vector_search itself (it now goes through AlphaRetriever/AlphaVectorStore
+# instead — see _retriever setup further down). Left in place in case other
+# tools in this module rely on them directly.
 
 try:
     from supabase import create_client
@@ -58,6 +62,27 @@ except Exception as exc:
     _embedder = None
     logger.warning("AlphaEmbedder not available: %s", exc)
 
+# AlphaRetriever gives ResearchAgent the full 4-stage pipeline (hybrid
+# search → freshness reranking → source diversity filter → token budget)
+# instead of a raw Supabase RPC call. All three narrowing stages are left
+# at their defaults (enabled) here — ResearchAgent's chunks feed straight
+# into an LLM prompt, so recency, source diversity, and a bounded context
+# size all matter for it, unlike SentimentAgent's retrieve_social_data
+# (rag/sentiment_server.py), which explicitly disables freshness reranking
+# and diversity filtering since its output feeds FinBERT/VADER batch
+# scoring rather than a prompt.
+try:
+    from rag.retriever import AlphaRetriever
+    from rag.vector_store import AlphaVectorStore
+    _vector_store = AlphaVectorStore(
+        supabase_url=os.environ["SUPABASE_URL"],
+        supabase_key=os.environ.get("SUPABASE_SERVICE_ROLE_KEY") or os.environ["SUPABASE_KEY"],
+    )
+    _retriever = AlphaRetriever(vector_store=_vector_store, embedder=_embedder)
+except Exception as exc:
+    _retriever = None
+    logger.warning("AlphaRetriever not available: %s", exc)
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Tool 1 — Vector Search (Supabase pgvector via alpha_hybrid_search RPC)
@@ -72,41 +97,41 @@ async def rag_vector_search(
     threshold: float = 0.01,
 ) -> dict:
     """
-    Semantic + full-text hybrid search over the Supabase knowledge base.
+    Semantic + full-text hybrid search over the Supabase knowledge base,
+    run through AlphaRetriever's full pipeline: hybrid search → freshness
+    reranking → source diversity filter → token budget. (Previously this
+    called the Supabase RPC directly and skipped those last three stages;
+    SentimentAgent's separate retrieve_social_data path intentionally
+    skips freshness/diversity since its consumer is FinBERT/VADER, not an
+    LLM prompt — see rag/sentiment_server.py for that rationale.)
+
+    top_k is honoured as a final slice on top of the retriever's own
+    stage3_k (diversity-filter output count); if top_k < stage3_k you get
+    fewer, if top_k > stage3_k the diversity filter's cap still applies
+    since that's the whole point of using it here.
     """
-    if not _sb:
-        return {"query": query, "results": [], "warning": "Supabase not configured"}
-
-    embedding = _embed(query)
-
-    params: dict = {
-        "query_embedding": embedding,
-        "query_text":      query,
-        "top_k":           top_k * 2,
-        "rrf_k":           60,
-        "page_offset":     0,
-    }
-    if ticker_filter:
-        params["filter_ticker"] = ticker_filter.upper()
-    if days_back is not None:
-        params["days_back"] = days_back
+    if not _retriever:
+        return {"query": query, "results": [], "warning": "AlphaRetriever not configured"}
 
     if sentry_enabled():
         import sentry_sdk
         sentry_sdk.add_breadcrumb(
             category="rag.vector_search",
-            message="Calling Supabase alpha_hybrid_search RPC",
+            message="Calling AlphaRetriever.retrieve_raw (full pipeline)",
             data={"query": query[:100], "ticker_filter": ticker_filter},
             level="info",
         )
 
     try:
-        resp = await asyncio.to_thread(
-            lambda: _sb.rpc("alpha_hybrid_search", params).execute()
+        raw_chunks = await asyncio.to_thread(
+            _retriever.retrieve_raw,
+            query=query,
+            ticker=ticker_filter.upper() if ticker_filter else None,
+            days_back=days_back,
+            score_threshold=threshold,
         )
-        rows: list[dict] = resp.data or []
     except Exception as exc:
-        logger.error("Supabase RPC error: %s", exc)
+        logger.error("AlphaRetriever error: %s", exc)
         if sentry_enabled():
             import sentry_sdk
             with sentry_sdk.push_scope() as scope:
@@ -120,14 +145,16 @@ async def rag_vector_search(
             "ticker":       r.get("ticker"),
             "source_type":  r.get("source_type"),
             "chunk_text":   r.get("text"),
-            "score":        round(r.get("rrf_score", 0.0), 6),
+            # freshness_score reflects the post-reranking score (what
+            # actually determined ordering/survival); fall back to the
+            # raw rrf_score if freshness reranking somehow wasn't applied.
+            "score":        round(r.get("freshness_score", r.get("rrf_score", 0.0)), 6),
             "published_at": r.get("published_at"),
             "url":          r.get("url"),
             "title":        r.get("title"),
             "chunk_index":  r.get("chunk_index"),
         }
-        for r in rows
-        if r.get("rrf_score", 0.0) >= threshold
+        for r in raw_chunks
     ]
     return {"query": query, "results": results[:top_k]}
 

@@ -52,7 +52,23 @@ class AlphaRetriever:
         stage2_k: int = STAGE2_TOP_K,
         stage3_k: int = STAGE3_TOP_K,
         token_budget: int = TOKEN_BUDGET,
+        apply_freshness_rerank: bool = True,
+        apply_diversity_filter: bool = True,
+        apply_token_budget: bool = True,
     ) -> None:
+        # apply_freshness_rerank : if False, skip Stage 2 (no top-N slice by
+        #     recency) — candidates keep their raw hybrid_search order.
+        # apply_diversity_filter : if False, skip Stage 3 (no per-URL /
+        #     per-source_type caps). Use for consumers that need maximum
+        #     sample size (e.g. sentiment scoring over many chunks) rather
+        #     than a small, source-diverse set for LLM context.
+        # apply_token_budget     : if False, skip Stage 4 (no character cap).
+        #     Only disable for non-LLM consumers (e.g. FinBERT/VADER batch
+        #     scoring) since the budget exists to protect prompt windows.
+        # All three default to True, preserving existing behaviour for any
+        # current caller. Set them False for pipelines (like sentiment
+        # scoring) that want raw hybrid-search breadth instead of a small,
+        # LLM-context-optimised set.
         self.store    = vector_store
         # WARNING: if embedder=None, get_embedder() is called here which
         # loads the ~200 MB BAAI/bge-small-en-v1.5 model on first use.
@@ -64,6 +80,9 @@ class AlphaRetriever:
         self.stage2_k              = stage2_k
         self.stage3_k              = stage3_k
         self.token_budget          = token_budget
+        self.apply_freshness_rerank = apply_freshness_rerank
+        self.apply_diversity_filter = apply_diversity_filter
+        self.apply_token_budget     = apply_token_budget
 
     # ------------------------------------------------------------------
     # Public API
@@ -82,31 +101,7 @@ class AlphaRetriever:
         Returns a citation-formatted context string ready to be injected
         into an LLM prompt.
         """
-        # Stage 1 — Hybrid Search
-        query_vec = self.embedder.embed_query(query)
-        candidates = self.store.hybrid_search(
-            query_embedding=query_vec,
-            query_text=query,
-            ticker=ticker,
-            days_back=days_back,
-            top_k=self.stage1_k,
-            score_threshold=score_threshold,
-            limit=self.stage1_k,
-        )
-        logger.info("Stage 1 candidates: %d", len(candidates))
-
-        # Stage 2 — Freshness Reranking
-        reranked = self._rerank_by_freshness(candidates)
-        top_reranked = reranked[: self.stage2_k]
-        logger.info("Stage 2 after reranking: %d", len(top_reranked))
-
-        # Stage 3 — Source Diversity
-        diverse = self._diversity_filter(top_reranked)
-        logger.info("Stage 3 after diversity filter: %d", len(diverse))
-
-        # Stage 4 — Context Budget
-        budgeted = self._apply_token_budget(diverse)
-        logger.info("Stage 4 after token budget: %d chunks", len(budgeted))
+        budgeted = self._run_pipeline(query, ticker, days_back, score_threshold)
 
         # Stage 5 — Format
         return self._format_context(budgeted)
@@ -119,7 +114,21 @@ class AlphaRetriever:
         score_threshold: float = 0.01,
     ) -> list[dict[str, Any]]:
         """Same pipeline but returns the raw chunk dicts (useful for evaluation)."""
-        query_vec  = self.embedder.embed_query(query)
+        return self._run_pipeline(query, ticker, days_back, score_threshold)
+
+    # ------------------------------------------------------------------
+    # Shared pipeline (Stages 1-4), honouring the apply_* bypass flags
+    # ------------------------------------------------------------------
+
+    def _run_pipeline(
+        self,
+        query: str,
+        ticker: Optional[str],
+        days_back: Optional[int],
+        score_threshold: float,
+    ) -> list[dict[str, Any]]:
+        # Stage 1 — Hybrid Search (always runs — this is the actual retrieval)
+        query_vec = self.embedder.embed_query(query)
         candidates = self.store.hybrid_search(
             query_embedding=query_vec,
             query_text=query,
@@ -129,9 +138,38 @@ class AlphaRetriever:
             score_threshold=score_threshold,
             limit=self.stage1_k,
         )
-        reranked   = self._rerank_by_freshness(candidates)[: self.stage2_k]
-        diverse    = self._diversity_filter(reranked)
-        return self._apply_token_budget(diverse)
+        logger.info("Stage 1 candidates: %d", len(candidates))
+
+        # Stage 2 — Freshness Reranking (optional)
+        if self.apply_freshness_rerank:
+            reranked = self._rerank_by_freshness(candidates)[: self.stage2_k]
+            logger.info("Stage 2 after reranking: %d", len(reranked))
+        else:
+            reranked = candidates
+            logger.info("Stage 2 skipped (apply_freshness_rerank=False): %d", len(reranked))
+
+        # Stage 3 — Source Diversity (optional)
+        if self.apply_diversity_filter:
+            diverse = self._diversity_filter(reranked)
+            logger.info("Stage 3 after diversity filter: %d", len(diverse))
+        else:
+            # No per-URL/per-source_type caps AND no extra slicing here —
+            # the count is already bounded by stage1_k (hybrid_search) and,
+            # if enabled, stage2_k (freshness rerank). Re-applying stage3_k
+            # here would silently reintroduce a cap (its default is 5) even
+            # when the caller explicitly asked to bypass narrowing.
+            diverse = reranked
+            logger.info("Stage 3 skipped (apply_diversity_filter=False): %d", len(diverse))
+
+        # Stage 4 — Context Budget (optional)
+        if self.apply_token_budget:
+            budgeted = self._apply_token_budget(diverse)
+            logger.info("Stage 4 after token budget: %d chunks", len(budgeted))
+        else:
+            budgeted = diverse
+            logger.info("Stage 4 skipped (apply_token_budget=False): %d chunks", len(budgeted))
+
+        return budgeted
 
     # ------------------------------------------------------------------
     # Stage 2 — Freshness Reranking

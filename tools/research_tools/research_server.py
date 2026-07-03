@@ -168,12 +168,28 @@ async def list_tools() -> ListToolsResult:
                     "sort_by": {
                         "type": "string",
                         "enum": ["relevancy", "popularity", "publishedAt"],
-                        "default": "publishedAt"
+                        "description": (
+                            "Default 'relevancy'. Only use 'publishedAt' when "
+                            "recency is explicitly the goal (e.g. 'latest news "
+                            "on X') — sorting by date lets a barely-related but "
+                            "recent article outrank a truly relevant older one."
+                        ),
+                        "default": "relevancy"
                     },
                     "page_size": {
                         "type": "integer",
                         "description": "Number of articles (default: 10, max: 100)",
                         "default": 10
+                    },
+                    "exclude_domains": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Domains to exclude. Defaults to non-financial-news "
+                            "noise sources (github.com, news.ycombinator.com, "
+                            "stackoverflow.com, reddit.com, medium.com). Pass "
+                            "[] to disable filtering."
+                        ),
                     },
                 },
             },
@@ -450,8 +466,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     from_date=arguments.get("from_date"),
                     to_date=arguments.get("to_date"),
                     language=arguments.get("language", "en"),
-                    sort_by=arguments.get("sort_by", "publishedAt"),
+                    sort_by=arguments.get("sort_by", "relevancy"),
                     page_size=arguments.get("page_size", 10),
+                    exclude_domains=arguments.get("exclude_domains"),
                 )
 
             case "sec_edgar_search":

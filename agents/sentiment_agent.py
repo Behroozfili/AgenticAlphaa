@@ -365,7 +365,8 @@ class SentimentAgent:
             response = await asyncio.to_thread(
                 self._llm.messages.create,
                 model=self._model,
-                max_tokens=256,
+                max_tokens=768,
+                temperature=0,
                 system=_BRAIN_PLAN_SYSTEM_PROMPT,
                 messages=state["messages"],
             )
@@ -470,6 +471,7 @@ class SentimentAgent:
                 self._llm.messages.create,
                 model=self._model,
                 max_tokens=768,
+                temperature=0,
                 system=_BRAIN_ANALYZE_SYSTEM_PROMPT,
                 messages=state["messages"],
             )

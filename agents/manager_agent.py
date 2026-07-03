@@ -205,14 +205,100 @@ Your output must be a clean, well-structured investment analysis report in plain
 (NOT JSON). It should cover:
 
   1. Executive Summary (2-3 sentences)
-  2. Financial Health (key metrics, grade, interpretation)
+  2. Financial Health (key metrics, grade, interpretation, DCF valuation,
+     capital allocation — see guidance below)
   3. Market Sentiment (Fear/Greed score, label, narrative)
   4. Research Highlights (top 3-5 themes from research context)
   5. Risk Factors (data quality flags, model disagreements, macro risks)
-  6. Conclusion & Outlook (1-2 sentence directional view)
+  6. Scenario Analysis (Bull / Base / Bear) — see guidance below
+  7. Management Commentary Assessment — see guidance below
+  8. Conclusion & Outlook (1-2 sentence directional view)
 
-Write in professional, analytical English. Be concise — target 400-600 words.
+Write in professional, analytical English. Be concise — target 550-800 words.
 Do NOT include any JSON or code blocks.
+
+SCENARIO ANALYSIS GUIDANCE (section 6): Write three short paragraphs — Bull
+case, Base case, Bear case — each grounded in data you actually have (the
+financial metrics, sentiment signals, peer comparison, and risk flags
+already provided). The Bull case should name the specific positive signals
+that would need to persist or strengthen; the Bear case should name the
+specific risk flags or metrics that would need to worsen; the Base case is
+the most-likely path given the current mix of signals. If dcf_valuation's
+bear/base/bull per-share values are available, cite the matching one in
+each paragraph as a numeric anchor (see DCF guidance below) — this is
+still not a probability, just "here is what this scenario implies for
+value under these growth assumptions."
+
+Do NOT assign a numeric probability (e.g. "60% likely") to any scenario.
+An LLM-generated percentage for a market scenario is not a statistically
+grounded estimate — it would look quantitative without being backed by any
+actual probabilistic model, which is misleading to a reader making
+investment decisions. If you want to convey relative likelihood, use plain
+language ("the base case is the most consistent with current signals")
+rather than a fabricated number.
+
+MANAGEMENT COMMENTARY ASSESSMENT GUIDANCE (section 7): If MD&A (Management's
+Discussion and Analysis) text is present in the research context, write 2-3
+sentences characterizing management's own framing of the period — are they
+emphasizing growth investments, defending margins, flagging headwinds,
+citing specific strategic bets (e.g. AI infrastructure spend, capacity
+expansion)? Quote or closely paraphrase specific language ONLY if it's
+distinctive and material (per the copyright rules already governing this
+system — short paraphrase, not verbatim reproduction beyond a few words).
+
+This is a QUALITATIVE read of tone and stated priorities, not a scored
+metric — do not invent a "management quality score" or letter grade for
+this section; there is no rigorous basis for one from a single filing's
+MD&A alone. If no MD&A text is present in the research context, write one
+sentence noting it wasn't available rather than fabricating an assessment.
+
+DCF & CAPITAL ALLOCATION GUIDANCE (within section 2, Financial Health): If
+"dcf_valuation" data is present and has no error, it contains THREE DCF runs
+— "bear", "base", "bull" — each at a different FCF growth assumption, NOT
+a single point estimate. Report the base-case enterprise_value / per-share
+value as the headline number, but ALSO state the bear-to-bull range, and
+explicitly compare it to the current market price:
+  - If even the bull case is well below market price, say so plainly —
+    this means the market is pricing in growth beyond what even an
+    optimistic multi-year projection here captures (longer runway, lower
+    effective discount rate, or momentum/speculative factors). This is a
+    genuine, useful finding — do not describe it as a modelling failure.
+  - If the base or bear case is close to market price, that's a
+    different, more reassuring signal — say so too.
+Always carry forward the "note" field's caveat (simplified WACC, no
+net-debt adjustment) in your own words. In the Scenario Analysis section
+(section 6), use the matching bear/base/bull DCF per-share values as the
+numeric anchor for each narrative case, so the scenarios aren't purely
+qualitative.
+
+If "dcf_monte_carlo" data is also present and has no error, it gives a
+CONTINUOUS probability range (P10/P50/P90 percentiles from simulating the
+growth-rate assumption) rather than three discrete points — mention this
+range once, briefly, in the Financial Health section as a complement to
+the bear/base/bull scenarios (e.g. "a Monte Carlo simulation over the
+growth-rate assumption puts the P10–P90 range at $X–$Y per share").
+IMPORTANT: this only randomises the growth-rate input (per its own "note"
+field) — do NOT describe it as a fully calibrated probabilistic valuation
+model; carry forward its scope caveat the same way you do for the DCF
+scenarios' caveat.
+
+If "peer_comparison" data is present, cite BOTH the raw multiple comparison
+(primary P/E vs peer avg P/E) AND, if available, the
+"growth_adjusted_comparison" sub-field (primary PEG vs peer-average PEG).
+These two can disagree — a stock can have a much higher P/E than peers
+while still being cheaper on a growth-adjusted (PEG) basis if it's growing
+faster, or vice versa. When they disagree, say so explicitly rather than
+picking one framing; that disagreement is itself informative for the
+reader. If growth_adjusted_comparison's interpretation is
+"insufficient_data", note that the growth-adjusted view wasn't available
+rather than omitting the topic entirely.
+
+If "capital_allocation" data is present, briefly note the balance between
+buybacks, dividends, and capex (e.g. "capital return via buybacks
+significantly exceeds capex, suggesting management sees limited high-return
+reinvestment opportunities at scale" — only if the data actually supports
+that reading). If either dcf_valuation or capital_allocation is missing/
+unavailable, skip it rather than fabricating a value.
 
 IMPORTANT — numeric fidelity: When citing a financial ratio (P/E, ROE, net
 margin, current ratio, D/E, revenue CAGR, etc.), always use the top-level raw
@@ -418,6 +504,7 @@ class ManagerAgent:
             response = await self._llm.messages.create(
                 model=self._model,
                 max_tokens=768,
+                temperature=0.0,
                 system=_ROUTER_SYSTEM_PROMPT,
                 messages=self._memory.get_messages(),
             )
@@ -518,6 +605,7 @@ class ManagerAgent:
         try:
             response = await self._llm.messages.create(
                 model=self._model,
+                temperature=0.0,
                 max_tokens=768,
                 system=_EVALUATOR_SYSTEM_PROMPT,
                 messages=self._memory.get_messages(),
@@ -575,7 +663,23 @@ class ManagerAgent:
 
         Synthesises all agent outputs into a single investment analysis report.
         """
-        research_sample = state.get("aggregated_research_context", [])[:3]
+        # Prioritize SEC filing chunks (sec_edgar_filing / sec_edgar_search)
+        # ahead of news/rag chunks, and give them a much larger character
+        # budget. A flat [:3] + [:200 chars] truncation (the previous
+        # behaviour) cut every chunk off after ~200 characters — for a
+        # sec_edgar_filing chunk, whose body is a JSON blob starting with
+        # {"ticker": ..., "company": ..., "form_type": ...}, that 200-char
+        # window never reaches the actual mda/risk_factors text, which sits
+        # much deeper in the JSON string. Non-filing chunks (news/rag) stay
+        # at a smaller budget since they're already short, individual
+        # article snippets rather than large structured documents.
+        all_chunks = state.get("aggregated_research_context", [])
+        filing_chunks = [
+            c for c in all_chunks
+            if "[TOOL: sec_edgar_filing]" in _extract_chunk_text(c)[:60]
+        ]
+        other_chunks = [c for c in all_chunks if c not in filing_chunks]
+        research_sample = filing_chunks[:2] + other_chunks[:3]
         fm = state.get("financial_metrics_summary", {})
         sm = state.get("sentiment_analysis_summary", {})
 
@@ -604,6 +708,12 @@ class ManagerAgent:
             "current_ratio":     fm.get("current_ratio"),
             "de_ratio":          fm.get("de_ratio", {}).get("de_ratio"),
             "revenue_cagr":      fm.get("revenue_cagr", {}).get("cagr_pct"),
+            "forward_pe":        fm.get("forward_pe"),
+            "peg_ratio":         fm.get("peg_ratio"),
+            "peer_comparison":   fm.get("peer_comparison", {}),
+            "dcf_valuation":     fm.get("dcf_valuation", {}),
+            "dcf_monte_carlo":   fm.get("dcf_monte_carlo", {}),
+            "capital_allocation": fm.get("capital_allocation", {}),
             "validation_passed": fm.get("validation_passed"),
         }
         sent_summary = {
@@ -617,7 +727,8 @@ class ManagerAgent:
         }
 
         research_lines = "\n".join(
-            f"  - {_extract_chunk_text(c)[:200]}"
+            f"  - {_extract_chunk_text(c)[:8000]}" if c in filing_chunks
+            else f"  - {_extract_chunk_text(c)[:200]}"
             for c in research_sample
         )
 
@@ -635,7 +746,8 @@ class ManagerAgent:
         try:
             response = await self._llm.messages.create(
                 model=self._model,
-                max_tokens=2048,
+                max_tokens=3584,
+                temperature=0.0,
                 system=_FINALISER_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],
             )

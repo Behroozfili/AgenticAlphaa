@@ -74,6 +74,41 @@ from core.progress_bus import publish as _publish_progress, session_from_shared
 log = logging.getLogger("financial-analyst-agent")
 
 
+# ---------------------------------------------------------------------------
+# Peer map for relative valuation (tool_get_peer_comparison)
+# ---------------------------------------------------------------------------
+# get_peer_comparison() in rag_finance/yahoo_finance.py claims to
+# auto-infer peers from the ticker's industry when none are given, but
+# that path is broken: it fetches yf.Ticker(ticker).recommendations into
+# a local variable and then immediately discards it, always falling back
+# to peers=[] regardless of what recommendations returned. Rather than
+# depend on a live "similar stocks" API (rate-limited, inconsistent
+# across tickers), a small static map of common industries to typical
+# public-market peers is used instead — good enough for a relative-
+# valuation sanity check, not meant to be exhaustive. Falls back to no
+# peer comparison (rather than guessing) for industries not listed here.
+_INDUSTRY_PEERS: dict[str, list[str]] = {
+    "Semiconductors":                       ["NVDA", "INTC", "QCOM", "AVGO"],
+    "Consumer Electronics":                 ["MSFT", "GOOGL", "SSNLF"],
+    "Software—Infrastructure":              ["MSFT", "ORCL", "CRM"],
+    "Software—Application":                 ["CRM", "ADBE", "INTU"],
+    "Internet Content & Information":       ["GOOGL", "META", "MSFT"],
+    "Internet Retail":                      ["WMT", "TGT", "EBAY"],
+    "Auto Manufacturers":                   ["GM", "F", "TM"],
+    "Banks—Diversified":                    ["BAC", "WFC", "C"],
+    "Aerospace & Defense":                  ["LMT", "NOC", "RTX"],
+    "Beverages—Non-Alcoholic":              ["PEP", "KDP"],
+    "Discount Stores":                      ["WMT", "COST", "TGT"],
+    "Telecom Services":                     ["VZ", "TMUS"],
+}
+
+
+def _infer_peers(sector: str, industry: str, ticker: str) -> list[str]:
+    """Look up static peers by industry, excluding the ticker itself."""
+    peers = _INDUSTRY_PEERS.get(industry, [])
+    return [p for p in peers if p.upper() != ticker.upper()][:5]
+
+
 _MCP_SERVER_PARAMS = StdioServerParameters(
     command="python",
     args=[os.path.join(os.path.dirname(__file__), "..","tools","financial_tools" ,"financial_server.py")],
@@ -351,6 +386,51 @@ class FinancialAnalystAgent:
                     scope.set_tag("tool", "tool_get_financial_ratios")
                     scope.set_tag("component", "mcp.financial")
                     sentry_sdk.capture_exception(exc)
+
+        # -- Yahoo Finance: peer comparison (relative valuation) --------------
+        # Deterministic step (not LLM-planned) — peers come from the static
+        # _INDUSTRY_PEERS map keyed off the industry/sector just fetched
+        # above, since get_peer_comparison's own auto-inference is broken
+        # (see _infer_peers docstring). Never blocks the pipeline: if the
+        # industry isn't in the map, peers=[] and this call is skipped.
+        industry = state["raw_numerical_data"].get("yahoo_ratios", {}).get("industry", "")
+        sector   = state["raw_numerical_data"].get("yahoo_ratios", {}).get("sector", "")
+        peers    = _infer_peers(sector, industry, ticker)
+
+        if peers:
+            log.info("Executor: calling tool_get_peer_comparison for %s vs %s", ticker, peers)
+            _publish_progress(
+                session_id, "agent_tool_call", agent="financial",
+                message="Financial Agent: calling tool 'tool_get_peer_comparison'...",
+                detail={"tool": "tool_get_peer_comparison", "peers": peers},
+            )
+            try:
+                peer_result = await session.call_tool(
+                    "tool_get_peer_comparison",
+                    arguments={"ticker": ticker, "peers": peers},
+                )
+                peer_data = json.loads(peer_result.content[0].text)
+                if peer_data.get("error"):
+                    errors.append(f"tool_get_peer_comparison error: {peer_data['error']}")
+                state["raw_numerical_data"]["peer_comparison"] = peer_data
+            except Exception as exc:
+                errors.append(f"tool_get_peer_comparison exception: {exc}")
+                state["raw_numerical_data"]["peer_comparison"] = {}
+                log.exception("Executor: tool_get_peer_comparison failed")
+                if sentry_enabled():
+                    import sentry_sdk
+                    with sentry_sdk.push_scope() as scope:
+                        scope.set_tag("tool", "tool_get_peer_comparison")
+                        scope.set_tag("component", "mcp.financial")
+                        sentry_sdk.capture_exception(exc)
+        else:
+            log.info(
+                "Executor: skipping tool_get_peer_comparison — no static "
+                "peers mapped for industry=%r (ticker=%s).", industry, ticker,
+            )
+            state["raw_numerical_data"]["peer_comparison"] = {
+                "note": f"No peer mapping available for industry={industry!r}.",
+            }
 
         # -- Yahoo Finance: revenue growth ------------------------------------
         log.info("Executor: calling tool_get_revenue_growth for %s", ticker)
@@ -645,6 +725,88 @@ class FinancialAnalystAgent:
         else:
             state["calculated_ratios"]["cagr"] = {"cagr_pct": None, "interpretation": "insufficient_history"}
 
+        # -- DCF Valuation ------------------------------------------------------
+        # FCF = operating cash flow − capex (most recent year, matched by
+        # taking the newest entry from each series — both come from
+        # tool_get_xbrl_financials, sorted newest-first by _extract_annual).
+        operating_cf_annual = xbrl_src.get("operating_cash_flow_annual", [])
+        capex_annual         = xbrl_src.get("capex_annual", [])
+        beta                 = ratios_src.get("beta")
+        market_cap           = ratios_src.get("market_cap")
+        current_price        = ratios_src.get("current_price")
+        shares_outstanding   = (
+            market_cap / current_price
+            if market_cap and current_price else None
+        )
+
+        fcf_base = None
+        if operating_cf_annual and capex_annual:
+            try:
+                # capex is typically reported as a positive outflow figure
+                # in XBRL's PaymentsToAcquirePropertyPlantAndEquipment tag
+                # (a "payments" concept, not a signed reduction), so it's
+                # subtracted here rather than added.
+                fcf_base = operating_cf_annual[0]["value"] - capex_annual[0]["value"]
+            except (KeyError, TypeError, IndexError):
+                fcf_base = None
+
+        if fcf_base is not None and beta is not None:
+            # Ground the base-case FCF growth assumption in the company's
+            # own revenue CAGR (already computed above) — bear/bull default
+            # to ~0.5x/~1.75x of this inside dcf_scenario_range unless
+            # overridden. Using the scenario-range tool (not the single-
+            # point one) deliberately: a single DCF number using trailing
+            # growth routinely lands far below market price for a
+            # high-growth stock, which reads as "the model is broken"
+            # unless the growth-rate sensitivity is shown explicitly.
+            cagr_result = state["calculated_ratios"].get("cagr", {})
+            fcf_growth_pct = cagr_result.get("cagr_pct")
+            if fcf_growth_pct is None:
+                # No CAGR available to ground the assumption — skip rather
+                # than guessing a base growth rate out of thin air.
+                state["calculated_ratios"]["dcf"] = {
+                    "interpretation": "unavailable",
+                    "error": "No revenue_cagr available to anchor the base-case FCF growth assumption.",
+                }
+            else:
+                log.info("Computing DCF scenarios: fcf_base=%.0f beta=%.3f base_growth=%.2f%%",
+                          fcf_base, beta, fcf_growth_pct)
+                state["calculated_ratios"]["dcf"] = await _call(
+                    "tool_calc_dcf_scenarios",
+                    {
+                        "fcf_base": fcf_base,
+                        "beta": beta,
+                        "shares_outstanding": shares_outstanding,
+                        "base_growth_rate_pct": fcf_growth_pct,
+                    },
+                )
+                # Also run the Monte Carlo version alongside the three
+                # named scenarios — bear/base/bull are easier to narrate,
+                # while the P10/P50/P90 percentiles give a continuous
+                # picture of valuation uncertainty rather than three
+                # discrete points. Both are kept since they serve
+                # different reading purposes in the final report.
+                log.info("Computing DCF Monte Carlo: fcf_base=%.0f beta=%.3f base_growth=%.2f%%",
+                          fcf_base, beta, fcf_growth_pct)
+                state["calculated_ratios"]["dcf_monte_carlo"] = await _call(
+                    "tool_calc_dcf_monte_carlo",
+                    {
+                        "fcf_base": fcf_base,
+                        "beta": beta,
+                        "shares_outstanding": shares_outstanding,
+                        "base_growth_rate_pct": fcf_growth_pct,
+                    },
+                )
+        else:
+            state["calculated_ratios"]["dcf"] = {
+                "enterprise_value": None,
+                "interpretation": "unavailable",
+                "error": (
+                    "Missing operating_cash_flow_annual/capex_annual from "
+                    "XBRL (fcf_base) or beta from Yahoo ratios — cannot run DCF."
+                ),
+            }
+
         # -- Composite Financial Score ----------------------------------------
         log.info("Computing composite financial score")
         cr   = state["calculated_ratios"]
@@ -797,6 +959,7 @@ class FinancialAnalystAgent:
                 model=self._model,
                 max_tokens=768,
                 system=_CHECKER_SYSTEM_PROMPT,
+                temperature=0.0,
                 messages=[{"role": "user", "content": user_content}],
             )
             verdict_text = response.content[0].text.strip()
@@ -935,6 +1098,7 @@ class FinancialAnalystAgent:
                 self._llm.messages.create,
                 model=self._model,
                 max_tokens=512,
+                temperature=0.0,
                 system=system_prompt,
                 messages=state["messages"],
             )
@@ -1121,12 +1285,19 @@ class FinancialAnalystAgent:
 
             # Calculated ratios (verified)
             "pe_ratio":      calc.get("pe", {}),
+            "forward_pe":    raw.get("yahoo_ratios", {}).get("forward_pe"),
+            "peg_ratio":     raw.get("yahoo_ratios", {}).get("peg_ratio"),
             "roe":           calc.get("roe", {}),
             "net_margin":    calc.get("net_margin", {}),
             "de_ratio":      calc.get("de_ratio", {}),
             "revenue_cagr":  calc.get("cagr", {}),
+            "dcf_valuation": calc.get("dcf", {}),
+            "dcf_monte_carlo": calc.get("dcf_monte_carlo", {}),
             "current_ratio": raw.get("yahoo_ratios", {}).get("current_ratio"),
             "composite_score": calc.get("composite_score", {}),
+
+            # Relative valuation vs. sector peers
+            "peer_comparison": raw.get("peer_comparison", {}),
 
             # Raw revenue history (for downstream charting / narration)
             "annual_revenue_history": raw.get("revenue_growth", {}).get("annual_revenue", []),
@@ -1139,6 +1310,26 @@ class FinancialAnalystAgent:
             "xbrl_total_liabilities": (
                 raw.get("xbrl_financials", {}).get("total_liabilities", [{}])[:1]
             ),
+
+            # Capital allocation (most recent fiscal year, from XBRL —
+            # see sec_edgar.py's get_xbrl_financials). Empty lists mean
+            # "not reported this year" (e.g. no dividends paid), not a
+            # fetch failure — check raw_numerical_data.extraction_errors
+            # for actual failures.
+            "capital_allocation": {
+                "operating_cash_flow": (
+                    raw.get("xbrl_financials", {}).get("operating_cash_flow_annual", [{}])[:1]
+                ),
+                "capex": (
+                    raw.get("xbrl_financials", {}).get("capex_annual", [{}])[:1]
+                ),
+                "dividends_paid": (
+                    raw.get("xbrl_financials", {}).get("dividends_paid_annual", [{}])[:1]
+                ),
+                "buybacks": (
+                    raw.get("xbrl_financials", {}).get("buybacks_annual", [{}])[:1]
+                ),
+            },
 
             # Execution metadata
             "loop_iterations_used":  state["loop_counter"],

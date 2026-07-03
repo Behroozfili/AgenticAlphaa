@@ -51,3 +51,10 @@ uvicorn>=0.34.0
 pytest-cov
 langgraph>=0.1.0
 pytest-asyncio
+feedparser
+ragas>=0.2
+langchain-anthropic 
+datasets 
+pandas
+langchain-community
+google-generativeai

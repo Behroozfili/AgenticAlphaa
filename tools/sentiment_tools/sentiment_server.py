@@ -100,6 +100,38 @@ _fear_greed: FearGreedIndexCalculator   | None = None
 
 
 def _get_retriever() -> AlphaRetriever:
+    """
+    Retriever used ONLY by retrieve_social_data (sentiment scoring input).
+
+    Unlike ResearchAgent — which calls hybrid_rag.py's rag_vector_search /
+    rag_hybrid_query directly for LLM-context chunks — this retriever feeds
+    FinBERT/VADER batch scoring, not an LLM prompt. For that use case:
+
+      - Source diversity (max 2/URL, max 3/source_type) was silently
+        capping every run at ~3 chunks regardless of how much data was
+        actually available (confirmed: 84 chunks existed for AMD in the
+        last 14 days, yet total_chunks_analyzed was always 3). Disabled.
+      - Freshness reranking slices down to stage2_k (top 10) BEFORE
+        diversity even runs — independently throwing away signal that
+        FinBERT/VADER could otherwise have scored. Disabled.
+      - The token budget IS still needed, but not for its original reason
+        (protecting an LLM prompt window — irrelevant here). It's kept on
+        as a crash-prevention safety net: without any cap, an unusually
+        large candidate pool could hand FinBERT/VADER an unbounded volume
+        of text in one batch (memory pressure, request-size limits, very
+        long inference time). The budget is raised well above the
+        LLM-oriented default (2000 tokens) since there's no prompt-window
+        constraint here — only "don't let this blow up".
+
+    So apply_freshness_rerank and apply_diversity_filter are disabled;
+    apply_token_budget stays on with a much larger ceiling. Only Stage 1
+    (hybrid search, capped by stage1_k) and Stage 4 (budget cap) run.
+    ResearchAgent is completely unaffected — it never touches
+    AlphaRetriever.
+
+    stage1_k / token_budget are env-overridable to make it easy to tune
+    without a redeploy — mirrors the FEAR_GREED_*_WEIGHT pattern below.
+    """
     global _retriever
     if _retriever is None:
         vector_store = AlphaVectorStore(
@@ -112,6 +144,16 @@ def _get_retriever() -> AlphaRetriever:
         _retriever = AlphaRetriever(
             vector_store=vector_store,
             embedder=get_embedder(),
+            stage1_k=int(os.environ.get("SENTIMENT_RETRIEVAL_STAGE1_K", "20")),
+            # Safety-net budget, not a prompt-window budget — sized to
+            # comfortably hold stage1_k chunks (~512 chars each from the
+            # processor's default chunk_size) with headroom, while still
+            # capping pathological cases (e.g. stage1_k raised way up by
+            # env var, or unusually long individual chunks).
+            token_budget=int(os.environ.get("SENTIMENT_RETRIEVAL_TOKEN_BUDGET", "8000")),
+            apply_freshness_rerank=False,
+            apply_diversity_filter=False,
+            apply_token_budget=True,
         )
     return _retriever
 
