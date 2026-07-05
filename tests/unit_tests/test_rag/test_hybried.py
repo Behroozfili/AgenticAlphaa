@@ -48,11 +48,16 @@ def reset_neo4j_driver_cache():
 
 class TestGracefulDegradation:
     @pytest.mark.asyncio
-    async def test_vector_search_warns_when_sb_is_none(self):
-        with patch.object(hybrid_rag, "_sb", None):
+    async def test_vector_search_warns_when_retriever_is_none(self):
+        """Regression: rag_vector_search was rewritten to route through
+        AlphaRetriever.retrieve_raw() instead of a raw Supabase RPC call
+        (see the module docstring on rag_vector_search) — the gating
+        global is now _retriever, not _sb, and the warning text changed
+        to match."""
+        with patch.object(hybrid_rag, "_retriever", None):
             result = await rag_vector_search("query")
         assert result["results"] == []
-        assert "Supabase not configured" in result["warning"]
+        assert "AlphaRetriever not configured" in result["warning"]
 
     @pytest.mark.asyncio
     async def test_graph_traverse_warns_when_neo4j_unavailable(self):
@@ -93,58 +98,76 @@ class TestEmbed:
 # ---------------------------------------------------------------------------
 
 class TestRagVectorSearch:
-    @pytest.mark.asyncio
-    async def test_happy_path_filters_by_threshold_and_caps_top_k(self):
-        mock_sb = MagicMock()
-        response = MagicMock()
-        response.data = [
-            {"id": 1, "rrf_score": 0.5, "text": "a", "ticker": "NVDA"},
-            {"id": 2, "rrf_score": 0.001, "text": "b", "ticker": "NVDA"},  # below default threshold
-        ]
-        mock_sb.rpc.return_value.execute.return_value = response
+    """
+    NOTE: rag_vector_search() was rewritten to route through
+    AlphaRetriever.retrieve_raw() (called via asyncio.to_thread since
+    AlphaRetriever's pipeline is synchronous) instead of a raw Supabase
+    RPC call — see the function's own docstring. These tests mock
+    hybrid_rag._retriever directly, matching the real current
+    architecture, rather than hybrid_rag._sb.rpc(...).
+    """
 
-        with patch.object(hybrid_rag, "_sb", mock_sb), \
-             patch.object(hybrid_rag, "_embedder", MagicMock(embed_query=lambda q: [0.1])):
+    @pytest.mark.asyncio
+    async def test_happy_path_returns_mapped_fields(self):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = [
+            {"id": 1, "ticker": "NVDA", "source_type": "news", "text": "a",
+             "freshness_score": 0.42, "published_at": "2026-01-01", "url": "u", "title": "t", "chunk_index": 0},
+        ]
+
+        with patch.object(hybrid_rag, "_retriever", mock_retriever):
             result = await rag_vector_search("NVDA earnings", top_k=5, threshold=0.01)
 
         assert len(result["results"]) == 1
         assert result["results"][0]["chunk_text"] == "a"
+        assert result["results"][0]["score"] == 0.42
 
     @pytest.mark.asyncio
-    async def test_ticker_filter_uppercased_in_params(self):
-        mock_sb = MagicMock()
-        response = MagicMock()
-        response.data = []
-        mock_sb.rpc.return_value.execute.return_value = response
+    async def test_ticker_filter_uppercased_and_passed_to_retriever(self):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = []
 
-        with patch.object(hybrid_rag, "_sb", mock_sb), \
-             patch.object(hybrid_rag, "_embedder", MagicMock(embed_query=lambda q: [0.1])):
+        with patch.object(hybrid_rag, "_retriever", mock_retriever):
             await rag_vector_search("q", ticker_filter="nvda")
 
-        call_name, call_params = mock_sb.rpc.call_args[0]
-        assert call_params["filter_ticker"] == "NVDA"
+        call_kwargs = mock_retriever.retrieve_raw.call_args.kwargs
+        assert call_kwargs["ticker"] == "NVDA"
 
     @pytest.mark.asyncio
-    async def test_supabase_exception_returns_error_dict(self):
-        mock_sb = MagicMock()
-        mock_sb.rpc.return_value.execute.side_effect = RuntimeError("rpc failed")
+    async def test_threshold_passed_through_to_retriever(self):
+        """Thresholding now happens INSIDE AlphaRetriever.retrieve_raw
+        (score_threshold param), not as a post-hoc filter in
+        rag_vector_search itself — verify the param is forwarded, rather
+        than re-testing AlphaRetriever's own filtering logic here (that
+        belongs in the retriever's own test file)."""
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = []
 
-        with patch.object(hybrid_rag, "_sb", mock_sb), \
-             patch.object(hybrid_rag, "_embedder", MagicMock(embed_query=lambda q: [0.1])):
+        with patch.object(hybrid_rag, "_retriever", mock_retriever):
+            await rag_vector_search("q", threshold=0.05)
+
+        call_kwargs = mock_retriever.retrieve_raw.call_args.kwargs
+        assert call_kwargs["score_threshold"] == 0.05
+
+    @pytest.mark.asyncio
+    async def test_retriever_exception_returns_error_dict(self):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.side_effect = RuntimeError("retriever failed")
+
+        with patch.object(hybrid_rag, "_retriever", mock_retriever):
             result = await rag_vector_search("q")
 
         assert result["results"] == []
-        assert "rpc failed" in result["error"]
+        assert "retriever failed" in result["error"]
 
     @pytest.mark.asyncio
-    async def test_top_k_caps_results_after_threshold_filter(self):
-        mock_sb = MagicMock()
-        response = MagicMock()
-        response.data = [{"id": i, "rrf_score": 0.5, "text": f"t{i}"} for i in range(10)]
-        mock_sb.rpc.return_value.execute.return_value = response
+    async def test_top_k_caps_results(self):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = [
+            {"id": i, "text": f"t{i}", "freshness_score": 0.5} for i in range(10)
+        ]
 
-        with patch.object(hybrid_rag, "_sb", mock_sb), \
-             patch.object(hybrid_rag, "_embedder", MagicMock(embed_query=lambda q: [0.1])):
+        with patch.object(hybrid_rag, "_retriever", mock_retriever):
             result = await rag_vector_search("q", top_k=3)
 
         assert len(result["results"]) == 3

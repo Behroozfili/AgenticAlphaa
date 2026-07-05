@@ -672,13 +672,31 @@ class FinancialAnalystAgent:
             total_liabilities_val = xbrl_liabilities[0]["value"] if xbrl_liabilities else None
             if total_liabilities_val:
                 log.info("Computing D/E from XBRL liabilities/equity")
-                state["calculated_ratios"]["de_ratio"] = await _call(
+                de_result = await _call(
                     "tool_calc_debt_to_equity",
                     {
                         "total_debt": total_liabilities_val,
                         "shareholders_equity": shareholders_equity,
                     },
                 )
+                # tool_get_xbrl_financials only exposes total_liabilities,
+                # not interest-bearing debt separately — so this ratio
+                # includes non-interest-bearing liabilities (accounts
+                # payable, deferred revenue, etc.) that a true D/E ratio
+                # excludes. The tool's own threshold-based interpretation
+                # (e.g. "moderate_leverage") is calibrated for TRUE D/E and
+                # is NOT comparable to standard thresholds when computed
+                # this way — override it so that's never silently hidden.
+                de_result["formula"] = "total_liabilities / shareholders_equity (approximation)"
+                de_result["interpretation"] = "approximation_not_comparable_to_standard_thresholds"
+                de_result["is_approximation"] = True
+                de_result["note"] = (
+                    "tool_get_xbrl_financials only exposes total_liabilities, not "
+                    "interest-bearing debt separately, so this uses total liabilities "
+                    "as a rough stand-in. This is NOT a true debt-to-equity ratio and "
+                    "should not be compared against standard D/E leverage thresholds."
+                )
+                state["calculated_ratios"]["de_ratio"] = de_result
             else:
                 state["calculated_ratios"]["de_ratio"] = {"de_ratio": None, "interpretation": "unavailable"}
         else:

@@ -114,7 +114,8 @@ class TestExtractTicker:
 # ---------------------------------------------------------------------------
 
 class TestBrainPlan:
-    def test_valid_plan_parsed_and_returned(self):
+    @pytest.mark.asyncio
+    async def test_valid_plan_parsed_and_returned(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response(json.dumps({
             "retrieval_query": "NVDA sentiment", "ticker": "NVDA", "days_back": 7, "reasoning": "x",
@@ -122,46 +123,50 @@ class TestBrainPlan:
         agent = make_agent(llm=llm)
         state = make_agent_state()
 
-        plan = agent._brain_plan(state)
+        plan = await agent._brain_plan(state)
 
         assert plan["retrieval_query"] == "NVDA sentiment"
         assert plan["ticker"] == "NVDA"
         assert len(state["messages"]) == 2
 
-    def test_markdown_fenced_json_stripped(self):
+    @pytest.mark.asyncio
+    async def test_markdown_fenced_json_stripped(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response(
             "```json\n" + json.dumps({"retrieval_query": "q", "ticker": None, "days_back": 7}) + "\n```"
         )
         agent = make_agent(llm=llm)
-        plan = agent._brain_plan(make_agent_state())
+        plan = await agent._brain_plan(make_agent_state())
         assert plan["retrieval_query"] == "q"
 
-    def test_invalid_json_falls_back_to_default_plan(self):
+    @pytest.mark.asyncio
+    async def test_invalid_json_falls_back_to_default_plan(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response("not valid json")
         agent = make_agent(llm=llm)
         state = make_agent_state(shared=make_shared_state(task_query="Analyze NVDA"))
 
-        plan = agent._brain_plan(state)
+        plan = await agent._brain_plan(state)
 
         assert "NVDA" in plan["retrieval_query"]
         assert plan["days_back"] == 7
         assert "Default plan" in plan["reasoning"]
 
-    def test_api_exception_falls_back_to_default_plan_without_raising(self):
+    @pytest.mark.asyncio
+    async def test_api_exception_falls_back_to_default_plan_without_raising(self):
         llm = MagicMock()
         llm.messages.create.side_effect = RuntimeError("API down")
         agent = make_agent(llm=llm)
-        plan = agent._brain_plan(make_agent_state())
+        plan = await agent._brain_plan(make_agent_state())
         assert "Default plan" in plan["reasoning"]
 
-    def test_directive_days_back_used_in_default_plan(self):
+    @pytest.mark.asyncio
+    async def test_directive_days_back_used_in_default_plan(self):
         llm = MagicMock()
         llm.messages.create.side_effect = RuntimeError("down")
         agent = make_agent(llm=llm)
         state = make_agent_state(shared=make_shared_state(manager_directives={"days_back": 14}))
-        plan = agent._brain_plan(state)
+        plan = await agent._brain_plan(state)
         assert plan["days_back"] == 14
 
 
@@ -170,30 +175,33 @@ class TestBrainPlan:
 # ---------------------------------------------------------------------------
 
 class TestBrainAnalyze:
-    def test_returns_raw_text_with_fences_stripped(self):
+    @pytest.mark.asyncio
+    async def test_returns_raw_text_with_fences_stripped(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response(
             "```json\n" + json.dumps({"overall_sentiment": "Bullish"}) + "\n```"
         )
         agent = make_agent(llm=llm)
-        result = agent._brain_analyze(make_agent_state())
+        result = await agent._brain_analyze(make_agent_state())
         assert result == json.dumps({"overall_sentiment": "Bullish"})
 
-    def test_api_exception_returns_fallback_json_string(self):
+    @pytest.mark.asyncio
+    async def test_api_exception_returns_fallback_json_string(self):
         llm = MagicMock()
         llm.messages.create.side_effect = RuntimeError("API down")
         agent = make_agent(llm=llm)
-        result = agent._brain_analyze(make_agent_state())
+        result = await agent._brain_analyze(make_agent_state())
         parsed = json.loads(result)
         assert parsed["overall_sentiment"] == "Neutral"
         assert "Brain API call failed" in parsed["risk_flags"]
 
-    def test_includes_chunk_count_in_prompt(self):
+    @pytest.mark.asyncio
+    async def test_includes_chunk_count_in_prompt(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response('{"overall_sentiment": "Neutral"}')
         agent = make_agent(llm=llm)
         state = make_agent_state(retrieved_chunks=["a", "b", "c"])
-        agent._brain_analyze(state)
+        await agent._brain_analyze(state)
         sent_content = llm.messages.create.call_args.kwargs["messages"][0]["content"]
         assert "CHUNK COUNT ANALYSED: 3" in sent_content
 

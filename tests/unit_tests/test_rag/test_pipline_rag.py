@@ -174,15 +174,15 @@ class TestAlphaLoaderSchema(unittest.TestCase):
         mock_entry_reddit = MagicMock()
         mock_entry_reddit.get = lambda k, d="": {
             "link": "https://www.reddit.com/r/investing/comments/abc",
-            "title": "Reddit post",
+            "title": "Reddit post about $SPY",
             "published": "Fri, 15 Mar 2024 10:00:00 +0000",
-            "summary": "some content",
+            "summary": "some content mentioning SPY",
         }.get(k, d)
 
         mock_entry_rss = MagicMock()
         mock_entry_rss.get = lambda k, d="": {
             "link": "https://example.com/article",
-            "title": "RSS article",
+            "title": "RSS article about SPY",
             "published": "Fri, 15 Mar 2024 10:00:00 +0000",
             "summary": "some content",
         }.get(k, d)
@@ -194,7 +194,9 @@ class TestAlphaLoaderSchema(unittest.TestCase):
         mock_parse.return_value = fake_feed
 
         loader = AlphaLoader()
-        docs = loader._parse_rss("https://www.reddit.com/r/investing/.rss", "SPY")
+        docs = loader._parse_rss(
+            "https://www.reddit.com/r/investing/.rss", ["SPY"], {"SPY": None}
+        )
 
         source_types = {d.source_type for d in docs}
         self.assertIn("reddit", source_types)

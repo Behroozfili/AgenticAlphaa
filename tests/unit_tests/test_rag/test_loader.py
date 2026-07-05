@@ -150,13 +150,13 @@ class TestFetchYfinance:
         new-schema items and dropped.
         """
         mock_ticker_cls.return_value.news = [{
-            "title": "Old schema item", "summary": "desc",
+            "title": "NVDA old schema item", "summary": "desc",
             "link": "https://x.com/old", "providerPublishTime": 1710512400,
         }]
         loader = AlphaLoader()
         docs = loader._yfinance_news("NVDA")
         assert len(docs) == 1
-        assert docs[0].title == "Old schema item"
+        assert docs[0].title == "NVDA old schema item"
         assert docs[0].url == "https://x.com/old"
         assert docs[0].content == "desc"
 
@@ -164,7 +164,7 @@ class TestFetchYfinance:
     def test_canonical_url_falls_back_to_clickthrough_url(self, mock_ticker_cls):
         mock_ticker_cls.return_value.news = [{
             "content": {
-                "title": "x", "summary": "y",
+                "title": "NVDA x", "summary": "y",
                 "canonicalUrl": {},
                 "clickThroughUrl": {"url": "https://fallback.com"},
                 "pubDate": "2024-03-15T14:32:00Z",
@@ -186,7 +186,7 @@ class TestFetchYfinance:
     @patch("rag.loader.yf.Ticker")
     def test_max_news_per_ticker_caps_results(self, mock_ticker_cls):
         mock_ticker_cls.return_value.news = [
-            {"content": {"title": f"t{i}", "summary": "s",
+            {"content": {"title": f"NVDA t{i}", "summary": "s",
                          "canonicalUrl": {"url": f"https://x.com/{i}"},
                          "pubDate": "2024-03-15T14:32:00Z"}}
             for i in range(10)
@@ -208,8 +208,9 @@ class TestFetchYfinance:
 # ---------------------------------------------------------------------------
 
 class TestFetchRedditRss:
+    @patch("rag.loader._get_company_name", return_value=None)
     @patch("rag.loader.feedparser.parse")
-    def test_one_feed_failure_does_not_abort_others(self, mock_parse):
+    def test_one_feed_failure_does_not_abort_others(self, mock_parse, mock_company_name):
         def parse_side_effect(url):
             m = MagicMock()
             if "wallstreetbets" in url:
@@ -218,7 +219,7 @@ class TestFetchRedditRss:
             else:
                 m.bozo = False
                 m.entries = [{"link": "https://reddit.com/r/investing/1",
-                              "title": "t", "summary": "s", "published": "2024-03-15T14:32:00Z"}]
+                              "title": "NVDA t", "summary": "s", "published": "2024-03-15T14:32:00Z"}]
             return m
         mock_parse.side_effect = parse_side_effect
 
@@ -240,13 +241,15 @@ class TestFetchRedditRss:
         with patch("rag.loader.feedparser.parse") as mock_parse:
             mock_parse.return_value.bozo = False
             mock_parse.return_value.entries = [
-                {"link": "https://reddit.com/r/investing/x", "title": "a",
+                {"link": "https://reddit.com/r/investing/x", "title": "NVDA a",
                  "summary": "s", "published": "2024-03-15T14:32:00Z"},
-                {"link": "https://example.com/article", "title": "b",
+                {"link": "https://example.com/article", "title": "NVDA b",
                  "summary": "s", "published": "2024-03-15T14:32:00Z"},
             ]
             loader = AlphaLoader()
-            docs = loader._parse_rss("https://www.reddit.com/r/investing/.rss", "NVDA")
+            docs = loader._parse_rss(
+                "https://www.reddit.com/r/investing/.rss", ["NVDA"], {"NVDA": None}
+            )
             assert docs[0].source_type == "reddit"
             assert docs[1].source_type == "rss"
 
@@ -256,35 +259,35 @@ class TestFetchRedditRss:
             mock_parse.return_value.bozo_exception = Exception("bad xml")
             loader = AlphaLoader()
             with pytest.raises(RuntimeError):
-                loader._parse_rss("https://bad.feed/x.rss", "NVDA")
+                loader._parse_rss("https://bad.feed/x.rss", ["NVDA"], {"NVDA": None})
 
     def test_parse_rss_entry_without_link_is_skipped(self):
         with patch("rag.loader.feedparser.parse") as mock_parse:
             mock_parse.return_value.bozo = False
             mock_parse.return_value.entries = [{"title": "no link entry"}]
             loader = AlphaLoader()
-            docs = loader._parse_rss("https://feed.url", "NVDA")
+            docs = loader._parse_rss("https://feed.url", ["NVDA"], {"NVDA": None})
             assert docs == []
 
     def test_parse_rss_content_falls_back_to_summary(self):
         with patch("rag.loader.feedparser.parse") as mock_parse:
             mock_parse.return_value.bozo = False
             mock_parse.return_value.entries = [{
-                "link": "https://example.com/x", "title": "t",
+                "link": "https://example.com/x", "title": "NVDA t",
                 "summary": "from summary", "published": "2024-03-15T14:32:00Z",
             }]
             loader = AlphaLoader()
-            docs = loader._parse_rss("https://feed.url", "NVDA")
+            docs = loader._parse_rss("https://feed.url", ["NVDA"], {"NVDA": None})
             assert docs[0].content == "from summary"
 
     def test_max_rss_per_feed_caps_results(self):
         with patch("rag.loader.feedparser.parse") as mock_parse:
             mock_parse.return_value.bozo = False
             mock_parse.return_value.entries = [
-                {"link": f"https://example.com/{i}", "title": f"t{i}",
+                {"link": f"https://example.com/{i}", "title": f"NVDA t{i}",
                  "summary": "s", "published": "2024-03-15T14:32:00Z"}
                 for i in range(10)
             ]
             loader = AlphaLoader(max_rss_per_feed=2)
-            docs = loader._parse_rss("https://feed.url", "NVDA")
+            docs = loader._parse_rss("https://feed.url", ["NVDA"], {"NVDA": None})
             assert len(docs) == 2

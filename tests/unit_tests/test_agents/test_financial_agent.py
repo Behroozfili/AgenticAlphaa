@@ -72,23 +72,22 @@ class TestInit:
 
 
 class TestInitLoggingBug:
-    def test_init_log_call_has_mismatched_format_args_known_bug(self, caplog):
+    def test_init_log_call_no_longer_raises_format_mismatch(self, caplog):
         """
-        KNOWN BUG: `log.info("...model=%s, server=%s", model)` supplies only
-        one positional arg for a format string with TWO %s placeholders.
-        Python's logging module defers string formatting until the record
-        is actually emitted, so this raises a TypeError as soon as the
-        agent logger's effective level is INFO or lower (e.g. under caplog,
-        or once api/main.py configures logging.basicConfig(INFO) at startup)
-        — it does NOT raise at call time under default WARNING-level logging.
-
-        This test forces INFO-level capture to prove the bug exists. Once
-        fixed (pass `model` for both placeholders, e.g. the server params
-        string too), update this test to assert no error is raised.
+        FIXED: __init__'s log.info() call used to supply only one
+        positional arg for a format string with TWO %s placeholders
+        ("...model=%s, server=%s", model), which raised a TypeError as
+        soon as the logger's effective level was INFO or lower. Both
+        placeholders are now filled (model + server_script), confirmed by
+        the real log record no longer raising under INFO-level capture.
         """
         with caplog.at_level(logging.INFO, logger="financial-analyst-agent"):
-            with pytest.raises(TypeError):
-                FinancialAnalystAgent(llm_client=MagicMock())
+            FinancialAnalystAgent(llm_client=MagicMock())
+
+        assert any(
+            "model=" in r.message and "server_script=" in r.message
+            for r in caplog.records
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -306,7 +305,7 @@ class TestExecuteRatioComputation:
         state = make_agent_state(raw_numerical_data={
             "yahoo_ratios": {},
             "revenue_growth": {"annual_revenue": [
-                {"revenue": 150}, {"revenue": 120}, {"revenue": 100},
+                {"revenue": 150, "year": 2024}, {"revenue": 120, "year": 2023}, {"revenue": 100, "year": 2022},
             ]},
             "xbrl_financials": {},
         })
@@ -341,18 +340,20 @@ class TestExecuteRatioComputation:
 # ---------------------------------------------------------------------------
 
 class TestCheckDataQuality:
-    def test_preflight_guard_skips_llm_when_both_empty(self):
+    @pytest.mark.asyncio
+    async def test_preflight_guard_skips_llm_when_both_empty(self):
         llm = MagicMock()
         agent = make_agent(llm=llm)
         state = make_agent_state()
 
-        result = agent._check_data_quality(state)
+        result = await agent._check_data_quality(state)
 
         assert result["is_complete"] is False
         assert "DATA PRESENCE" in result["failed"]
         llm.messages.create.assert_not_called()
 
-    def test_complete_verdict_clears_feedback(self):
+    @pytest.mark.asyncio
+    async def test_complete_verdict_clears_feedback(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response(json.dumps({
             "is_complete": True, "score": 90, "passed": ["DATA PRESENCE"], "failed": [], "issues": [],
@@ -360,12 +361,13 @@ class TestCheckDataQuality:
         agent = make_agent(llm=llm)
         state = make_agent_state(raw_numerical_data={"ticker": "NVDA"}, calculated_ratios={"pe": {}})
 
-        result = agent._check_data_quality(state)
+        result = await agent._check_data_quality(state)
 
         assert result["is_complete"] is True
         assert result["feedback"] == ""
 
-    def test_incomplete_verdict_preserves_feedback(self):
+    @pytest.mark.asyncio
+    async def test_incomplete_verdict_preserves_feedback(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response(json.dumps({
             "is_complete": False, "score": 30, "failed": ["VALUATION SANITY"],
@@ -374,12 +376,13 @@ class TestCheckDataQuality:
         agent = make_agent(llm=llm)
         state = make_agent_state(raw_numerical_data={"ticker": "NVDA"}, calculated_ratios={"pe": {}})
 
-        result = agent._check_data_quality(state)
+        result = await agent._check_data_quality(state)
 
         assert result["is_complete"] is False
         assert result["feedback"] == "re-check pe ratio"
 
-    def test_markdown_fenced_json_is_stripped(self):
+    @pytest.mark.asyncio
+    async def test_markdown_fenced_json_is_stripped(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response(
             "```json\n" + json.dumps({"is_complete": True, "score": 90}) + "\n```"
@@ -387,27 +390,29 @@ class TestCheckDataQuality:
         agent = make_agent(llm=llm)
         state = make_agent_state(raw_numerical_data={"ticker": "NVDA"}, calculated_ratios={"pe": {}})
 
-        result = agent._check_data_quality(state)
+        result = await agent._check_data_quality(state)
         assert result["is_complete"] is True
 
-    def test_invalid_json_returns_incomplete_with_parse_error_marker(self):
+    @pytest.mark.asyncio
+    async def test_invalid_json_returns_incomplete_with_parse_error_marker(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response("not valid json at all")
         agent = make_agent(llm=llm)
         state = make_agent_state(raw_numerical_data={"ticker": "NVDA"}, calculated_ratios={"pe": {}})
 
-        result = agent._check_data_quality(state)
+        result = await agent._check_data_quality(state)
 
         assert result["is_complete"] is False
         assert "CHECKER PARSE ERROR" in result["failed"]
 
-    def test_llm_api_exception_returns_incomplete_with_api_error_marker(self):
+    @pytest.mark.asyncio
+    async def test_llm_api_exception_returns_incomplete_with_api_error_marker(self):
         llm = MagicMock()
         llm.messages.create.side_effect = RuntimeError("API down")
         agent = make_agent(llm=llm)
         state = make_agent_state(raw_numerical_data={"ticker": "NVDA"}, calculated_ratios={"pe": {}})
 
-        result = agent._check_data_quality(state)
+        result = await agent._check_data_quality(state)
 
         assert result["is_complete"] is False
         assert "CHECKER API ERROR" in result["failed"]
@@ -418,7 +423,8 @@ class TestCheckDataQuality:
 # ---------------------------------------------------------------------------
 
 class TestBrain:
-    def test_valid_json_plan_parsed_and_messages_appended(self):
+    @pytest.mark.asyncio
+    async def test_valid_json_plan_parsed_and_messages_appended(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response(json.dumps({
             "plan": "Extract financials", "priority_tools": ["tool_get_financial_ratios"],
@@ -426,41 +432,44 @@ class TestBrain:
         agent = make_agent(llm=llm)
         state = make_agent_state()
 
-        result = agent._brain(state)
+        result = await agent._brain(state)
 
         assert result["plan"] == "Extract financials"
         assert result["priority_tools"] == ["tool_get_financial_ratios"]
         assert len(state["messages"]) == 2
 
-    def test_non_json_response_falls_back_to_default_tools(self):
+    @pytest.mark.asyncio
+    async def test_non_json_response_falls_back_to_default_tools(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response("just plain text, not json")
         agent = make_agent(llm=llm)
         state = make_agent_state()
 
-        result = agent._brain(state)
+        result = await agent._brain(state)
 
         assert result["plan"] == "just plain text, not json"
         assert "tool_get_financial_ratios" in result["priority_tools"]
 
-    def test_api_exception_returns_default_plan_without_raising(self):
+    @pytest.mark.asyncio
+    async def test_api_exception_returns_default_plan_without_raising(self):
         llm = MagicMock()
         llm.messages.create.side_effect = RuntimeError("API down")
         agent = make_agent(llm=llm)
         state = make_agent_state()
 
-        result = agent._brain(state)
+        result = await agent._brain(state)
 
         assert "Default plan" in result["plan"]
         assert len(result["priority_tools"]) == 3
 
-    def test_feedback_included_in_prompt(self):
+    @pytest.mark.asyncio
+    async def test_feedback_included_in_prompt(self):
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response(json.dumps({"plan": "x", "priority_tools": []}))
         agent = make_agent(llm=llm)
         state = make_agent_state(validation_feedback="missing revenue data")
 
-        agent._brain(state)
+        await agent._brain(state)
 
         sent_messages = llm.messages.create.call_args.kwargs["messages"]
         assert "missing revenue data" in sent_messages[0]["content"]

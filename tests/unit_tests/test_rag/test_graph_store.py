@@ -127,10 +127,19 @@ class TestExtractBatch:
         store = AlphaGraphStore()
         store._claude = AsyncMock()
         response = MagicMock()
-        response.content = [MagicMock(text=json.dumps({
+        # _extract_one prepends "{" to this text (since the API call uses a
+        # "{"-prefill trick to force raw JSON without markdown fences) — so
+        # the mock must supply the JSON body WITHOUT its own leading brace,
+        # matching what the real (prefilled) API response would actually
+        # contain. Supplying the full json.dumps(...) string here (with its
+        # own leading "{") would double the opening brace once _extract_one
+        # re-adds its own, leaving the brace-counter unable to find a
+        # balanced object.
+        full_json = json.dumps({
             "entities": [{"name": "NVIDIA", "type": "Company", "ticker": "NVDA", "description": "GPU maker"}],
             "relations": [],
-        }))]
+        })
+        response.content = [MagicMock(text=full_json[1:])]  # strip the leading "{"
         store._claude.messages.create.return_value = response
 
         doc = make_raw_doc()
@@ -160,7 +169,7 @@ class TestExtractBatch:
         store = AlphaGraphStore()
         store._claude = AsyncMock()
         response = MagicMock()
-        response.content = [MagicMock(text='{"entities": [], "relations": []}')]
+        response.content = [MagicMock(text='"entities": [], "relations": []}')]
         store._claude.messages.create.return_value = response
 
         doc = make_raw_doc(content="x" * 5000)

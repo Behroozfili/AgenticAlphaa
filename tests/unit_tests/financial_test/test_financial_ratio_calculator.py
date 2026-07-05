@@ -391,7 +391,8 @@ class TestCompositeFinancialScore:
         assert result["missing_inputs"] == []
         # all 6 weighted metrics should appear (pb is NOT one of them)
         assert set(result["sub_scores"].keys()) == {
-            "roe", "net_margin", "revenue_cagr", "pe", "current_ratio", "de_ratio"
+            "roe_normalised", "net_margin_normalised", "revenue_cagr_normalised",
+            "pe_normalised", "current_ratio_normalised", "de_ratio_normalised",
         }
 
     def test_all_inputs_none_returns_na_grade(self):
@@ -411,12 +412,12 @@ class TestCompositeFinancialScore:
     def test_pe_metric_is_inverted_lower_pe_scores_higher(self):
         low_pe = composite_financial_score(pe=5)
         high_pe = composite_financial_score(pe=60)
-        assert low_pe["sub_scores"]["pe"] > high_pe["sub_scores"]["pe"]
+        assert low_pe["sub_scores"]["pe_normalised"] > high_pe["sub_scores"]["pe_normalised"]
 
     def test_de_ratio_metric_is_inverted_lower_de_scores_higher(self):
         low_de = composite_financial_score(de_ratio=0)
         high_de = composite_financial_score(de_ratio=3)
-        assert low_de["sub_scores"]["de_ratio"] > high_de["sub_scores"]["de_ratio"]
+        assert low_de["sub_scores"]["de_ratio_normalised"] > high_de["sub_scores"]["de_ratio_normalised"]
 
     def test_grade_boundaries(self):
         # Force a near-perfect score to hit grade "A" (>= 80)
@@ -430,4 +431,4 @@ class TestCompositeFinancialScore:
     def test_score_is_clamped_for_out_of_range_inputs(self):
         # roe_pct way beyond max_val=40 should clamp, not error or exceed 10 sub-score
         result = composite_financial_score(roe_pct=9999)
-        assert result["sub_scores"]["roe"] == 10.0
+        assert result["sub_scores"]["roe_normalised"] == 10.0

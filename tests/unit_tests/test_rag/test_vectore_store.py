@@ -92,6 +92,11 @@ class TestUpsert:
         mock_supabase_client.table.assert_not_called()
 
     def test_upsert_calls_table_with_on_conflict_url_hash(self, mock_supabase_client):
+        """on_conflict is "url_hash,chunk_index", not just "url_hash" — a
+        single article produces many chunks sharing one url_hash, so the
+        conflict key must include chunk_index or upserts fail with
+        "ON CONFLICT DO UPDATE command cannot affect row a second time"
+        (see the SQL schema comment at the top of vector_store.py)."""
         response = MagicMock()
         response.data = [{"id": 1}, {"id": 2}]
         mock_supabase_client.table.return_value.upsert.return_value.execute.return_value = response
@@ -106,7 +111,7 @@ class TestUpsert:
         assert count == 2
         mock_supabase_client.table.assert_called_with("alpha_documents")
         _, kwargs = mock_supabase_client.table.return_value.upsert.call_args
-        assert kwargs["on_conflict"] == "url_hash"
+        assert kwargs["on_conflict"] == "url_hash,chunk_index"
 
     def test_upsert_returns_zero_when_response_data_is_none(self, mock_supabase_client):
         response = MagicMock()

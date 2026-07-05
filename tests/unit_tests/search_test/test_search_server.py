@@ -44,7 +44,8 @@ class TestCallToolRouting:
 
         mock_news.assert_called_once_with(
             query="NVDA", from_date="2024-01-01", to_date=None,
-            language="en", sort_by="publishedAt", page_size=20,
+            language="en", sort_by="relevancy", page_size=20,
+            exclude_domains=None,
         )
 
     @pytest.mark.asyncio
@@ -66,7 +67,7 @@ class TestCallToolRouting:
         await call_tool("sec_edgar_filing", {"ticker": "NVDA"})
 
         mock_filing.assert_called_once_with(
-            ticker="NVDA", form_type="10-K", sections=["all"], max_chars=8000,
+            ticker="NVDA", form_type="10-K", sections=["all"], max_chars=25000,
         )
 
     @pytest.mark.asyncio

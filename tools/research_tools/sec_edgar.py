@@ -273,12 +273,27 @@ async def _fetch_text(cik: str, acc_dash: str, acc_nodash: str) -> str:
     # EDGAR's Archives path uses the un-padded integer CIK, an accession-number
     # *directory* WITHOUT dashes, and a full-submission *file* WITH dashes.
     # Getting either wrong yields a 404 and silently empty section output.
+    #
+    # No truncation on the response text. The full-submission .txt file
+    # concatenates the main document with exhibits, the XBRL instance
+    # document, and other attachments — for a large filer (e.g. MSFT) this
+    # exceeds even 5 MB. Two earlier fixed caps (2M, then 5M chars) both
+    # cut the raw text off partway through the document's own table of
+    # contents / cover matter, before the real Item 1/2/1A narrative body
+    # was ever reached — confirmed via a direct diagnostic fetch each time
+    # (raw text hit the cap exactly, and the "mda" section extracted
+    # afterward was provably just the table of contents, not the actual
+    # MD&A body). This does NOT increase LLM token cost: every returned
+    # section is separately capped by max_chars (default 25000 chars) in
+    # _extract_sections below before it ever reaches an LLM — the only
+    # real cost of fetching more here is a bit more network/memory for
+    # this one request, which is negligible for a single filing document.
     cik_int = str(int(cik))
     url = f"{EDGAR_BASE}/Archives/edgar/data/{cik_int}/{acc_nodash}/{acc_dash}.txt"
-    async with httpx.AsyncClient(timeout=30.0, headers=HEADERS, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=60.0, headers=HEADERS, follow_redirects=True) as client:
         resp = await client.get(url)
         if resp.status_code == 200:
-            return resp.text[:2_000_000]
+            return resp.text
     logger.warning("sec_edgar_filing: filing text fetch returned %s for %s",
                    resp.status_code, url)
     return ""
@@ -316,6 +331,14 @@ _SECTION_PATTERNS = {
 }
 
 
+# A real section body is always at least this long in practice (SEC's
+# shortest genuine MD&A/risk-factors sections still run several thousand
+# characters). A candidate match whose span falls short of this is almost
+# certainly a table-of-contents entry or a cross-reference, not the actual
+# section body — see MIN_SECTION_CHARS usage in _extract_sections below.
+MIN_SECTION_CHARS = 800
+
+
 def _extract_sections(text: str, sections: list, max_chars: int,
                       form_type: str = "10-K") -> dict:
     if not text:
@@ -326,20 +349,52 @@ def _extract_sections(text: str, sections: list, max_chars: int,
     text_low = clean.lower()
     want_all = "all" in sections
 
-    # Use the LAST occurrence of each header: the first hit is almost always
-    # the table-of-contents link; the real section body comes later.
-    positions = {}
+    # Collect ALL occurrences of every header (not just the last one) so we
+    # can search backward for one that actually yields a substantive span,
+    # and build one merged, sorted list of boundary points (from every
+    # pattern) to compute "where does this candidate section actually end".
+    all_matches: dict[str, list[int]] = {}
     for name, pat in patterns.items():
-        matches = list(re.finditer(pat, text_low))
-        if matches:
-            positions[name] = matches[-1].start()
+        starts = [m.start() for m in re.finditer(pat, text_low)]
+        if starts:
+            all_matches[name] = starts
 
-    sorted_pos = sorted(positions.items(), key=lambda x: x[1])
+    merged_boundaries = sorted(
+        {pos for starts in all_matches.values() for pos in starts}
+    )
+
+    def _end_boundary_after(start: int) -> int:
+        """First merged boundary strictly after `start`, else end of text.
+        This is intentionally computed against the FULL merged list (all
+        occurrences of all headers), not just each header's own last
+        occurrence — a candidate near the table of contents should be
+        bounded by the very next heading-like text, wherever it's from."""
+        for pos in merged_boundaries:
+            if pos > start:
+                return pos
+        return len(clean)
+
+    # For each requested section, walk its own occurrences from LAST to
+    # FIRST and take the first one whose span is long enough to plausibly
+    # be the real body — not a table-of-contents stub. Falls back to the
+    # last occurrence (old behavior) if NONE meet the length bar, since a
+    # too-short real answer is still better than silently returning nothing.
+    chosen_start: dict[str, int] = {}
+    for name, starts in all_matches.items():
+        if not want_all and name not in sections:
+            continue
+        best_start = starts[-1]  # fallback: old "last occurrence" behavior
+        for candidate in reversed(starts):
+            span_len = _end_boundary_after(candidate) - candidate
+            if span_len >= MIN_SECTION_CHARS:
+                best_start = candidate
+                break
+        chosen_start[name] = best_start
+
+    sorted_pos = sorted(chosen_start.items(), key=lambda x: x[1])
 
     result = {}
     for idx, (name, start) in enumerate(sorted_pos):
-        if not want_all and name not in sections:
-            continue
         end = sorted_pos[idx + 1][1] if idx + 1 < len(sorted_pos) else len(clean)
         result[name] = clean[start:end].strip()[:max_chars]
 
