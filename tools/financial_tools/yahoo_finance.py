@@ -240,6 +240,39 @@ def get_financial_ratios(ticker: str) -> dict:
         return {"ticker": ticker, "error": str(exc)}
 
 
+def _fiscal_quarter_label(period_end_year: int, period_end_month: int, fye_month: int | None) -> str:
+    """
+    Build a company-accurate "FYyyyy-Qn" label for a quarterly period, using
+    the company's OWN fiscal-year-end month (fye_month) rather than assuming
+    a calendar-year quarter (Jan-Mar=Q1, ...).
+
+    Naive calendar-quarter labeling silently mislabels any company whose
+    fiscal year doesn't end in December — e.g. it called Microsoft's
+    quarter ended March 31 "2026-Q1" when Microsoft itself calls that
+    quarter "Q3 FY2026" (Microsoft's fiscal year starts in July). That
+    produced a real, visible bug: a generated report cited "Q1 FY2026" net
+    margin in one paragraph and "Q3 FY2026" Azure revenue (quoted directly
+    from the 10-Q, which naturally uses the company's own fiscal label) in
+    another — two mentions of the SAME quarter that looked like two
+    different quarters to a reader.
+
+    Falls back to a plain calendar-quarter label if fye_month is
+    unavailable (e.g. annual `financials` was empty), which is the same
+    fallback behavior as before this fix — no worse than the prior
+    behavior, just no longer the default for the common case.
+    """
+    if fye_month is None:
+        q_num = (period_end_month - 1) // 3 + 1
+        return f"{period_end_year}-Q{q_num}"
+    fy_start_month = (fye_month % 12) + 1
+    months_since_fy_start = (period_end_month - fy_start_month) % 12
+    fiscal_quarter = months_since_fy_start // 3 + 1
+    fiscal_year = (
+        period_end_year if period_end_month <= fye_month else period_end_year + 1
+    )
+    return f"FY{fiscal_year}-Q{fiscal_quarter}"
+
+
 def get_revenue_growth(ticker: str) -> dict:
     """
     Retrieve annual and quarterly revenue / earnings growth metrics.
@@ -260,6 +293,7 @@ def get_revenue_growth(ticker: str) -> dict:
         - "annual_revenue"      (list[dict]) : [{year, revenue, yoy_growth}]
         - "quarterly_revenue"   (list[dict]) : [{quarter, revenue, yoy_growth}]
         - "annual_net_income"   (list[dict]) : [{year, net_income, yoy_growth}]
+        - "quarterly_net_income" (list[dict]) : [{quarter, net_income, yoy_growth}]
         - "revenue_growth_ttm"  (float | None) : YoY growth for trailing 12 months.
         - "error"               (str | None)
 
@@ -276,14 +310,46 @@ def get_revenue_growth(ticker: str) -> dict:
         financials = stock.financials  # columns = fiscal years (most recent first)
         annual_revenue    = []
         annual_net_income = []
+        year_labeling_warnings: list[str] = []
+        fye_month: int | None = None
 
         if financials is not None and not financials.empty:
             rev_row = financials.loc["Total Revenue"] if "Total Revenue" in financials.index else None
             inc_row = financials.loc["Net Income"]    if "Net Income"    in financials.index else None
 
             cols = list(financials.columns)  # most-recent first
+            # Fiscal-year-end month, derived from the company's OWN annual
+            # data — NOT hardcoded per-ticker. Used below to build correct
+            # "FYyyyy-Qn" quarter labels (see _fiscal_quarter_label()).
+            # Works for any fiscal calendar: a Jan-end company (NVIDIA), a
+            # June-end company (Microsoft), a Sept-end company (Apple), or
+            # a standard Dec-end company all derive correctly from this.
+            if cols and hasattr(cols[0], "month"):
+                fye_month = cols[0].month
             for i, col in enumerate(cols):
                 year = col.year if hasattr(col, "year") else str(col)
+
+                # Sanity check: annual columns should be ~1 fiscal year
+                # apart. yfinance labels each column by the *calendar* year
+                # of its period-end date, which usually (but not always,
+                # depending on how a company names its own fiscal years —
+                # e.g. a Jan-end company vs. one with a differently-named FY
+                # convention) matches the company's own "Fiscal Year N"
+                # label. This can't fully verify the label is *correct*
+                # (there's no independent source here), but it does catch
+                # gross mislabeling like a duplicated or skipped year,
+                # which would otherwise silently corrupt every "annual:{year}"
+                # period tag downstream (see financial_agent.py).
+                if i + 1 < len(cols) and hasattr(col, "year") and hasattr(cols[i + 1], "year"):
+                    gap = col.year - cols[i + 1].year
+                    if gap not in (0, 1):
+                        year_labeling_warnings.append(
+                            f"columns[{i}]={col.date()} (FY{col.year}) and "
+                            f"columns[{i+1}]={cols[i+1].date()} (FY{cols[i+1].year}) "
+                            f"are {gap} calendar years apart, not the expected ~1 — "
+                            f"annual_revenue/annual_net_income year labels may not "
+                            f"line up with the company's own fiscal-year numbering."
+                        )
 
                 # Revenue — _safe_float() collapses pandas NaN cells (a
                 # present row with a missing value for THIS specific column,
@@ -317,6 +383,7 @@ def get_revenue_growth(ticker: str) -> dict:
         # --- Quarterly revenue ---
         quarterly = stock.quarterly_financials
         quarterly_revenue = []
+        quarterly_net_income = []
         if quarterly is not None and not quarterly.empty and "Total Revenue" in quarterly.index:
             q_rev_row = quarterly.loc["Total Revenue"]
             q_cols = list(quarterly.columns)
@@ -325,8 +392,7 @@ def get_revenue_growth(ticker: str) -> dict:
                 # (ValueError: Invalid format string) — quarter must be
                 # computed manually from the month instead.
                 if hasattr(col, "year") and hasattr(col, "month"):
-                    q_num = (col.month - 1) // 3 + 1
-                    quarter = f"{col.year}-Q{q_num}"
+                    quarter = _fiscal_quarter_label(col.year, col.month, fye_month)
                 else:
                     quarter = str(col)
                 rev = _safe_float(q_rev_row[col])
@@ -338,6 +404,35 @@ def get_revenue_growth(ticker: str) -> dict:
                     else None
                 )
                 quarterly_revenue.append({"quarter": quarter, "revenue": rev, "yoy_growth": growth})
+
+        # --- Quarterly net income ---
+        # Mirrors the quarterly_revenue block above. Previously MISSING —
+        # only quarterly_revenue was ever extracted, even though
+        # `quarterly_financials` carries a "Net Income" row exactly like the
+        # annual `financials` frame does. Its absence forced
+        # financial_agent.py's net_margin calculation to fall back to
+        # annual_net_income[0]/annual_revenue[0] (a full fiscal year) even
+        # when narrating a specific quarter (e.g. Q1 FY2027) alongside it —
+        # the root cause of the NVDA net_margin bug (55.6% FY-annual vs.
+        # 71.5% actual Q1 FY2027, per the 10-Q's own percentage-of-revenue
+        # table). With this present, callers can compute a genuinely
+        # same-quarter net margin instead of just labeling the mismatch.
+        if quarterly is not None and not quarterly.empty and "Net Income" in quarterly.index:
+            q_inc_row = quarterly.loc["Net Income"]
+            q_cols = list(quarterly.columns)
+            for i, col in enumerate(q_cols):
+                if hasattr(col, "year") and hasattr(col, "month"):
+                    quarter = _fiscal_quarter_label(col.year, col.month, fye_month)
+                else:
+                    quarter = str(col)
+                ni = _safe_float(q_inc_row[col])
+                prev_ni = _safe_float(q_inc_row[q_cols[i + 4]]) if i + 4 < len(q_cols) else None
+                growth = (
+                    round((ni - prev_ni) / abs(prev_ni), 4)
+                    if (ni is not None and prev_ni is not None and prev_ni != 0)
+                    else None
+                )
+                quarterly_net_income.append({"quarter": quarter, "net_income": ni, "yoy_growth": growth})
 
         # NOTE: despite the key name "revenue_growth_ttm" (kept for backward
         # compatibility with existing consumers), Yahoo Finance's
@@ -358,11 +453,17 @@ def get_revenue_growth(ticker: str) -> dict:
             "annual_revenue":            annual_revenue,
             "quarterly_revenue":         quarterly_revenue,
             "annual_net_income":         annual_net_income,
+            "quarterly_net_income":      quarterly_net_income,
             "revenue_growth_ttm":        revenue_growth_ttm,
             # Explicit period label so downstream consumers (LLM narrative
             # generation, reports) don't conflate this with true annual/TTM
             # growth — see note above.
             "revenue_growth_ttm_period": "most_recent_quarter_yoy",
+            # Non-fatal sanity-check output (see the gap check in the annual
+            # loop above). Empty list = no gross mislabeling detected; does
+            # NOT guarantee the year labels are correct, only that they're
+            # internally consistent (~1 year apart, no gaps/duplicates).
+            "year_labeling_warnings":    year_labeling_warnings,
             "error":                     None,
         }
 

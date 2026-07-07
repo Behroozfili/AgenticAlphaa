@@ -52,6 +52,7 @@ from dotenv import load_dotenv
 from langsmith import traceable
 from core.observability import sentry_enabled
 from core.progress_bus import publish as _publish_progress, session_from_shared
+from tools.research_tools.context_synthesizer import synthesize_research_context
 
 load_dotenv()
 
@@ -406,15 +407,36 @@ class ResearchAgent:
             raise RuntimeError(f"ResearchAgent internal graph failed: {exc}") from exc
 
         # ── Map results back into shared contract ─────────────────
+        # ADDITIVE synthesis step: compress the raw chunks into one dense
+        # executive summary for the Manager to skim, WITHOUT removing the
+        # raw chunks themselves — exact numbers (e.g. an analyst's price-
+        # target percentage, a 10-Q dollar figure) must stay traceable for
+        # downstream numeric faithfulness validation. This call happens
+        # entirely AFTER the internal Brain/Checker/Executor loop above
+        # has finished — the loop's own logic is completely untouched by
+        # this step. A synthesis failure never loses data or raises: see
+        # synthesize_research_context's own docstring for why it returns
+        # None on failure instead of raising.
+        synthesized_summary = await synthesize_research_context(
+            chunks=final_state["context_chunks"],
+            task_query=task_query,
+            llm_client=self._llm,
+            model=self._model,
+        )
+
         existing = shared_state.get("aggregated_research_context") or []
+        new_chunks = final_state["context_chunks"] + (
+            [synthesized_summary] if synthesized_summary else []
+        )
         updated_shared: SharedManagerState = {
             **shared_state,
-            "aggregated_research_context": existing + final_state["context_chunks"],
+            "aggregated_research_context": existing + new_chunks,
         }
 
         logger.info(
-            "ResearchAgent.run() complete | chunks=%d | loops=%d",
+            "ResearchAgent.run() complete | chunks=%d | synthesized_summary=%s | loops=%d",
             len(final_state["context_chunks"]),
+            bool(synthesized_summary),
             final_state["loop_counter"],
         )
         return updated_shared
@@ -708,10 +730,37 @@ class ResearchAgent:
                 "validation_feedback": "No data was retrieved. Retry with different tools or broader queries.",
             }
 
-        # Combine chunks (truncate to avoid token overflow)
-        combined = "\n\n---\n\n".join(all_chunks)
-        if len(combined) > 12_000:
-            combined = combined[:12_000] + "\n...[truncated for audit]"
+        # Give each chunk a small, fixed budget instead of truncating the
+        # whole concatenated string. The old approach (truncate the joined
+        # string to 12,000 chars) let a single large early chunk — e.g. a
+        # sec_edgar_filing chunk, routinely 20,000-50,000+ chars — consume
+        # the ENTIRE budget, silently hiding every tool call made in later
+        # iterations from the Checker's view. This caused confirmed
+        # redundant re-fetching: the Checker, unable to see that
+        # news_search / rag_hybrid_query had already run (their results
+        # existed but were past the cutoff), told the Brain "insufficient,
+        # get more data" — and the Brain re-issued a near-identical query,
+        # returning near-identical results, in a later loop iteration.
+        # A per-chunk cap ensures the Checker always sees WHICH tools have
+        # already been called, even if it can't see each one's full text.
+        per_chunk_budget = max(800, 12_000 // max(len(all_chunks), 1))
+
+        def _budget_chunk(c: str) -> str:
+            if len(c) <= per_chunk_budget:
+                return c
+            # Mark truncated chunks explicitly. Without this, the Checker
+            # LLM has no way to distinguish "this tool genuinely returned
+            # little data" from "this tool returned a lot of data and we
+            # cut it off" — the former might legitimately mean "insufficient,
+            # try a different tool", the latter should NOT trigger that same
+            # verdict/re-fetch. A prior version of this function truncated
+            # the whole joined string with a trailing marker; this per-chunk
+            # rewrite (see comment above) preserves per-tool visibility but
+            # had dropped the marker — restored here, now per-chunk instead
+            # of once for the whole blob.
+            return c[:per_chunk_budget] + "\n[truncated for audit]"
+
+        combined = "\n\n---\n\n".join(_budget_chunk(c) for c in all_chunks)
 
         user_content = (
             f"ORIGINAL RESEARCH QUERY:\n{task_query}\n\n"

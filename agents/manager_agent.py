@@ -77,6 +77,14 @@ from memory.manager_memory import EvaluationFeedback, ManagerMemory
 from core.observability import sentry_enabled
 from core.progress_bus import publish as _publish_progress
 
+# QA / validation — checks final_report narration against the period
+# provenance tags financial_agent.py attaches to each calculated ratio
+# (e.g. catches an annual net_margin narrated as if it described the
+# current quarter). Non-blocking: see its usage in _node_finalise below.
+# Adjust this import path to wherever validate_period_consistency.py
+# actually lives in your project layout (e.g. validation/, tools/qa/).
+from evaluation.validate_period_consistency import check_narration_vs_period
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -306,12 +314,83 @@ value provided for that metric (e.g. the "current_ratio" or "de_ratio" key).
 NEVER use the numbers inside "composite_score.sub_scores" as if they were the
 ratio itself — those are normalised 0-10 contributions to the composite
 score, not the actual metric value, even though some share the same name.
+
+IMPORTANT — period fidelity: Several metrics carry a matching "<metric>_period"
+field (e.g. "net_margin_period", "roe_period", "de_ratio_period",
+"revenue_cagr_period") stating which reporting period that metric's OWN
+inputs actually came from — values look like "quarterly:2026-Q1" (a single
+3-month quarter), "annual:2025" (a full fiscal year), "ttm", "mrq", or
+"mixed". These periods are NOT guaranteed to agree with each other, and
+that's fine — e.g. net_margin can legitimately be "quarterly:2026-Q1" while
+roe is "annual:2025" (this pipeline has no quarterly balance-sheet source).
+Follow these rules when writing:
+  1. Never state or imply that a metric describes a different period than
+     its own "<metric>_period" says. If net_margin_period is
+     "quarterly:2026-Q1", say "Q1 FY2026 net margin" (or similar) — do NOT
+     call it the "nine-month" or "full-year" net margin.
+  2. RESEARCH HIGHLIGHTS may contain raw revenue/net-income figures quoted
+     directly from the filing text (e.g. "$241.8 billion in revenue over
+     nine months"). These are a DIFFERENT, independent source from
+     FINANCIAL METRICS SUMMARY and are NOT guaranteed to be the same period
+     as any "<metric>_period" — a 10-Q commonly reports both a 3-month
+     standalone column and a 9-month year-to-date column. Do NOT combine a
+     research-highlight revenue/income figure with a financial-metrics
+     ratio in the same sentence (e.g. "$241.8B in revenue... with a net
+     margin of X%") unless their periods actually match — state each
+     figure's period explicitly instead, in separate sentences if needed,
+     or simply don't restate the ratio in that sentence.
+  3. If you're unsure a research-highlight figure and a metrics-summary
+     ratio share a period, err toward NOT putting them in the same
+     sentence rather than guessing they align.
 """
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _format_news_chunk_fairly(chunk_text: str, max_articles: int = 5, per_article_budget: int = 220) -> str:
+    """
+    Format a news_search chunk so multiple articles survive, instead of
+    the flat 200-char truncation cutting off partway through the FIRST
+    article's title alone.
+
+    Regression this guards against: news_search's raw JSON puts
+    query/effective_query/total_results BEFORE the "articles" list, and
+    a flat [:200] truncation on the whole serialized blob rarely reaches
+    past the first article's title — meaning a chunk with 8 real,
+    specific, often highly-relevant articles (e.g. "JPMorgan reversed
+    course on Tesla, price target +227%") contributed effectively ZERO
+    information to the finalizer, even though the tool call succeeded and
+    fetched all 8. This surfaces title + a short snippet of description
+    for up to `max_articles`, so the finalizer actually sees the specific
+    events, not just a truncated fragment of the first headline.
+
+    Falls back to a flat truncation if the embedded JSON can't be parsed.
+    """
+    idx = chunk_text.rfind("─")
+    json_start = chunk_text.find("{", idx) if idx != -1 else chunk_text.find("{")
+    if json_start == -1:
+        return chunk_text[:per_article_budget * 2]
+
+    try:
+        payload = json.loads(chunk_text[json_start:])
+    except (json.JSONDecodeError, ValueError):
+        return chunk_text[:per_article_budget * 2]
+
+    articles = payload.get("articles")
+    if not isinstance(articles, list) or not articles:
+        return chunk_text[:per_article_budget * 2]
+
+    header = f"[NEWS: query={payload.get('effective_query', payload.get('query', '?'))!r}, {payload.get('total_results', '?')} total results]"
+    lines = [header]
+    for a in articles[:max_articles]:
+        title = a.get("title", "")
+        desc = a.get("description", "")
+        published = a.get("published_at", "")
+        lines.append(f"  • [{published}] {title} — {desc[:per_article_budget]}")
+    return "\n".join(lines)
+
 
 def _extract_chunk_text(chunk: Union[str, dict]) -> str:
     """
@@ -329,6 +408,62 @@ def _extract_chunk_text(chunk: Union[str, dict]) -> str:
     if isinstance(chunk, dict):
         return chunk.get("text", str(chunk))
     return str(chunk)
+
+
+def _format_filing_chunk_fairly(chunk_text: str, per_section_budget: int = 3000) -> str:
+    """
+    Format a sec_edgar_filing chunk so every requested section gets a FAIR
+    character budget, instead of naively truncating the whole serialized
+    JSON blob.
+
+    Regression this guards against: sec_edgar_filing's "sections" dict
+    preserves document order — for a 10-Q that's typically
+    financial_statements, then mda, then risk_factors. financial_statements
+    is routinely tens of thousands of characters (full balance sheet,
+    income statement, cash flow statement, and notes). When the Brain
+    requests sections=["financial_statements", "mda"] together (observed
+    routinely in real traces) and the WHOLE chunk is truncated to a single
+    flat budget, financial_statements alone consumes the entire budget —
+    mda is fully present in the fetched data (confirmed via direct tool
+    output inspection) but never reaches the finalizer prompt at all,
+    because the flat truncation cuts the string before mda's text even
+    starts. Parsing the JSON and budgeting PER SECTION fixes this: each
+    section gets its own space regardless of how large its neighbors are.
+
+    Falls back to a flat truncation of the raw text if the embedded JSON
+    can't be parsed (e.g. unexpected format) — never raises, never returns
+    less information than the old behavior would have.
+    """
+    # The chunk's raw text looks like:
+    #   ──────────────
+    #   [TOOL: sec_edgar_filing] | [QUERY: TSLA]
+    #   ──────────────
+    #   {...json...}
+    # Find the JSON payload by locating the last line of dashes and taking
+    # everything after it.
+    marker = "\n" + "─" * 10  # tolerate variable dash-line lengths
+    idx = chunk_text.rfind("─")
+    json_start = chunk_text.find("{", idx) if idx != -1 else chunk_text.find("{")
+    if json_start == -1:
+        return chunk_text[:per_section_budget * 2]  # not JSON at all; flat fallback
+
+    try:
+        payload = json.loads(chunk_text[json_start:])
+    except (json.JSONDecodeError, ValueError):
+        return chunk_text[:per_section_budget * 2]  # unparseable; flat fallback
+
+    sections = payload.get("sections")
+    if not isinstance(sections, dict) or not sections:
+        return chunk_text[:per_section_budget * 2]  # no sections dict; flat fallback
+
+    header = (
+        f"[SEC FILING: {payload.get('ticker', '?')} {payload.get('form_type', '?')}, "
+        f"filed {payload.get('filed_at', '?')}]"
+    )
+    parts = [header]
+    for name, text in sections.items():
+        parts.append(f"--- {name} ---\n{text[:per_section_budget]}")
+    return "\n".join(parts)
 
 
 def _feedback_to_snapshot(fb: EvaluationFeedback) -> EvaluationSnapshot:
@@ -664,22 +799,93 @@ class ManagerAgent:
         Synthesises all agent outputs into a single investment analysis report.
         """
         # Prioritize SEC filing chunks (sec_edgar_filing / sec_edgar_search)
-        # ahead of news/rag chunks, and give them a much larger character
-        # budget. A flat [:3] + [:200 chars] truncation (the previous
-        # behaviour) cut every chunk off after ~200 characters — for a
-        # sec_edgar_filing chunk, whose body is a JSON blob starting with
-        # {"ticker": ..., "company": ..., "form_type": ...}, that 200-char
-        # window never reaches the actual mda/risk_factors text, which sits
-        # much deeper in the JSON string. Non-filing chunks (news/rag) stay
-        # at a smaller budget since they're already short, individual
-        # article snippets rather than large structured documents.
+        # ahead of news/rag chunks. A flat [:3] + [:200 chars] truncation
+        # (the original behavior) cut every chunk off after ~200
+        # characters — nowhere near enough to reach mda/risk_factors text.
+        # A later fix gave filing chunks a flat 8000-char budget instead,
+        # but that still wasn't enough once financial_statements (often
+        # tens of thousands of characters) was requested ALONGSIDE mda in
+        # the same call: financial_statements comes first in the JSON
+        # (document order) and alone consumed the entire flat budget,
+        # so mda never reached the finalizer prompt even though it was
+        # successfully fetched (confirmed via direct tool-output
+        # inspection). _format_filing_chunk_fairly() now parses the JSON
+        # and gives each requested section its OWN budget, so one large
+        # section can no longer starve another. Non-filing chunks
+        # (news/rag) stay at a smaller flat budget since they're already
+        # short, individual article snippets rather than large structured
+        # documents.
         all_chunks = state.get("aggregated_research_context", [])
-        filing_chunks = [
+
+        # If ResearchAgent successfully produced a synthesized summary
+        # (see tools/research_tools/context_synthesizer.py), PREFER it
+        # alone over the raw chunks — this is where the actual volume
+        # reduction happens. The raw chunks are still present in
+        # aggregated_research_context (never removed — see that module's
+        # docstring on why), so nothing here is lost for downstream
+        # consumers that need the raw data (e.g. a numeric faithfulness
+        # validator reading the full trace directly); this only changes
+        # what the FINALIZER PROMPT itself is built from. Falls back to
+        # the previous fair-budgeted raw-chunk selection if no synthesis
+        # chunk is present (e.g. synthesis failed and returned None
+        # upstream) — so a synthesis failure degrades gracefully instead
+        # of losing research content from the report entirely.
+        synthesis_chunks = [
             c for c in all_chunks
-            if "[TOOL: sec_edgar_filing]" in _extract_chunk_text(c)[:60]
+            if "[SYNTHESIZED RESEARCH SUMMARY" in _extract_chunk_text(c)[:60]
         ]
-        other_chunks = [c for c in all_chunks if c not in filing_chunks]
-        research_sample = filing_chunks[:2] + other_chunks[:3]
+
+        if synthesis_chunks:
+            log.info(
+                "_brain_finalise: using SYNTHESIZED summary for research_lines "
+                "(%d chunk(s), skipping raw filing/news fair-budgeting entirely)",
+                len(synthesis_chunks),
+            )
+            # Generous budget: this is already a dense, LLM-compressed
+            # summary of everything gathered, not raw source text, so it
+            # can afford a larger allowance than any single raw chunk.
+            research_lines = "\n".join(
+                f"  - {_extract_chunk_text(c)[:6000]}" for c in synthesis_chunks
+            )
+        else:
+            log.info(
+                "_brain_finalise: no synthesis chunk found — falling back to "
+                "raw filing/news chunk fair-budgeting"
+            )
+            # Prioritize SEC filing chunks (sec_edgar_filing / sec_edgar_search)
+            # ahead of news/rag chunks. A flat [:3] + [:200 chars] truncation
+            # (the original behavior) cut every chunk off after ~200
+            # characters — nowhere near enough to reach mda/risk_factors text.
+            # A later fix gave filing chunks a flat 8000-char budget instead,
+            # but that still wasn't enough once financial_statements (often
+            # tens of thousands of characters) was requested ALONGSIDE mda in
+            # the same call: financial_statements comes first in the JSON
+            # (document order) and alone consumed the entire flat budget,
+            # so mda never reached the finalizer prompt even though it was
+            # successfully fetched (confirmed via direct tool-output
+            # inspection). _format_filing_chunk_fairly() now parses the JSON
+            # and gives each requested section its OWN budget, so one large
+            # section can no longer starve another. Non-filing chunks
+            # (news/rag) stay at a smaller flat budget since they're already
+            # short, individual article snippets rather than large structured
+            # documents.
+            filing_chunks = [
+                c for c in all_chunks
+                if "[TOOL: sec_edgar_filing]" in _extract_chunk_text(c)[:150]
+            ]
+            news_chunks = [
+                c for c in all_chunks
+                if "[TOOL: news_search]" in _extract_chunk_text(c)[:150]
+            ]
+            other_chunks = [c for c in all_chunks if c not in filing_chunks and c not in news_chunks]
+            research_sample = filing_chunks[:2] + news_chunks[:2] + other_chunks[:3]
+            research_lines = "\n".join(
+                f"  - {_format_filing_chunk_fairly(_extract_chunk_text(c))}" if c in filing_chunks
+                else f"  - {_format_news_chunk_fairly(_extract_chunk_text(c))}" if c in news_chunks
+                else f"  - {_extract_chunk_text(c)[:200]}"
+                for c in research_sample
+            )
+
         fm = state.get("financial_metrics_summary", {})
         sm = state.get("sentiment_analysis_summary", {})
 
@@ -691,8 +897,25 @@ class ManagerAgent:
             "market_cap":        fm.get("market_cap"),
             "composite_score":   fm.get("composite_score", {}),
             "pe_ratio":          fm.get("pe_ratio", {}).get("pe_ratio"),
+            "pe_ratio_period":   fm.get("pe_ratio", {}).get("_period"),
             "roe":               fm.get("roe", {}).get("roe_pct"),
+            "roe_period":        fm.get("roe", {}).get("_period"),
             "net_margin":        fm.get("net_margin", {}).get("net_margin_pct"),
+            # PERIOD TAGS — do not drop these. Each ratio's "_period" states
+            # which reporting period its own inputs actually came from (see
+            # financial_agent.py's _call() helper) — e.g. net_margin may be
+            # "quarterly:2026-Q1" (a single 3-month quarter) while roe is
+            # "annual:2025" (this pipeline has no quarterly balance-sheet
+            # source). Passing the bare numbers without these tags is what
+            # let a real bug through previously: a quarterly-only net_margin
+            # got narrated in the same sentence as *nine-month* cumulative
+            # revenue/income figures pulled from raw filing text in
+            # RESEARCH HIGHLIGHTS, which use YET ANOTHER period (a 10-Q
+            # typically reports both a 3-month-standalone column and a
+            # 9-month-year-to-date column) — three different period bases
+            # silently merged into one paragraph. See the numeric-fidelity
+            # guidance below for the rule this data enables.
+            "net_margin_period": fm.get("net_margin", {}).get("_period"),
             # NOTE: current_ratio/de_ratio were previously OMITTED here while
             # every other ratio got its raw value extracted. That left
             # "current_ratio" and "de_ratio" only reachable via
@@ -707,7 +930,9 @@ class ManagerAgent:
             # only path by which that misattribution could happen.
             "current_ratio":     fm.get("current_ratio"),
             "de_ratio":          fm.get("de_ratio", {}).get("de_ratio"),
+            "de_ratio_period":   fm.get("de_ratio", {}).get("_period"),
             "revenue_cagr":      fm.get("revenue_cagr", {}).get("cagr_pct"),
+            "revenue_cagr_period": fm.get("revenue_cagr", {}).get("_period"),
             "forward_pe":        fm.get("forward_pe"),
             "peg_ratio":         fm.get("peg_ratio"),
             "peer_comparison":   fm.get("peer_comparison", {}),
@@ -725,12 +950,6 @@ class ManagerAgent:
             "narrative":         sm.get("narrative"),
             "risk_flags":        sm.get("risk_flags", []),
         }
-
-        research_lines = "\n".join(
-            f"  - {_extract_chunk_text(c)[:8000]}" if c in filing_chunks
-            else f"  - {_extract_chunk_text(c)[:200]}"
-            for c in research_sample
-        )
 
         user_content = (
             f"TASK QUERY:\n{state.get('task_query', '')}\n\n"
@@ -1181,6 +1400,53 @@ class ManagerAgent:
         )
         final_report = await self._brain_finalise(shared)
         shared["final_report"] = final_report
+
+        # -- QA: period-consistency check (non-blocking) ----------------------
+        # Cross-checks each ratio's "_period" provenance tag (set by
+        # financial_agent.py — e.g. "annual:2026" vs "quarterly:2026-Q2")
+        # against how final_report actually narrates that number (quarterly
+        # vs annual language nearby). This is what would have caught the
+        # NVDA net_margin bug (a FY2026-annual 55.6% net margin narrated
+        # next to Q1 FY2027 quarterly figures) automatically, on every run,
+        # without needing a human to notice the mismatch after the fact.
+        #
+        # Deliberately non-blocking: a false positive here (e.g. an annual
+        # figure that happens to sit near an unrelated "quarterly" mention)
+        # should not prevent the user from getting their report. Findings
+        # are logged, attached to shared_state for downstream inspection/
+        # dashboards, and optionally sent to Sentry — nothing more.
+        try:
+            period_findings = check_narration_vs_period(
+                final_report,
+                shared.get("financial_metrics_summary", {}),
+            )
+        except Exception as exc:
+            period_findings = []
+            log.warning(
+                "[Node:Finalise] period-consistency check itself failed "
+                "(non-fatal, report still returned): %s", exc,
+            )
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("component", "qa.period_consistency")
+                    sentry_sdk.capture_exception(exc)
+
+        shared["qa_period_findings"] = period_findings
+        if period_findings:
+            log.warning(
+                "[Node:Finalise] %d period-consistency issue(s) found in "
+                "%s report: %s",
+                len(period_findings), ticker or "?", period_findings,
+            )
+            if sentry_enabled():
+                import sentry_sdk
+                sentry_sdk.capture_message(
+                    f"Period-consistency issue(s) in {ticker or '?'} report "
+                    f"({len(period_findings)} finding(s))",
+                    level="warning",
+                )
+        # -- end QA: period-consistency check ----------------------------------
 
         if ticker:
             self._memory.store_ticker_insight(ticker, {

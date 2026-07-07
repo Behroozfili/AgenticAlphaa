@@ -276,7 +276,15 @@ class TestExecuteRatioComputation:
         await agent._execute_ratio_computation(session, state)
 
         assert state["calculated_ratios"]["de_ratio"] == {
-            "de_ratio": 0.5, "interpretation": "sourced_from_yahoo",
+            "de_ratio": 0.5,
+            "interpretation": "sourced_from_yahoo",
+            # Provenance tags added so downstream consumers (report writer,
+            # validate_period_consistency.py) can tell this ratio came from
+            # yfinance's live "mrq" (most-recent-quarter) balance-sheet
+            # snapshot, not the annual XBRL fallback path. See
+            # financial_agent.py's de_ratio_yahoo branch.
+            "_inputs": {"de_ratio_yahoo": 0.5},
+            "_period": "mrq",
         }
         called_tools = [c[0][0] for c in session.call_tool.call_args_list]
         assert "tool_calc_debt_to_equity" not in called_tools

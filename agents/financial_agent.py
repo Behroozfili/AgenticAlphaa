@@ -139,9 +139,41 @@ Audit criteria (ALL must pass for is_complete = true):
                           (positive, below 1000) for the company's sector.
   5. COMPOSITE SCORE    : Weighted composite health score (0-100) is computable
                           and not None.
-  6. INTERNAL CONSISTENCY: Computed ratios are mathematically consistent with
-                          the raw data (e.g. net_margin aligns with net_income /
-                          revenue, CAGR direction matches revenue trend).
+  6. INTERNAL CONSISTENCY: Each ratio's own inputs are mathematically
+                          consistent (e.g. net_margin_pct actually equals
+                          net_income / revenue × 100 for the SAME period;
+                          CAGR direction matches the revenue trend it was
+                          computed from).
+
+                          IMPORTANT — different ratios are EXPECTED to use
+                          different reporting periods, and this is NOT an
+                          inconsistency. Each ratio dict carries an explicit
+                          "_period" tag (e.g. "quarterly:2026-Q1",
+                          "annual:2025", "ttm", "mrq", "mixed") stating
+                          which period its own inputs came from — trust
+                          this tag. Do NOT fail a ratio, or flag the
+                          dataset, merely because net_margin's "_period"
+                          differs from roe's or cagr's "_period" (e.g.
+                          net_margin="quarterly:2026-Q1" alongside
+                          roe="annual:2025" is CORRECT, not an error — the
+                          pipeline has no quarterly balance-sheet source,
+                          so ROE is necessarily annual, while net_margin
+                          uses the most recent matching quarter when
+                          available). Only flag INTERNAL CONSISTENCY when:
+                            (a) a ratio's own "_period" tag is missing
+                                entirely (e.g. null/absent) where one
+                                should be derivable,
+                            (b) a "_period" tag reads "MIXED(...)" —
+                                meaning the ratio's OWN numerator and
+                                denominator disagree on period, which IS a
+                                real bug, or
+                            (c) the ratio's numeric output does not
+                                actually equal its own stated formula
+                                applied to its own "_inputs".
+                          Cross-ratio period differences that are each
+                          individually tagged and internally self-consistent
+                          are a NORMAL, INTENDED feature of this pipeline —
+                          not a defect to report.
   7. MANAGER READINESS  : The dataset as a whole is rich enough for the Manager
                           Agent to draw actionable conclusions about the company's
                           financial health, valuation, and growth trajectory.
@@ -567,7 +599,22 @@ class FinancialAnalystAgent:
         session_id = session_from_shared(state["shared_manager_ref"])
 
         # -- Helper: safe MCP tool call ---------------------------------------
-        async def _call(tool: str, args: dict) -> dict:
+        #
+        # `period` is a provenance label for whichever reporting period the
+        # `args` values actually came from (e.g. "annual:2026",
+        # "quarterly:2026-04-26", "ttm", "mrq", or "mixed" for
+        # composites/derived values spanning several periods). It is NOT sent
+        # to the tool — it's stored on the result so that downstream
+        # consumers (report writer, validate_period_consistency.py) can tell
+        # whether two ratios narrated side-by-side actually describe the same
+        # period. Every ratio in this pipeline currently resolves to either
+        # "annual" (sec_edgar.py's XBRL extractor and yfinance's annual
+        # income-statement columns are both 10-K/FY only — there is no
+        # quarterly income-statement source in this pipeline) or "ttm"/"mrq"
+        # (yfinance's live `.info` snapshot fields). Get this wrong and a
+        # ratio silently gets narrated as if it described the same quarter as
+        # the 10-Q text the report also quotes — see the NVDA net_margin bug.
+        async def _call(tool: str, args: dict, period: str | None = None) -> dict:
             _publish_progress(
                 session_id, "agent_tool_call", agent="financial",
                 message=f"Financial Agent: computing '{tool}'...",
@@ -584,6 +631,8 @@ class FinancialAnalystAgent:
                     )
                 result = await session.call_tool(tool, arguments=args)
                 parsed = json.loads(result.content[0].text)
+                parsed["_inputs"] = dict(args)
+                parsed["_period"] = period
                 _publish_progress(
                     session_id, "agent_tool_result", agent="financial",
                     message=f"Financial Agent: '{tool}' computed",
@@ -603,7 +652,7 @@ class FinancialAnalystAgent:
                         scope.set_tag("tool", tool)
                         scope.set_tag("component", "mcp.financial")
                         sentry_sdk.capture_exception(exc)
-                return {"error": str(exc)}
+                return {"error": str(exc), "_inputs": dict(args), "_period": period}
 
         # -- P/E Ratio --------------------------------------------------------
         price = ratios_src.get("current_price")
@@ -611,13 +660,15 @@ class FinancialAnalystAgent:
         if price is not None and eps is not None and eps != 0:
             log.info("Computing P/E: price=%.2f eps=%.4f", price, eps)
             state["calculated_ratios"]["pe"] = await _call(
-                "tool_calc_pe", {"price": price, "eps": eps}
+                "tool_calc_pe", {"price": price, "eps": eps}, period="ttm",
             )
         else:
             state["calculated_ratios"]["pe"] = {
                 "pe_ratio": ratios_src.get("pe_ratio"),
                 "interpretation": "sourced_from_yahoo",
                 "note": "Used pre-computed Yahoo Finance P/E (price or EPS unavailable for direct calc).",
+                "_inputs": {"pe_ratio": ratios_src.get("pe_ratio")},
+                "_period": "ttm",
             }
 
         # -- Return on Equity -------------------------------------------------
@@ -626,34 +677,97 @@ class FinancialAnalystAgent:
         annual_ni        = growth_src.get("annual_net_income", [])
 
         net_income = annual_ni[0]["net_income"] if annual_ni else None
+        net_income_year = annual_ni[0].get("year") if annual_ni else None
         # Approximate equity = assets - liabilities (most recent period)
+        # NOTE: xbrl_assets/xbrl_liabilities come from sec_edgar.py's
+        # _extract_annual(), which only pulls 10-K/FY entries — so this is
+        # an ANNUAL balance-sheet snapshot, not a quarterly one, even though
+        # it's paired here with the *current* net_income figure above.
         shareholders_equity: float | None = None
+        equity_period_end: str | None = None
         if xbrl_assets and xbrl_liabilities:
             try:
                 shareholders_equity = (
                     xbrl_assets[0]["value"] - xbrl_liabilities[0]["value"]
                 )
+                equity_period_end = xbrl_assets[0].get("period_end")
             except (KeyError, TypeError, IndexError):
                 shareholders_equity = None
+
+        # ROE mixes an annual (10-K) net_income with an annual (10-K)
+        # balance sheet — same source family, but don't just assume index
+        # [0] on both lists lines up to the same fiscal year; check it.
+        years_aligned = (
+            net_income_year is not None
+            and equity_period_end is not None
+            and str(net_income_year) in str(equity_period_end)
+        )
+        if net_income_year is None:
+            roe_period = None
+        elif equity_period_end is not None and not years_aligned:
+            roe_period = f"MIXED(net_income=annual:{net_income_year}, equity=annual:{equity_period_end})"
+        else:
+            roe_period = f"annual:{net_income_year}"
 
         if net_income and shareholders_equity and shareholders_equity != 0:
             log.info("Computing ROE: net_income=%.0f equity=%.0f", net_income, shareholders_equity)
             state["calculated_ratios"]["roe"] = await _call(
                 "tool_calc_roe",
                 {"net_income": net_income, "shareholders_equity": shareholders_equity},
+                period=roe_period,
             )
         else:
             state["calculated_ratios"]["roe"] = {"roe_pct": None, "interpretation": "insufficient_data"}
 
         # -- Net Margin -------------------------------------------------------
-        annual_rev = growth_src.get("annual_revenue", [])
-        revenue = annual_rev[0]["revenue"] if annual_rev else None
+        # REAL FIX (previously worked around by tagging annual as annual):
+        # quarterly_net_income now exists (see yahoo_finance.py), mirroring
+        # quarterly_revenue. Prefer the most recent matching quarter for
+        # both net_income and revenue so net_margin describes the SAME
+        # quarter as gross_margin/operating_margin (which the report writer
+        # pulls straight from the 10-Q's quarterly MD&A text). Only fall
+        # back to annual figures — clearly tagged as such — when quarterly
+        # data isn't available (e.g. some tickers/data providers don't
+        # expose quarterly_financials).
+        quarterly_rev  = growth_src.get("quarterly_revenue", [])
+        quarterly_ni   = growth_src.get("quarterly_net_income", [])
+        annual_rev     = growth_src.get("annual_revenue", [])
+        revenue_year   = annual_rev[0].get("year") if annual_rev else None
 
-        if net_income is not None and revenue is not None and revenue != 0:
-            log.info("Computing Net Margin: net_income=%.0f revenue=%.0f", net_income, revenue)
+        use_quarterly = (
+            quarterly_rev and quarterly_ni
+            and quarterly_rev[0].get("quarter") == quarterly_ni[0].get("quarter")
+            and quarterly_rev[0].get("revenue") is not None
+            and quarterly_ni[0].get("net_income") is not None
+        )
+
+        if use_quarterly:
+            nm_net_income = quarterly_ni[0]["net_income"]
+            nm_revenue    = quarterly_rev[0]["revenue"]
+            net_margin_period = f"quarterly:{quarterly_rev[0]['quarter']}"
+        else:
+            # Fallback: most recent ANNUAL (10-K/FY) figures. Still tagged
+            # accurately (and flagged MIXED if the two annual arrays'
+            # index-[0] years don't actually agree) so a caller narrating
+            # this next to quarterly text can catch the period difference
+            # instead of silently mismatching them — see the NVDA bug this
+            # was built to catch.
+            nm_net_income = net_income
+            nm_revenue    = annual_rev[0]["revenue"] if annual_rev else None
+            net_margin_period = (
+                f"MIXED(net_income=annual:{net_income_year}, revenue=annual:{revenue_year})"
+                if net_income_year is not None and revenue_year is not None and net_income_year != revenue_year
+                else f"annual:{revenue_year}" if revenue_year is not None
+                else None
+            )
+
+        if nm_net_income is not None and nm_revenue is not None and nm_revenue != 0:
+            log.info("Computing Net Margin: net_income=%.0f revenue=%.0f (period=%s, quarterly=%s)",
+                      nm_net_income, nm_revenue, net_margin_period, use_quarterly)
             state["calculated_ratios"]["net_margin"] = await _call(
                 "tool_calc_net_margin",
-                {"net_income": net_income, "revenue": revenue},
+                {"net_income": nm_net_income, "revenue": nm_revenue},
+                period=net_margin_period,
             )
         else:
             state["calculated_ratios"]["net_margin"] = {"net_margin_pct": None, "interpretation": "insufficient_data"}
@@ -662,13 +776,19 @@ class FinancialAnalystAgent:
         # D/E from Yahoo Finance info if available; otherwise note as unavailable
         de_ratio_yahoo = ratios_src.get("de_ratio") or ratios_src.get("debtToEquity")
         if de_ratio_yahoo is not None:
-            # Yahoo already provides D/E; store directly without an MCP round-trip
+            # Yahoo already provides D/E; store directly without an MCP round-trip.
+            # yfinance's `.info["debtToEquity"]` is a most-recent-quarter (MRQ)
+            # balance-sheet snapshot, not a full-quarter income-statement figure
+            # and not the annual 10-K figure used elsewhere in this function.
             state["calculated_ratios"]["de_ratio"] = {
                 "de_ratio": de_ratio_yahoo,
                 "interpretation": "sourced_from_yahoo",
+                "_inputs": {"de_ratio_yahoo": de_ratio_yahoo},
+                "_period": "mrq",
             }
         elif shareholders_equity and shareholders_equity != 0:
-            # Attempt approximation from XBRL
+            # Attempt approximation from XBRL (annual 10-K balance sheet —
+            # see the shareholders_equity/equity_period_end computation above)
             total_liabilities_val = xbrl_liabilities[0]["value"] if xbrl_liabilities else None
             if total_liabilities_val:
                 log.info("Computing D/E from XBRL liabilities/equity")
@@ -678,6 +798,7 @@ class FinancialAnalystAgent:
                         "total_debt": total_liabilities_val,
                         "shareholders_equity": shareholders_equity,
                     },
+                    period=f"annual:{equity_period_end}" if equity_period_end else None,
                 )
                 # tool_get_xbrl_financials only exposes total_liabilities,
                 # not interest-bearing debt separately — so this ratio
@@ -734,9 +855,11 @@ class FinancialAnalystAgent:
             years  = valid_rev[-1]["year"] - valid_rev[0]["year"]
             if newest and oldest and oldest > 0 and years > 0:
                 log.info("Computing Revenue CAGR: start=%.0f end=%.0f years=%d", oldest, newest, years)
+                cagr_period = f"annual:{valid_rev[0]['year']}-{valid_rev[-1]['year']}"
                 state["calculated_ratios"]["cagr"] = await _call(
                     "tool_calc_cagr",
                     {"start_value": oldest, "end_value": newest, "years": float(years)},
+                    period=cagr_period,
                 )
             else:
                 state["calculated_ratios"]["cagr"] = {"cagr_pct": None, "interpretation": "unavailable"}
@@ -789,6 +912,11 @@ class FinancialAnalystAgent:
             else:
                 log.info("Computing DCF scenarios: fcf_base=%.0f beta=%.3f base_growth=%.2f%%",
                           fcf_base, beta, fcf_growth_pct)
+                # Derived/projected — built from the most recent ANNUAL
+                # operating cash flow & capex (both XBRL 10-K, same
+                # source/period family as net_margin/roe above), grounded on
+                # the annual revenue CAGR. Not comparable to a quarterly
+                # actual; label it as such rather than silently "annual".
                 state["calculated_ratios"]["dcf"] = await _call(
                     "tool_calc_dcf_scenarios",
                     {
@@ -797,6 +925,7 @@ class FinancialAnalystAgent:
                         "shares_outstanding": shares_outstanding,
                         "base_growth_rate_pct": fcf_growth_pct,
                     },
+                    period="derived:annual_projection",
                 )
                 # Also run the Monte Carlo version alongside the three
                 # named scenarios — bear/base/bull are easier to narrate,
@@ -814,6 +943,7 @@ class FinancialAnalystAgent:
                         "shares_outstanding": shares_outstanding,
                         "base_growth_rate_pct": fcf_growth_pct,
                     },
+                    period="derived:annual_projection",
                 )
         else:
             state["calculated_ratios"]["dcf"] = {
@@ -832,6 +962,13 @@ class FinancialAnalystAgent:
         # (yfinance .info "currentRatio"). Without passing it here the composite
         # score always flagged current_ratio as a missing input.
         current_ratio_val = ratios_src.get("current_ratio")
+        # This composite is DELIBERATELY built from ratios spanning several
+        # periods (ttm P/E, annual ROE/net_margin, mrq current/D-E ratio,
+        # multi-year CAGR) — that's fine for a single composite health score,
+        # but tag it "mixed" explicitly so validate_period_consistency.py
+        # doesn't (correctly, but unhelpfully) flag it the way it flags an
+        # *accidental* mix like the net_margin bug. See each component's own
+        # `_period` tag (in cr[...]["_period"]) for its specific provenance.
         state["calculated_ratios"]["composite_score"] = await _call(
             "tool_calc_composite_score",
             {
@@ -842,6 +979,7 @@ class FinancialAnalystAgent:
                 "revenue_cagr_pct":  cr.get("cagr", {}).get("cagr_pct"),
                 "current_ratio_val": current_ratio_val,
             },
+            period="mixed",
         )
 
         log.info("Executor: ratio computation complete.")

@@ -469,7 +469,24 @@ class TestRunFullPipeline:
         ]
         agent = make_agent(llm=llm, max_loops=2)
 
-        result = await agent.run(make_shared_state())
+        # NOTE: run() also calls synthesize_research_context() once, after
+        # the loop above completes — and it DOES fire here even though the
+        # Brain never produced real actions, because the Executor still
+        # appends a non-empty "[EXECUTOR WARNING] ..." placeholder chunk on
+        # every no-actions iteration (context_chunks is never actually
+        # empty). Left unpatched, that's an un-mocked 5th call to the same
+        # `llm.messages.create`, which exhausts the 4-item side_effect list
+        # and raises StopIteration (silently caught inside
+        # context_synthesizer.py, so it doesn't fail the test directly, but
+        # it does inflate call_count to 5 and pollutes what this test is
+        # actually meant to isolate: the loop/guardrail's OWN call count).
+        # Patching synthesis out keeps this test scoped to _should_continue's
+        # guardrail behavior; synthesis has its own dedicated tests.
+        with patch(
+            "agents.research_agent.synthesize_research_context",
+            new=AsyncMock(return_value=None),
+        ):
+            result = await agent.run(make_shared_state())
 
         assert len(result["aggregated_research_context"]) == 2
         assert llm.messages.create.call_count == 4
