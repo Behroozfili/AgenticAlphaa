@@ -7,7 +7,6 @@ Each judge-call test controls the mocked response text to exercise JSON
 parsing, markdown-fence stripping, and the catch-and-default-to-0.0 path
 on malformed judge output.
 """
-import os
 from unittest.mock import patch, MagicMock
 import pytest
 
@@ -187,7 +186,8 @@ class TestEvaluate:
 
 class TestEvaluationReportFormatting:
     def _make_report(self):
-        m = lambda s, name: MetricResult(score=s, explanation="x", metric=name)
+        def m(s, name):
+            return MetricResult(score=s, explanation="x", metric=name)
         return EvaluationReport(
             query="q", answer="a",
             faithfulness=m(1.0, "faithfulness"),
@@ -243,7 +243,8 @@ class TestBatchEvaluate:
 
     def test_aggregate_scores_computes_means(self, evaluator):
         ev, client = evaluator
-        m = lambda s, name: MetricResult(score=s, explanation="x", metric=name)
+        def m(s, name):
+            return MetricResult(score=s, explanation="x", metric=name)
         reports = [
             EvaluationReport(query="q1", answer="a1", faithfulness=m(1.0, "faithfulness"),
                              context_precision=m(1.0, "context_precision"),

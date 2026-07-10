@@ -47,7 +47,6 @@ import logging
 import math
 import asyncio
 import re
-import sys
 from typing import Any
 
 import anthropic

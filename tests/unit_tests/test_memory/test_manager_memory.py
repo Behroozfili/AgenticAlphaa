@@ -215,7 +215,7 @@ class TestLongTermMemoryInit:
         response.data = []
         client.table.return_value.select.return_value.eq.return_value.execute.return_value = response
 
-        ltm = LongTermMemory.create(user_id="u1", supabase_client=client)
+        LongTermMemory.create(user_id="u1", supabase_client=client)
         client.table.assert_called_once_with("long_term_memory")
 
 

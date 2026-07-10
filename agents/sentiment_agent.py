@@ -60,7 +60,6 @@ import json
 import logging
 import asyncio
 import re
-import sys
 from typing import Any
 
 import anthropic

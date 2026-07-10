@@ -11,7 +11,7 @@ import sys
 import types
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 # ─────────────────────────────────────────────────────────────────
 # Stub heavy dependencies BEFORE importing rag modules
@@ -60,18 +60,18 @@ sys.modules.setdefault("supabase",              _make_supabase_stub())
 # ─────────────────────────────────────────────────────────────────
 # Now import rag modules (they see the stubs)
 # ─────────────────────────────────────────────────────────────────
-import sys, os
+import os  # noqa: E402  (must follow the stub setup above)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from rag.loader import (
+from rag.loader import (  # noqa: E402
     AlphaLoader, RawDocument,
     _to_utc_iso8601, _safe_timestamp,
 )
-from rag.processor import AlphaProcessor, ProcessedChunk, _sha256, _url_hash
-from rag.embedding_manager import AlphaEmbedder, get_embedder
-from rag.vector_store import AlphaVectorStore
-from rag.retriever import AlphaRetriever
-from rag.evaluation import AlphaEvaluator, MetricResult, EvaluationReport
+from rag.processor import AlphaProcessor, ProcessedChunk, _sha256, _url_hash  # noqa: E402
+from rag.embedding_manager import AlphaEmbedder, get_embedder  # noqa: E402
+from rag.vector_store import AlphaVectorStore  # noqa: E402
+from rag.retriever import AlphaRetriever  # noqa: E402
+from rag.evaluation import AlphaEvaluator, MetricResult, EvaluationReport  # noqa: E402
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -538,7 +538,6 @@ class TestAlphaVectorStore(unittest.TestCase):
 
 def _fake_chunks(n=10, hours_old_list=None):
     """Generate fake hybrid search result dicts."""
-    from datetime import timedelta
     now = datetime.now(timezone.utc)
     chunks = []
     sources = ["news", "rss", "reddit"]
@@ -589,16 +588,9 @@ class TestAlphaRetriever(unittest.TestCase):
         )
 
     def test_exponential_decay_formula(self):
-        retriever = self._make_retriever()
+        self._make_retriever()
         rrf = 0.8
         hours = 72.0
-        chunk = {
-            "rrf_score": rrf,
-            "published_at": (
-                datetime.now(timezone.utc)
-                .__class__.now(timezone.utc)
-            ).isoformat(),
-        }
         # Manually set hours to known value
         decay = math.exp(-hours / 72)
         expected = rrf * decay
@@ -607,13 +599,13 @@ class TestAlphaRetriever(unittest.TestCase):
         self.assertLess(expected, rrf)
 
     def test_hours_since_invalid_returns_720(self):
-        retriever = self._make_retriever()
+        self._make_retriever()
         now = datetime.now(timezone.utc)
         hours = AlphaRetriever._hours_since("not-a-date", now)
         self.assertEqual(hours, 720.0)
 
     def test_hours_since_recent(self):
-        retriever = self._make_retriever()
+        self._make_retriever()
         now = datetime.now(timezone.utc)
         recent = now.isoformat()
         hours = AlphaRetriever._hours_since(recent, now)
@@ -738,7 +730,8 @@ class TestAlphaEvaluator(unittest.TestCase):
         self.assertLessEqual(m.score, 1.0)
 
     def test_overall_score_weighted(self):
-        make_metric = lambda s, name: MetricResult(score=s, explanation="", metric=name)
+        def make_metric(s, name):
+            return MetricResult(score=s, explanation="", metric=name)
         report = EvaluationReport(
             query="q", answer="a",
             faithfulness=make_metric(1.0, "faithfulness"),
@@ -749,7 +742,8 @@ class TestAlphaEvaluator(unittest.TestCase):
         self.assertAlmostEqual(report.overall_score, 1.0, places=4)
 
     def test_overall_score_zero(self):
-        make_metric = lambda name: MetricResult(score=0.0, explanation="", metric=name)
+        def make_metric(name):
+            return MetricResult(score=0.0, explanation="", metric=name)
         report = EvaluationReport(
             query="q", answer="a",
             faithfulness=make_metric("faithfulness"),

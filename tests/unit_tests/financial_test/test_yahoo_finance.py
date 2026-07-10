@@ -9,7 +9,6 @@ pandas-like DataFrame stand-ins for .history()/.financials/.quarterly_financials
 """
 from unittest.mock import patch, MagicMock
 import pandas as pd
-import pytest
 
 from tools.financial_tools.yahoo_finance import (
     _safe_get,

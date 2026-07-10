@@ -18,7 +18,6 @@ the original function unchanged (it registers it as a side effect), so
 tests — no special MCP client/transport setup is needed.
 """
 from unittest.mock import patch, MagicMock
-import pytest
 
 from tools.financial_tools.financial_server import (
     tool_get_price_history,

@@ -27,20 +27,20 @@ if project_root not in sys.path:
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # noqa: E402
 load_dotenv(os.path.join(project_root, ".env"))
 
-from mcp.server import Server
-from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent, CallToolResult, ListToolsResult
+from mcp.server import Server  # noqa: E402
+from mcp.server.stdio import stdio_server  # noqa: E402
+from mcp.types import Tool, TextContent, CallToolResult, ListToolsResult  # noqa: E402
 
 # ── Tool implementations ───────────────────────────────────────────
-from tools.research_tools.tavily_search import tavily_search
-from tools.research_tools.news_search   import news_search
-from tools.research_tools.sec_edgar     import sec_edgar_search, sec_edgar_filing
-from tools.research_tools.comprehensive_analysis import comprehensive_analysis
-from rag.hybrid_rag import rag_vector_search, rag_graph_traverse, rag_hybrid_query
-from core.observability import init_sentry, sentry_enabled
+from tools.research_tools.tavily_search import tavily_search  # noqa: E402
+from tools.research_tools.news_search   import news_search  # noqa: E402
+from tools.research_tools.sec_edgar     import sec_edgar_search, sec_edgar_filing  # noqa: E402
+from tools.research_tools.comprehensive_analysis import comprehensive_analysis  # noqa: E402
+from rag.hybrid_rag import rag_vector_search, rag_graph_traverse, rag_hybrid_query  # noqa: E402
+from core.observability import init_sentry, sentry_enabled  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("research-mcp")

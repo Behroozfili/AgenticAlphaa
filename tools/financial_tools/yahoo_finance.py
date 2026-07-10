@@ -16,7 +16,6 @@ consumption by the Financial Analyst Agent or MCP server.
 import math
 
 import yfinance as yf
-from datetime import datetime, timedelta
 from typing import Any
 
 
@@ -510,14 +509,14 @@ def get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
         if primary_ratios.get("error"):
             return {"primary": primary_ratios, "peers": [], "summary": {}, "error": primary_ratios["error"]}
 
-        # If no peers provided, try to get them from yfinance recommendedSymbols
+        # NOTE: auto-discovering peers from yfinance's `.recommendations` was
+        # attempted previously but never actually implemented (the response
+        # was fetched and discarded) -- removed rather than left as dead code
+        # that looks functional but silently does nothing. If this feature
+        # is wanted, it needs to parse `.recommendations` into ticker symbols
+        # and be covered by a test before being reintroduced.
         if not peers:
-            try:
-                rec = yf.Ticker(ticker).recommendations
-                # Fallback: empty list if recommendations not available
-                peers = []
-            except Exception:
-                peers = []
+            peers = []
 
         peer_ratios = []
         for p in peers:

@@ -8,11 +8,9 @@ since mocking it would defeat the purpose of testing chunking behavior.
 We only construct RawDocument inputs directly (no I/O involved in this file
 at all — it's pure transformation logic).
 """
-from datetime import datetime, timezone
-import pytest
 
 from rag.loader import RawDocument
-from rag.processor import AlphaProcessor, ProcessedChunk, ProcessorMetrics, _sha256, _url_hash
+from rag.processor import AlphaProcessor, ProcessorMetrics, _sha256, _url_hash
 
 
 def make_doc(title="Title", content="Content here.", url="https://x.com/1",

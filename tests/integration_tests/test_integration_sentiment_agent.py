@@ -30,7 +30,6 @@ import pytest
 from tools.sentiment_tools.finbert_analyzer import FinBertSentimentAnalyzer
 from tools.sentiment_tools.vader_scorer import VaderLexiconScorer, reset_vader
 from tools.sentiment_tools.fear_greed_calculator import FearGreedIndexCalculator
-from agents.sentiment_agent import SentimentAgent
 
 
 # =============================================================================

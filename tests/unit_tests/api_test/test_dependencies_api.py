@@ -10,7 +10,6 @@ mocked supabase_client (per ManagerMemory's own DI design from Phase 4)
 so no real Supabase calls happen.
 """
 from unittest.mock import MagicMock
-import pytest
 
 from api.dependencies import get_user_id, get_manager_memory
 from memory.manager_memory import ManagerMemory
@@ -45,7 +44,6 @@ class TestGetUserId:
         assert get_user_id(request) == "anonymous_fallback"
 
     def test_empty_header_value_falls_back_to_default(self, monkeypatch):
-        import api.config as config_module
         import api.dependencies as deps_module
         monkeypatch.setattr(deps_module.settings, "DEFAULT_USER_ID", "fallback_id")
 

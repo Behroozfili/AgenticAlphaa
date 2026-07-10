@@ -21,13 +21,11 @@ Relationship types:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import os
-import re
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Optional
 
 import anthropic
 
@@ -372,7 +370,6 @@ class AlphaGraphStore:
             ))
 
         relations = []
-        entity_names = {e.name for e in entities}
         for r in data.get("relations", []):
             src      = (r.get("source") or "").strip()
             tgt      = (r.get("target") or "").strip()

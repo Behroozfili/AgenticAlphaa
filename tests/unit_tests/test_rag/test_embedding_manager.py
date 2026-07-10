@@ -15,7 +15,6 @@ import numpy as np
 from unittest.mock import patch, MagicMock
 import pytest
 
-import rag.embedding_manager as em_module
 from rag.embedding_manager import (
     AlphaEmbedder,
     get_embedder,

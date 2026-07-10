@@ -45,7 +45,6 @@ from __future__ import annotations
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Optional
 
 import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer

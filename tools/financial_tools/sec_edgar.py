@@ -283,7 +283,6 @@ def list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
         accessions = recent.get("accessionNumber", [])
         fil_dates  = recent.get("filingDate", [])
         rep_dates  = recent.get("reportDate", [])
-        primaries  = recent.get("primaryDocument", [])
 
         cik_int = str(int(cik))  # un-padded for Archives URLs
         filings: list[dict] = []

@@ -9,7 +9,7 @@ avoid state leaking across tests (idempotency is a documented feature,
 so without resetting, every test after the first init_sentry() call would
 silently see _sentry_enabled=True regardless of DSN).
 """
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pytest
 
 import core.observability as obs

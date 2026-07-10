@@ -7,7 +7,6 @@ has .table().upsert().execute() and .rpc().execute() chains mocked to return
 controlled response objects (MagicMock with a `.data` attribute, matching
 the real supabase-py response shape).
 """
-import os
 from unittest.mock import patch, MagicMock
 import pytest
 

@@ -44,7 +44,8 @@ def _patch_all(monkeypatch, **overrides):
     monkeypatch.setenv("SUPABASE_URL", "https://x.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "key")
 
-    started = {name: p.start() for name, p in patches.items()}
+    for p in patches.values():
+        p.start()
     return loader, processor, embedder, vector_store, graph_store, patches
 
 

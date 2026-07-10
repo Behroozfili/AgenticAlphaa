@@ -2,7 +2,7 @@ import asyncio
 from typing import Optional
 
 from tools.research_tools.tavily_search import tavily_search
-from tools.research_tools.sec_edgar import sec_edgar_filing, sec_edgar_search
+from tools.research_tools.sec_edgar import sec_edgar_filing
 
 
 async def comprehensive_analysis(

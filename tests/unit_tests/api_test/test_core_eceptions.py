@@ -6,7 +6,6 @@ No mocking required — pure Python exception classes with no I/O.
 The only "dynamic" piece is trace_id (uuid4), which we verify by shape/format
 rather than mocking uuid, to keep tests resilient to refactors.
 """
-import uuid
 import pytest
 
 from api.core.exceptions import (

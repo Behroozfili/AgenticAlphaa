@@ -16,11 +16,9 @@ tests would leak mocked state into each other.
 from unittest.mock import patch, MagicMock
 import pytest
 
-import tools.sentiment_tools.finbert_analyzer as fb_module
 from tools.sentiment_tools.finbert_analyzer import (
     FinBertSentimentAnalyzer,
     FinBertResult,
-    ChunkSentiment,
     reset_finbert,
     _select_device,
 )

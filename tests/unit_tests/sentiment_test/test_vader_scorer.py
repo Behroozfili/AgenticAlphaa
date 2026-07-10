@@ -10,10 +10,9 @@ actual confidence the wiring (mean aggregation, thresholds, truncation)
 works correctly end to end. We only mock the lexicon bootstrap (_ensure_vader_lexicon)
 to avoid the one-time network download in CI.
 """
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import pytest
 
-import tools.sentiment_tools.vader_scorer as vader_module
 from tools.sentiment_tools.vader_scorer import (
     VaderLexiconScorer,
     VaderResult,

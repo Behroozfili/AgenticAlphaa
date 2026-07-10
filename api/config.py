@@ -12,7 +12,6 @@ Import the singleton `settings` anywhere in the codebase:
 
 from __future__ import annotations
 
-import os
 import logging
 from functools import lru_cache
 from typing import Literal

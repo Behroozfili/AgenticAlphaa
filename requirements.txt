@@ -58,3 +58,4 @@ datasets
 pandas
 langchain-community
 google-generativeai
+ruff 

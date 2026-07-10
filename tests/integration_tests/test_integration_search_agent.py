@@ -18,7 +18,6 @@ project's development — see each test's docstring for which one.
 """
 import pytest
 from unittest.mock import patch
-from collections import Counter
 
 from tools.research_tools.news_search import news_search
 from tools.research_tools.sec_edgar import sec_edgar_filing, sec_edgar_search

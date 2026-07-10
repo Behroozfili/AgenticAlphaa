@@ -13,7 +13,7 @@ are fully tested in their own files. This file only tests:
 """
 import json
 import dataclasses
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, MagicMock
 import pytest
 
 from tools.sentiment_tools.sentiment_server import (

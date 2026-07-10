@@ -17,7 +17,6 @@ Mocking strategy: asyncio.to_thread is patched to run synchronously so
 `await asyncio.to_thread(fn)` just calls `fn()` directly in tests — no real
 threading needed for the mocked Supabase client.
 """
-import os
 from unittest.mock import patch, MagicMock, AsyncMock
 import pytest
 

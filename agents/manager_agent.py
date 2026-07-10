@@ -52,7 +52,6 @@ Dependencies
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import time
@@ -441,7 +440,6 @@ def _format_filing_chunk_fairly(chunk_text: str, per_section_budget: int = 3000)
     #   {...json...}
     # Find the JSON payload by locating the last line of dashes and taking
     # everything after it.
-    marker = "\n" + "─" * 10  # tolerate variable dash-line lengths
     idx = chunk_text.rfind("─")
     json_start = chunk_text.find("{", idx) if idx != -1 else chunk_text.find("{")
     if json_start == -1:

@@ -18,7 +18,6 @@ call through to the real network. (This was the root cause of a whole class
 of failures that looked like value/assertion mismatches but were actually
 real, unmocked API calls succeeding against live SEC EDGAR data.)
 """
-import time
 from unittest.mock import patch, MagicMock
 import pytest
 

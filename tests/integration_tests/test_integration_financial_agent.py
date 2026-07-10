@@ -20,7 +20,7 @@ project's development — see each test's docstring for which one.
 """
 import pytest
 
-from tools.financial_tools.yahoo_finance import get_peer_comparison, get_financial_ratios
+from tools.financial_tools.yahoo_finance import get_peer_comparison
 from tools.financial_tools.sec_edgar import get_xbrl_financials
 from tools.financial_tools.financial_ratio_calculator import (
     discounted_cash_flow,

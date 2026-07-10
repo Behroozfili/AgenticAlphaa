@@ -10,8 +10,6 @@ KNOWN BUG documented in TC-PE-BUG: price_to_earnings() raises UnboundLocalError
 when `pe is None` because `interp` is only assigned inside the
 `if pe is not None:` block. This test is expected to FAIL until fixed.
 """
-import math
-import pytest
 
 from tools.financial_tools.financial_ratio_calculator import (
     _safe_div,
