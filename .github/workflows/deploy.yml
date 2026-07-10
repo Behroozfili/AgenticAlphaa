@@ -1,0 +1,69 @@
+# .github/workflows/deploy.yml
+# =============================
+# CI/CD pipeline for AgenticAlpha.
+#
+# Fail-fast, single job, steps run in this exact order:
+#   1. Checkout
+#   2. Set up Python 3.12   (matches pyproject.toml requires-python)
+#   3. Install dependencies (uv — the repo's dependency manager)
+#   4. Lint                 (ruff — no linter is configured in the repo)
+#   5. Unit tests ONLY      (tests/unit_tests — integration tests skipped)
+#   6. Build the Docker image
+#
+# Because every step is in one job, GitHub Actions stops at the first
+# failing step: a lint failure never reaches the tests, and a test
+# failure never reaches the Docker build.
+
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    name: Lint, Test (unit) & Build Image
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 2. Set up Python 3.12 (from pyproject.toml: requires-python = ">=3.12")
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # uv is the project's dependency manager (uv.lock is committed).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # 3. Install dependencies
+      #    - uv sync --frozen installs the exact locked dependency set.
+      #    - --no-install-project skips the stub root package.
+      #    - uvicorn is added explicitly (declared only in requirements.txt).
+      #    - ruff is the linter (not present in the repo's dependencies).
+      - name: Install dependencies
+        run: |
+          uv sync --frozen --no-install-project
+          uv pip install "uvicorn>=0.34.0" ruff
+
+      # 4. Lint (fail-fast: a failure here stops the job before tests run)
+      - name: Run linting (ruff)
+        run: uv run ruff check .
+
+      # 5. Unit tests ONLY — integration tests (tests/integration_tests) are
+      #    intentionally excluded. Unit tests live in tests/unit_tests per
+      #    pytest.ini (testpaths).
+      - name: Run unit tests
+        run: uv run pytest tests/unit_tests
+
+      # 6. Build the Docker image using the repo-root Dockerfile
+      - name: Build Docker image
+        run: docker build -t agenticalpha:${{ github.sha }} .

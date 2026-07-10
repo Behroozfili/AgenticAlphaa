@@ -1,0 +1,45 @@
+# Keep the Docker build context small and the final image lean.
+# Only excludes files the running application does not need.
+
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Python caches / build artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Tests are run in CI, not needed inside the runtime image
+tests/
+
+# Local tooling / editor / CI metadata not needed at runtime
+.github/
+.claude/
+.codebase-memory/
+.vscode/
+.idea/
+
+# Node / frontend tooling leftovers
+node_modules/
+package-lock.json
+
+# Environment & secrets (never bake into an image)
+.env
+*.env
+!env.example
+
+# Docker files themselves
+Dockerfile
+.dockerignore
