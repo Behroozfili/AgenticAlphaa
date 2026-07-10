@@ -79,8 +79,8 @@ COPY . .
 RUN chown -R app:app /app
 USER app
 
-EXPOSE 8000
+EXPOSE 3000
 
 # The app spawns MCP tool servers as `python tools/**/**_server.py` subprocesses
 # and serves frontend/alpha-agent-app.html, so the full source tree is present.
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "api.main:app","--reload", "--port", "3000"]
