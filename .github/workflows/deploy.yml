@@ -51,6 +51,72 @@ jobs:
       - name: Run unit tests
         run: uv run pytest tests/unit_tests
 
-      # 6. Build the Docker image
+      # 6. Build the Docker image (kept, still validates the Dockerfile on every PR)
       - name: Build Docker image
         run: docker build -t agenticalpha:${{ github.sha }} .
+
+  push-and-deploy:
+    name: Push to ECR & Deploy to ECS
+    needs: build
+    runs-on: ubuntu-latest
+    # Only deploy from main — PRs still get lint/test/build above, but never touch AWS
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    permissions:
+      id-token: write   # required for OIDC
+      contents: read
+
+    env:
+      AWS_REGION: eu-central-1
+      ECR_REPOSITORY: agenticalpha
+      ECS_CLUSTER: agenticalpha-cluster
+      ECS_SERVICE: agenticalpha-service
+      ECS_TASK_FAMILY: agenticalpha-task
+      CONTAINER_NAME: agenticalpha
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::187457216065:role/agenticalpha-github-actions-role
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build, tag, push image
+        id: build-image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+
+      - name: Download current task definition
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition $ECS_TASK_FAMILY \
+            --query taskDefinition \
+            > task-def.json
+
+      - name: Render new task definition
+        id: render-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-def.json
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build-image.outputs.image }}
+
+      - name: Deploy to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
+          service: ${{ env.ECS_SERVICE }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          wait-for-service-stability: true

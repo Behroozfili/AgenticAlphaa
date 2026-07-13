@@ -1,0 +1,36 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ECR repository for AgenticAlpha
+
+Resources:
+  AppRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: agenticalpha
+      ImageScanningConfiguration:
+        ScanOnPush: false
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "selection": {"tagStatus": "untagged", "countType": "sinceImagePushed", "countUnit": "days", "countNumber": 3},
+                "action": {"type": "expire"}
+              },
+              {
+                "rulePriority": 2,
+                "selection": {"tagStatus": "tagged", "tagPrefixList": ["sha"], "countType": "imageCountMoreThan", "countNumber": 10},
+                "action": {"type": "expire"}
+              }
+            ]
+          }
+
+Outputs:
+  RepositoryArn:
+    Value: !Sub "arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${AppRepository}"
+    Export:
+      Name: agenticalpha-ecr-repo-arn
+  RepositoryUri:
+    Value: !GetAtt AppRepository.RepositoryUri
+    Export:
+      Name: agenticalpha-ecr-repo-uri
