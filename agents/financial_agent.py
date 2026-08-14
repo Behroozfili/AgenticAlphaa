@@ -46,8 +46,7 @@ import json
 import logging
 import math
 import asyncio
-import re
-from typing import Any
+from typing import Any, Callable, NamedTuple
 
 import anthropic
 from mcp import ClientSession, StdioServerParameters
@@ -58,8 +57,7 @@ from agents.prompts.promt_finance_checker import CHECKER_SYSTEM_PROMPT
 from evaluation.financial_sanity import evaluate_financial_sanity, build_valuation_input_assessments
 from evaluation.earnings_quality import normalize_earnings_quality
 from evaluation.claim_contract import typed_financial_claim
-from agents.executor_helpers.finance_executor_helper import (infer_peers, extract_ticker, confidence_for, annotate_confidence, pct_change,
-                                                      direction, build_consistency_checks, build_data_quality_score, sanitize_nans)
+from agents.executor_helpers.finance_executor_helper import (infer_peers, extract_ticker, annotate_confidence, build_consistency_checks, build_data_quality_score, sanitize_nans)
 
 # ---------------------------------------------------------------------------
 # State contract imports
@@ -98,6 +96,930 @@ _MCP_SERVER_PARAMS = StdioServerParameters(
 # valuation sanity check, not meant to be exhaustive. Falls back to no
 # peer comparison (rather than guessing) for industries not listed here.
 
+
+# ---------------------------------------------------------------------------
+# INTENT TAXONOMY — what the Brain is allowed to choose
+# ---------------------------------------------------------------------------
+# The Brain used to emit freeform "priority_tools" strings, which (a) were
+# discarded by _node_brain anyway and (b) would have let an LLM name tools
+# this pipeline cannot supply arguments for. It now picks from this CLOSED
+# enum instead; code alone maps an intent to a curated tool bundle, and code
+# alone fills every numeric argument. Anything outside the enum is dropped.
+INTENTS: frozenset[str] = frozenset({
+    "valuation", "financial_health", "profitability", "growth",
+    "liquidity", "cash_flow", "peer_relative", "overview", "full_report",
+})
+
+# Always run, regardless of intent, so nothing downstream starves: the
+# Checker, the composite score and financial_metrics_summary all assume a
+# yahoo_ratios + xbrl_financials floor exists.
+BASELINE_EXTRACTION: tuple[str, ...] = (
+    "tool_get_financial_ratios",
+    "tool_get_xbrl_financials",
+)
+BASELINE_COMPUTE: tuple[str, ...] = ("tool_calc_composite_score",)
+
+# Intent → curated bundle. Names here are the EXACT names registered in
+# tools/financial_tools/financial_server.py — verified, not recalled.
+ANALYSIS_PROFILES: dict[str, dict[str, tuple[str, ...]]] = {
+    "valuation": {
+        "extraction": (
+            "tool_get_financial_ratios", "tool_get_xbrl_financials",
+            "tool_get_revenue_growth", "tool_get_balance_sheet_snapshot",
+        ),
+        "compute": (
+            "tool_calc_pe", "tool_calc_pb", "tool_calc_ev_ebitda", "tool_calc_peg",
+            "tool_calc_cagr", "tool_build_forecast", "tool_calc_dcf_scenarios",
+            "tool_calc_reverse_dcf", "tool_calc_dcf_multi_factor_monte_carlo",
+            "tool_calc_dcf_monte_carlo",
+        ),
+    },
+    "financial_health": {
+        "extraction": (
+            "tool_get_financial_ratios", "tool_get_xbrl_financials",
+            "tool_get_balance_sheet_snapshot", "tool_get_revenue_growth",
+        ),
+        "compute": (
+            "tool_calc_roa", "tool_calc_roe", "tool_calc_debt_to_equity",
+            "tool_calc_debt_ratio", "tool_calc_equity_ratio",
+            "tool_calc_interest_coverage", "tool_calc_net_debt_to_ebitda",
+            "tool_calc_quick_ratio", "tool_calc_current_ratio",
+            "tool_calc_altman_z_score",
+        ),
+    },
+    "profitability": {
+        "extraction": (
+            "tool_get_financial_ratios", "tool_get_xbrl_financials",
+            "tool_get_revenue_growth", "tool_get_balance_sheet_snapshot",
+        ),
+        "compute": (
+            "tool_calc_gross_margin", "tool_calc_operating_margin",
+            "tool_calc_net_margin", "tool_calc_roe", "tool_calc_roa",
+            "tool_calc_roic", "tool_calc_roce",
+        ),
+    },
+    "growth": {
+        "extraction": ("tool_get_revenue_growth", "tool_get_xbrl_financials"),
+        "compute": (
+            "tool_calc_cagr", "tool_calc_revenue_cagr_from_growth",
+            "tool_build_forecast",
+        ),
+    },
+    "liquidity": {
+        "extraction": ("tool_get_balance_sheet_snapshot", "tool_get_xbrl_financials"),
+        "compute": (
+            "tool_calc_current_ratio", "tool_calc_quick_ratio", "tool_calc_ocf_ratio",
+        ),
+    },
+    "cash_flow": {
+        "extraction": (
+            "tool_get_financial_ratios", "tool_get_xbrl_financials",
+            "tool_get_revenue_growth", "tool_get_balance_sheet_snapshot",
+        ),
+        "compute": (
+            "tool_calc_fcf_margin", "tool_calc_fcf_yield", "tool_calc_ocf_ratio",
+        ),
+    },
+    "peer_relative": {
+        # Gated at call time, not here: peers come from the static
+        # INDUSTRY_PEERS map keyed off the industry, which is only known
+        # AFTER tool_get_financial_ratios returns. See _extract_peer_args.
+        "extraction": ("tool_get_peer_comparison",),
+        "compute": (
+            "tool_calc_pe", "tool_calc_pb", "tool_calc_ev_ebitda", "tool_calc_peg",
+        ),
+    },
+    "overview": {
+        "extraction": (
+            "tool_get_financial_ratios", "tool_get_revenue_growth",
+            "tool_get_xbrl_financials", "tool_get_balance_sheet_snapshot",
+        ),
+        "compute": (
+            "tool_calc_pe", "tool_calc_roe", "tool_calc_net_margin",
+            "tool_calc_debt_to_equity", "tool_calc_cagr",
+            "tool_calc_composite_score",
+        ),
+    },
+    # NOTE: "full_report" is deliberately absent — it is a MACRO-intent
+    # resolved as the union of _FULL_REPORT_PROFILES below, so it can never
+    # drift out of sync with the narrow profiles it is meant to cover.
+}
+
+# Union expanded for the "full_report" macro-intent (see _resolve_tools).
+_FULL_REPORT_PROFILES: tuple[str, ...] = (
+    "valuation", "profitability", "growth", "financial_health",
+    "liquidity", "cash_flow", "peer_relative",
+)
+
+# Heavy probabilistic valuation — dropped on depth=shallow. dcf_scenarios and
+# reverse_dcf survive at every depth (they are single-pass, not 2000-draw
+# simulations) so a shallow valuation still yields a fair-value range.
+_MONTE_CARLO_TOOLS: frozenset[str] = frozenset({
+    "tool_calc_dcf_monte_carlo", "tool_calc_dcf_multi_factor_monte_carlo",
+})
+
+# Deterministic execution order for compute tools. Two of the resolved tools
+# read UPSTREAM results out of calculated_ratios rather than raw data
+# (dcf_scenarios needs tool_build_forecast's scenarios; the multi-factor MC
+# needs both; composite_score needs pe/roe/net_margin/de_ratio/cagr), so the
+# dependency graph is expressed as an ordering here instead of a scheduler.
+# Anything not listed runs, in registry order, before composite_score.
+_COMPUTE_ORDER: tuple[str, ...] = (
+    "tool_calc_pe", "tool_calc_pb", "tool_calc_ev_ebitda", "tool_calc_peg",
+    "tool_calc_gross_margin", "tool_calc_operating_margin", "tool_calc_net_margin",
+    "tool_calc_roe", "tool_calc_roa", "tool_calc_roic", "tool_calc_roce",
+    "tool_calc_debt_to_equity", "tool_calc_debt_ratio", "tool_calc_equity_ratio",
+    "tool_calc_interest_coverage", "tool_calc_net_debt_to_ebitda",
+    "tool_calc_current_ratio", "tool_calc_quick_ratio", "tool_calc_ocf_ratio",
+    "tool_calc_altman_z_score",
+    "tool_calc_cagr", "tool_calc_revenue_cagr_from_growth",
+    "tool_calc_fcf_margin", "tool_calc_fcf_yield",
+    "tool_build_forecast", "tool_calc_dcf_scenarios",
+    "tool_calc_dcf_multi_factor_monte_carlo", "tool_calc_dcf_monte_carlo",
+    "tool_calc_reverse_dcf",
+    "tool_calc_composite_score",
+)
+
+
+def _normalize_depth(directives: dict[str, Any]) -> str:
+    """
+    Map whatever depth-ish key/value the Manager actually sent onto one of
+    'shallow' | 'standard' | 'deep'. Deliberately tolerant: the request
+    shape is not owned by this agent, so an unrecognised key or value
+    degrades to 'standard' rather than silently dropping heavy tools.
+    """
+    raw = ""
+    for key in ("depth", "analysis_depth", "detail_level", "level"):
+        if directives.get(key):
+            raw = str(directives[key]).strip().lower()
+            break
+    if raw in {"shallow", "quick", "brief", "fast", "light", "low"}:
+        return "shallow"
+    if raw in {"deep", "thorough", "comprehensive", "full", "exhaustive", "high"}:
+        return "deep"
+    return "standard"
+
+
+def _args(**kw: Any) -> dict[str, Any] | None:
+    """
+    Build a tool-argument dict, or return None if ANY value is missing.
+
+    This is the single gate that keeps numbers deterministic: a mapper that
+    cannot source every argument from raw_numerical_data returns None and the
+    tool is skipped outright. No partial calls, no zero-filling, and — most
+    importantly — no LLM-supplied numerics anywhere in the pipeline.
+    """
+    return None if any(v is None for v in kw.values()) else kw
+
+
+# ---------------------------------------------------------------------------
+# EXTRACTION REGISTRY — tool → (args_builder(ticker, raw) → dict | None, store_key)
+# ---------------------------------------------------------------------------
+# Every extraction tool in this pipeline is keyed off the ticker alone, with
+# ONE exception: tool_get_peer_comparison also needs a peer list, which is
+# derived from the industry that tool_get_financial_ratios just returned.
+# An args_builder returning None means "skip, inputs unavailable".
+
+def _extract_ticker_args(ticker: str, raw: dict[str, Any]) -> dict[str, Any] | None:
+    return {"ticker": ticker}
+
+
+def _extract_peer_args(ticker: str, raw: dict[str, Any]) -> dict[str, Any] | None:
+    """
+    Gate for tool_get_peer_comparison — UNCHANGED logic, just relocated.
+
+    get_peer_comparison()'s own auto-inference is broken (it fetches
+    recommendations into a local and discards them, always falling back to
+    peers=[]), so peers come from the static INDUSTRY_PEERS map keyed off the
+    industry/sector fetched by tool_get_financial_ratios. Industries absent
+    from the map yield no peers and the call is skipped rather than guessed.
+    """
+    industry = raw.get("yahoo_ratios", {}).get("industry", "")
+    sector = raw.get("yahoo_ratios", {}).get("sector", "")
+    peers = infer_peers(sector, industry, ticker)
+    return {"ticker": ticker, "peers": peers} if peers else None
+
+
+EXTRACTION_REGISTRY: dict[str, tuple[Any, str]] = {
+    "tool_get_financial_ratios":       (_extract_ticker_args, "yahoo_ratios"),
+    "tool_get_peer_comparison":        (_extract_peer_args,   "peer_comparison"),
+    "tool_get_revenue_growth":         (_extract_ticker_args, "revenue_growth"),
+    "tool_get_xbrl_financials":        (_extract_ticker_args, "xbrl_financials"),
+    "tool_get_balance_sheet_snapshot": (_extract_ticker_args, "balance_sheet_snapshot"),
+}
+
+# Extraction runs in this order so tool_get_financial_ratios (which supplies
+# the industry) always precedes tool_get_peer_comparison (which needs it).
+_EXTRACTION_ORDER: tuple[str, ...] = (
+    "tool_get_financial_ratios",
+    "tool_get_peer_comparison",
+    "tool_get_revenue_growth",
+    "tool_get_xbrl_financials",
+    "tool_get_balance_sheet_snapshot",
+)
+
+
+# ---------------------------------------------------------------------------
+# COMPUTE REGISTRY — tool → mapper(derived_facts) → args, entirely code-filled
+# ---------------------------------------------------------------------------
+# The mappers below are the ONLY place ratio arguments are constructed, and
+# every value they read comes from raw_numerical_data (or from an upstream
+# ratio already in calculated_ratios). The LLM never supplies a number: it
+# chooses intents, and intents choose which of these mappers get to run.
+#
+# A mapper returns one of three things:
+#   (args, period) → call the tool through _call() with that provenance label
+#   dict           → a finished result needing no MCP round-trip (e.g. a value
+#                    Yahoo already computed), stored verbatim
+#   None           → inputs unavailable; the tool is SKIPPED and the spec's
+#                    `unavailable` placeholder is stored instead
+
+def _is_valid_number(x: Any) -> bool:
+    """
+    True for a real, JSON-safe number.
+
+    DEFENSE-IN-DEPTH: excludes NaN, not just None. yfinance/pandas represents
+    a missing cell in an otherwise-present row as `numpy.nan`, and
+    `nan is not None` is True — so a None-only check let a NaN through as if
+    it were valid data, silently voiding CAGR and breaking JSON persistence
+    downstream ("NaN is not JSON compliant").
+    """
+    return x is not None and not (isinstance(x, float) and math.isnan(x))
+
+
+def _newest(series: list[dict] | None, key: str = "value") -> Any:
+    """Most recent entry's value from an XBRL-style newest-first series."""
+    if not series:
+        return None
+    try:
+        return series[0][key]
+    except (KeyError, TypeError, IndexError):
+        return None
+
+
+def _derive_compute_facts(raw: dict[str, Any], calc: dict[str, Any]) -> dict[str, Any]:
+    """
+    Compute every deterministic intermediate the ratio mappers need, once.
+
+    This is the arg-construction logic that used to live inline in
+    _execute_ratio_computation, lifted out VERBATIM (same guards, same
+    period-provenance labels, same approximation caveats) so the mappers stay
+    one-liners and the numbers stay identical. Nothing here calls a tool or an
+    LLM — it is pure arithmetic over already-extracted raw data.
+
+    ``d["calc"]`` is a LIVE reference to state["calculated_ratios"], which is
+    how the few order-dependent tools (dcf_scenarios needs build_forecast's
+    output; composite_score needs pe/roe/net_margin/de_ratio/cagr) read their
+    upstream results. _COMPUTE_ORDER guarantees the producer runs first.
+    """
+    ratios_src = raw.get("yahoo_ratios", {})
+    growth_src = raw.get("revenue_growth", {})
+    xbrl_src   = raw.get("xbrl_financials", {})
+    bs_snapshot = raw.get("balance_sheet_snapshot", {})
+
+    d: dict[str, Any] = {
+        "calc": calc,
+        "ratios_src": ratios_src, "growth_src": growth_src,
+        "xbrl_src": xbrl_src, "bs_snapshot": bs_snapshot,
+    }
+
+    # -- P/E inputs --------------------------------------------------------
+    d["price"] = ratios_src.get("current_price")
+    d["eps"]   = ratios_src.get("eps_trailing")
+    d["pe_ratio_yahoo"] = ratios_src.get("pe_ratio")
+
+    # -- Return on Equity --------------------------------------------------
+    xbrl_assets      = xbrl_src.get("total_assets", [])
+    xbrl_liabilities = xbrl_src.get("total_liabilities", [])
+    annual_ni        = growth_src.get("annual_net_income", [])
+    d["xbrl_assets"] = xbrl_assets
+    d["xbrl_liabilities"] = xbrl_liabilities
+    d["annual_ni"] = annual_ni
+
+    net_income      = annual_ni[0]["net_income"] if annual_ni else None
+    net_income_year = annual_ni[0].get("year") if annual_ni else None
+    # Approximate equity = assets - liabilities (most recent period).
+    # NOTE: xbrl_assets/xbrl_liabilities come from sec_edgar.py's
+    # _extract_annual(), which only pulls 10-K/FY entries — so this is an
+    # ANNUAL balance-sheet snapshot, not a quarterly one, even though it's
+    # paired here with the *current* net_income figure above.
+    shareholders_equity: float | None = None
+    equity_period_end: str | None = None
+    if xbrl_assets and xbrl_liabilities:
+        try:
+            shareholders_equity = xbrl_assets[0]["value"] - xbrl_liabilities[0]["value"]
+            equity_period_end = xbrl_assets[0].get("period_end")
+        except (KeyError, TypeError, IndexError):
+            shareholders_equity = None
+
+    # ROE mixes an annual (10-K) net_income with an annual (10-K) balance
+    # sheet — same source family, but don't just assume index [0] on both
+    # lists lines up to the same fiscal year; check it.
+    years_aligned = (
+        net_income_year is not None
+        and equity_period_end is not None
+        and str(net_income_year) in str(equity_period_end)
+    )
+    if net_income_year is None:
+        roe_period = None
+    elif equity_period_end is not None and not years_aligned:
+        roe_period = f"MIXED(net_income=annual:{net_income_year}, equity=annual:{equity_period_end})"
+    else:
+        roe_period = f"annual:{net_income_year}"
+
+    d["net_income"] = net_income
+    d["net_income_year"] = net_income_year
+    d["shareholders_equity"] = shareholders_equity or None  # 0 equity is unusable
+    d["equity_period_end"] = equity_period_end
+    d["roe_period"] = roe_period
+
+    # -- Net Margin --------------------------------------------------------
+    # quarterly_net_income mirrors quarterly_revenue (see yahoo_finance.py).
+    # Prefer the most recent MATCHING quarter for both so net_margin
+    # describes the SAME quarter as the gross/operating margins the report
+    # writer pulls from the 10-Q's quarterly MD&A text. Only fall back to
+    # annual figures — clearly tagged — when quarterly data isn't available.
+    quarterly_rev = growth_src.get("quarterly_revenue", [])
+    quarterly_ni  = growth_src.get("quarterly_net_income", [])
+    annual_rev    = growth_src.get("annual_revenue", [])
+    revenue_year  = annual_rev[0].get("year") if annual_rev else None
+    d["annual_rev"] = annual_rev
+    d["revenue_year"] = revenue_year
+
+    use_quarterly = (
+        quarterly_rev and quarterly_ni
+        and quarterly_rev[0].get("quarter") == quarterly_ni[0].get("quarter")
+        and quarterly_rev[0].get("revenue") is not None
+        and quarterly_ni[0].get("net_income") is not None
+    )
+    if use_quarterly:
+        d["nm_net_income"] = quarterly_ni[0]["net_income"]
+        d["nm_revenue"]    = quarterly_rev[0]["revenue"]
+        d["net_margin_period"] = f"quarterly:{quarterly_rev[0]['quarter']}"
+    else:
+        # Fallback: most recent ANNUAL (10-K/FY) figures, flagged MIXED if the
+        # two annual arrays' index-[0] years don't actually agree, so a caller
+        # narrating this next to quarterly text can catch the period
+        # difference instead of silently mismatching them.
+        d["nm_net_income"] = net_income
+        d["nm_revenue"]    = annual_rev[0]["revenue"] if annual_rev else None
+        d["net_margin_period"] = (
+            f"MIXED(net_income=annual:{net_income_year}, revenue=annual:{revenue_year})"
+            if net_income_year is not None and revenue_year is not None and net_income_year != revenue_year
+            else f"annual:{revenue_year}" if revenue_year is not None
+            else None
+        )
+
+    # -- Debt-to-Equity ----------------------------------------------------
+    d["de_ratio_yahoo"] = ratios_src.get("de_ratio") or ratios_src.get("debtToEquity")
+    d["total_liabilities_val"] = _newest(xbrl_liabilities)
+
+    # -- Revenue CAGR ------------------------------------------------------
+    # annual_rev may contain entries whose "revenue" is None (the oldest
+    # fiscal year often has no value from yfinance). Using annual_rev[-1]
+    # blindly picks that null and voids the whole CAGR even when 3-4 valid
+    # years are present — filter to valid points first.
+    valid_rev = [
+        e for e in annual_rev
+        if _is_valid_number(e.get("revenue")) and e.get("year") is not None
+    ]
+    valid_rev.sort(key=lambda e: e["year"])  # oldest -> newest
+    d["valid_rev"] = valid_rev
+    d["cagr_start"] = d["cagr_end"] = d["cagr_years"] = None
+    d["cagr_period"] = None
+    if len(valid_rev) >= 2:
+        oldest, newest = valid_rev[0]["revenue"], valid_rev[-1]["revenue"]
+        years = valid_rev[-1]["year"] - valid_rev[0]["year"]
+        if newest and oldest and oldest > 0 and years > 0:
+            d["cagr_start"], d["cagr_end"], d["cagr_years"] = oldest, newest, float(years)
+            d["cagr_period"] = f"annual:{valid_rev[0]['year']}-{valid_rev[-1]['year']}"
+
+    # -- Valuation / DCF inputs -------------------------------------------
+    operating_cf_annual = xbrl_src.get("operating_cash_flow_annual", [])
+    capex_annual        = xbrl_src.get("capex_annual", [])
+    d["operating_cf_annual"] = operating_cf_annual
+    d["capex_annual"] = capex_annual
+    d["beta"]          = ratios_src.get("beta")
+    d["market_cap"]    = ratios_src.get("market_cap")
+    d["current_price"] = ratios_src.get("current_price")
+    d["enterprise_value"] = ratios_src.get("enterprise_value")
+    d["ebitda_ttm"]    = ratios_src.get("ebitda")
+
+    observed_diluted_shares = ratios_src.get("diluted_shares")
+    d["observed_diluted_shares"] = observed_diluted_shares
+    d["shares_outstanding"] = observed_diluted_shares or (
+        d["market_cap"] / d["current_price"]
+        if d["market_cap"] and d["current_price"] else None
+    )
+    d["total_debt_ttm"]        = ratios_src.get("total_debt")
+    d["total_cash_ttm"]        = ratios_src.get("total_cash")
+    d["lease_liabilities_ttm"] = ratios_src.get("lease_liabilities")
+    d["minority_interest_ttm"] = ratios_src.get("minority_interest")
+    d["interest_expense_ttm"]  = ratios_src.get("interest_expense")
+
+    tax_rate_raw = ratios_src.get("effective_tax_rate")
+    d["effective_tax_rate_pct"] = (
+        float(tax_rate_raw) * 100 if tax_rate_raw is not None and abs(float(tax_rate_raw)) <= 1
+        else float(tax_rate_raw) if tax_rate_raw is not None else 21.0
+    )
+    d["pre_tax_cost_of_debt_pct"] = (
+        abs(float(d["interest_expense_ttm"])) / d["total_debt_ttm"] * 100
+        if d["interest_expense_ttm"] is not None and d["total_debt_ttm"] and d["total_debt_ttm"] > 0
+        else 5.0
+    )
+    d["valuation_input_assessments"] = build_valuation_input_assessments(
+        market_cap=d["market_cap"], total_debt=d["total_debt_ttm"], cash=d["total_cash_ttm"],
+        marketable_securities=None, lease_liabilities=d["lease_liabilities_ttm"],
+        minority_interest=d["minority_interest_ttm"], diluted_shares=d["shares_outstanding"],
+        diluted_shares_observed=observed_diluted_shares is not None,
+        cost_of_debt_observed=(
+            d["interest_expense_ttm"] is not None
+            and bool(d["total_debt_ttm"] and d["total_debt_ttm"] > 0)
+        ),
+        tax_rate_observed=tax_rate_raw is not None,
+        pre_tax_cost_of_debt_pct=d["pre_tax_cost_of_debt_pct"],
+        effective_tax_rate_pct=d["effective_tax_rate_pct"],
+        sector=ratios_src.get("sector"),
+    )
+
+    # FCF = operating cash flow − capex (most recent year, both from
+    # tool_get_xbrl_financials, sorted newest-first by _extract_annual).
+    # capex is reported as a positive outflow in XBRL's
+    # PaymentsToAcquirePropertyPlantAndEquipment tag (a "payments" concept,
+    # not a signed reduction), so it is subtracted rather than added.
+    fcf_base = None
+    if operating_cf_annual and capex_annual:
+        try:
+            fcf_base = operating_cf_annual[0]["value"] - capex_annual[0]["value"]
+        except (KeyError, TypeError, IndexError):
+            fcf_base = None
+    d["fcf_base"] = fcf_base
+    d["revenue_base"] = valid_rev[-1]["revenue"] if valid_rev else None
+    d["revenue_base_year"] = valid_rev[-1]["year"] if valid_rev else None
+
+    trajectory_raw = growth_src.get("revenue_growth_ttm")
+    if trajectory_raw is None and len(valid_rev) >= 2 and valid_rev[-2]["revenue"]:
+        trajectory_raw = valid_rev[-1]["revenue"] / valid_rev[-2]["revenue"] - 1.0
+    d["current_growth_pct"] = (
+        float(trajectory_raw) * 100.0
+        if trajectory_raw is not None and abs(float(trajectory_raw)) <= 2.0
+        else float(trajectory_raw) if trajectory_raw is not None else None
+    )
+    d["capex_pct_revenue"] = (
+        capex_annual[0]["value"] / d["revenue_base"] * 100.0
+        if capex_annual and d["revenue_base"] else None
+    )
+
+    # Reverse DCF target EV ≈ market_cap + total_debt − total_cash (all TTM);
+    # see reverse_dcf's own docstring for why raw market_cap alone would bias
+    # the result.
+    d["target_ev"] = (
+        d["market_cap"] + d["total_debt_ttm"] - d["total_cash_ttm"]
+        if d["market_cap"] is not None and d["total_debt_ttm"] is not None
+        and d["total_cash_ttm"] is not None else None
+    )
+
+    # -- Balance-sheet snapshot / Phase-2 inputs ---------------------------
+    d["total_assets_val"]        = _newest(xbrl_assets)
+    d["ebit_snap"]               = bs_snapshot.get("ebit")
+    d["retained_earnings_snap"]  = bs_snapshot.get("retained_earnings")
+    d["working_capital_snap"]    = bs_snapshot.get("working_capital")
+    d["current_assets_snap"]     = bs_snapshot.get("current_assets")
+    d["current_liabilities_snap"] = bs_snapshot.get("current_liabilities")
+    d["total_equity_snap"]       = bs_snapshot.get("total_equity")
+    d["bs_period_end"]           = bs_snapshot.get("period_end", "unknown")
+    d["fcf_margin_revenue"]      = annual_rev[0]["revenue"] if annual_rev else None
+    d["altman_revenue"]          = annual_rev[0]["revenue"] if annual_rev else None
+    d["ocf_annual"]              = _newest(operating_cf_annual)
+    d["current_ratio_val"]       = ratios_src.get("current_ratio")
+
+    # -- Newly-reachable inputs (previously no mapper existed) -------------
+    # Book value per share: total_equity is the yfinance balance-sheet
+    # snapshot; diluted_shares is yfinance .info sharesOutstanding. Both are
+    # observed fields — nothing is imputed.
+    d["book_value_per_share"] = (
+        d["total_equity_snap"] / d["observed_diluted_shares"]
+        if d["total_equity_snap"] is not None and d["observed_diluted_shares"] else None
+    )
+    # PEG's growth leg uses NET INCOME growth (not revenue growth) because
+    # PEG is by definition earnings-relative. Sourced from the two most
+    # recent annual_net_income entries returned by tool_get_revenue_growth.
+    d["earnings_growth_pct"] = None
+    if len(annual_ni) >= 2:
+        prev = annual_ni[1].get("net_income")
+        curr = annual_ni[0].get("net_income")
+        if _is_valid_number(prev) and _is_valid_number(curr) and prev and prev > 0:
+            d["earnings_growth_pct"] = (curr - prev) / prev * 100.0
+    d["operating_income_annual"] = _newest(xbrl_src.get("operating_income_annual"))
+    d["xbrl_revenue_annual"]     = _newest(xbrl_src.get("revenue_annual"))
+    return d
+
+
+class ComputeSpec(NamedTuple):
+    """One row of COMPUTE_REGISTRY. See the module comment above for the
+    mapper's three possible return shapes."""
+    key:         str                                   # calculated_ratios key
+    mapper:      Callable[[dict[str, Any]], Any]
+    unavailable: dict[str, Any]                        # stored when mapper → None
+    post:        Callable[[dict[str, Any], dict[str, Any]], None] | None = None
+
+
+# US federal statutory rate, used as a DOCUMENTED placeholder for ROIC's tax
+# leg — this pipeline has no pretax-income/tax-provision series to derive the
+# company's real effective rate from. Flagged on the result, never hidden.
+_STATUTORY_TAX_RATE_PCT = 21.0
+
+
+def _post_de_ratio(result: dict[str, Any], d: dict[str, Any]) -> None:
+    """
+    tool_get_xbrl_financials only exposes total_liabilities, not
+    interest-bearing debt separately — so the XBRL D/E path includes
+    non-interest-bearing liabilities (payables, deferred revenue) that a true
+    D/E excludes. The tool's threshold interpretation is calibrated for TRUE
+    D/E, so override it rather than let the mismatch hide.
+    """
+    result["formula"] = "total_liabilities / shareholders_equity (approximation)"
+    result["interpretation"] = "approximation_not_comparable_to_standard_thresholds"
+    result["is_approximation"] = True
+    result["note"] = (
+        "tool_get_xbrl_financials only exposes total_liabilities, not "
+        "interest-bearing debt separately, so this uses total liabilities "
+        "as a rough stand-in. This is NOT a true debt-to-equity ratio and "
+        "should not be compared against standard D/E leverage thresholds."
+    )
+
+
+def _post_roic(result: dict[str, Any], d: dict[str, Any]) -> None:
+    result["is_approximation"] = True
+    result["note"] = (
+        f"tax_rate_pct used the US statutory rate ({_STATUTORY_TAX_RATE_PCT}%) as a "
+        "placeholder, not this company's actual effective tax rate (no pretax-income/"
+        "tax-provision series available in this pipeline) -- NOPAT here is an approximation."
+    )
+
+
+def _map_pe(d):
+    args = _args(price=d["price"], eps=d["eps"])
+    if args and d["eps"] != 0:
+        return args, "ttm"
+    # Yahoo already published a trailing P/E — use it rather than skip the
+    # metric entirely, but label the provenance so it is never mistaken for
+    # a locally-computed figure.
+    return {
+        "pe_ratio": d["pe_ratio_yahoo"],
+        "interpretation": "sourced_from_yahoo",
+        "note": "Used pre-computed Yahoo Finance P/E (price or EPS unavailable for direct calc).",
+        "_inputs": {"pe_ratio": d["pe_ratio_yahoo"]},
+        "_period": "ttm",
+    }
+
+
+def _map_pb(d):
+    args = _args(price=d["price"], book_value_per_share=d["book_value_per_share"])
+    return (args, f"MIXED(price=ttm, book_value={d['bs_period_end']})") if args else None
+
+
+def _map_ev_ebitda(d):
+    args = _args(enterprise_value=d["enterprise_value"], ebitda=d["ebitda_ttm"])
+    return (args, "ttm") if args and d["ebitda_ttm"] != 0 else None
+
+
+def _map_peg(d):
+    pe = d["calc"].get("pe", {}).get("pe_ratio") or d["pe_ratio_yahoo"]
+    args = _args(pe=pe, earnings_growth_rate_pct=d["earnings_growth_pct"])
+    return (args, "MIXED(pe=ttm, earnings_growth=annual_yoy)") if args else None
+
+
+def _map_gross_margin(d):
+    # No extraction tool in this pipeline supplies COGS / cost of revenue:
+    # sec_edgar.get_xbrl_financials() tags revenue, net/operating/pretax
+    # income, tax, assets, liabilities and cash flow — but not cost of
+    # revenue — and yfinance .info has no COGS field either. Always skipped
+    # rather than derived from a margin the tool is meant to produce.
+    # TODO: add a _COST_OF_REVENUE_TAGS series to sec_edgar.py to enable this.
+    return None
+
+
+def _map_operating_margin(d):
+    args = _args(
+        operating_income=d["operating_income_annual"], revenue=d["xbrl_revenue_annual"],
+    )
+    return (args, "annual") if args and d["xbrl_revenue_annual"] != 0 else None
+
+
+def _map_net_margin(d):
+    args = _args(net_income=d["nm_net_income"], revenue=d["nm_revenue"])
+    return (args, d["net_margin_period"]) if args and d["nm_revenue"] != 0 else None
+
+
+def _map_roe(d):
+    args = _args(
+        net_income=d["net_income"], shareholders_equity=d["shareholders_equity"],
+    )
+    return (args, d["roe_period"]) if args and d["net_income"] else None
+
+
+def _map_roa(d):
+    args = _args(net_income=d["net_income"], total_assets=d["total_assets_val"])
+    return (
+        args,
+        f"MIXED(net_income=annual:{d['net_income_year']}, total_assets=annual:{d['equity_period_end']})",
+    ) if args and d["total_assets_val"] else None
+
+
+def _map_roic(d):
+    args = _args(
+        ebit=d["ebit_snap"], tax_rate_pct=_STATUTORY_TAX_RATE_PCT,
+        total_debt=d["total_debt_ttm"], total_equity=d["shareholders_equity"],
+        cash=d["total_cash_ttm"],
+    )
+    return (args, (
+        f"MIXED(ebit={d['bs_period_end']}, equity=annual:{d['equity_period_end']}, debt/cash=ttm)"
+    )) if args else None
+
+
+def _map_roce(d):
+    args = _args(
+        ebit=d["ebit_snap"], total_assets=d["total_assets_val"],
+        current_liabilities=d["current_liabilities_snap"],
+    )
+    return (args, (
+        f"MIXED(ebit={d['bs_period_end']}, total_assets=annual:{d['equity_period_end']})"
+    )) if args and d["total_assets_val"] else None
+
+
+def _map_debt_to_equity(d):
+    # Yahoo's .info["debtToEquity"] is a most-recent-quarter balance-sheet
+    # snapshot and takes priority — no MCP round-trip needed for it.
+    if d["de_ratio_yahoo"] is not None:
+        return {
+            "de_ratio": d["de_ratio_yahoo"],
+            "interpretation": "sourced_from_yahoo",
+            "_inputs": {"de_ratio_yahoo": d["de_ratio_yahoo"]},
+            "_period": "mrq",
+        }
+    args = _args(
+        total_debt=d["total_liabilities_val"], shareholders_equity=d["shareholders_equity"],
+    )
+    return (
+        args,
+        f"annual:{d['equity_period_end']}" if d["equity_period_end"] else None,
+    ) if args and d["total_liabilities_val"] else None
+
+
+def _map_debt_ratio(d):
+    # total_liabilities and total_assets are BOTH from the same XBRL annual
+    # snapshot (index [0] of each series) — clean annual tag, not mixed.
+    args = _args(
+        total_liabilities=d["total_liabilities_val"], total_assets=d["total_assets_val"],
+    )
+    return (
+        args, f"annual:{d['equity_period_end']}" if d["equity_period_end"] else "annual",
+    ) if args and d["total_assets_val"] else None
+
+
+def _map_equity_ratio(d):
+    args = _args(total_equity=d["shareholders_equity"], total_assets=d["total_assets_val"])
+    return (
+        args, f"annual:{d['equity_period_end']}" if d["equity_period_end"] else "annual",
+    ) if args and d["total_assets_val"] else None
+
+
+def _map_interest_coverage(d):
+    args = _args(ebit=d["ebit_snap"], interest_expense=d["interest_expense_ttm"])
+    return (args, f"MIXED(ebit={d['bs_period_end']}, interest_expense=ttm)") if args else None
+
+
+def _map_net_debt_to_ebitda(d):
+    args = _args(
+        total_debt=d["total_debt_ttm"], total_cash=d["total_cash_ttm"], ebitda=d["ebitda_ttm"],
+    )
+    return (args, "ttm") if args and d["ebitda_ttm"] else None
+
+
+def _map_current_ratio(d):
+    args = _args(
+        current_assets=d["current_assets_snap"], current_liabilities=d["current_liabilities_snap"],
+    )
+    return (args, f"snapshot:{d['bs_period_end']}") if args else None
+
+
+def _map_quick_ratio(d):
+    # tool_calc_quick_ratio needs cash + short_term_investments + receivables
+    # separately. get_balance_sheet_snapshot() returns total/current assets
+    # and liabilities but neither receivables nor short-term investments, and
+    # yfinance .info's totalCash is a COMBINED cash + short-term-investments
+    # bucket that cannot be split back apart. Skipped rather than guessed —
+    # yahoo_ratios["quick_ratio"] is still carried through raw data untouched.
+    # TODO: add receivables + short_term_investments to
+    #       yahoo_finance.get_balance_sheet_snapshot() to enable this.
+    return None
+
+
+def _map_ocf_ratio(d):
+    args = _args(
+        operating_cash_flow=d["ocf_annual"], current_liabilities=d["current_liabilities_snap"],
+    )
+    return (args, f"MIXED(ocf=annual, current_liabilities={d['bs_period_end']})") if args else None
+
+
+def _map_altman_z_score(d):
+    args = _args(
+        working_capital=d["working_capital_snap"], retained_earnings=d["retained_earnings_snap"],
+        ebit=d["ebit_snap"], total_assets=d["total_assets_val"], market_cap=d["market_cap"],
+        total_liabilities=d["total_liabilities_val"], revenue=d["altman_revenue"],
+    )
+    return (args, "mixed") if args and d["total_assets_val"] else None
+
+
+def _map_cagr(d):
+    args = _args(
+        start_value=d["cagr_start"], end_value=d["cagr_end"], years=d["cagr_years"],
+    )
+    return (args, d["cagr_period"]) if args else None
+
+
+def _map_revenue_cagr_from_growth(d):
+    # Passes the annual_revenue list straight through — the tool sorts by
+    # year and picks its own endpoints, so this needs no local arithmetic.
+    return (
+        ({"annual_revenue": d["annual_rev"]}, "annual")
+        if len(d["annual_rev"]) >= 2 else None
+    )
+
+
+def _map_fcf_margin(d):
+    # fcf_base is annual (XBRL); revenue is the most recent ANNUAL figure to
+    # stay in the same source family, but the two annual series (XBRL cash
+    # flow vs. yfinance income statement) aren't guaranteed to be the exact
+    # same fiscal year — tag MIXED rather than assume alignment.
+    args = _args(free_cash_flow=d["fcf_base"], revenue=d["fcf_margin_revenue"])
+    return (
+        args, f"MIXED(fcf=annual_derived, revenue=annual:{d['revenue_year']})",
+    ) if args and d["fcf_margin_revenue"] else None
+
+
+def _map_fcf_yield(d):
+    args = _args(free_cash_flow=d["fcf_base"], market_cap=d["market_cap"])
+    return (args, "MIXED(fcf=annual_derived, market_cap=ttm)") if args and d["market_cap"] else None
+
+
+def _map_build_forecast(d):
+    # Ground the base-case FCF growth assumption in the company's own revenue
+    # CAGR (computed upstream by tool_calc_cagr — see _COMPUTE_ORDER).
+    historical_cagr_pct = d["calc"].get("cagr", {}).get("cagr_pct")
+    if d["fcf_base"] is None or d["beta"] is None or not d["revenue_base"]:
+        return None
+    if historical_cagr_pct is None:
+        # No CAGR to anchor the assumption — skip rather than guessing a base
+        # growth rate out of thin air.
+        return None
+    return {
+        "revenue_base": d["revenue_base"],
+        "fcf_base": d["fcf_base"],
+        "historical_revenue_cagr_pct": historical_cagr_pct,
+        "current_revenue_growth_pct": d["current_growth_pct"],
+        "capex_pct_revenue": d["capex_pct_revenue"],
+        "projection_years": 5,
+        "source_period": f"annual:{d['revenue_base_year']}",
+    }, "derived:annual_projection"
+
+
+def _map_dcf_scenarios(d):
+    """
+    Uses the scenario-range tool (not the single-point tool_calc_dcf)
+    deliberately: a single DCF using trailing growth routinely lands far
+    below market price for a high-growth stock, which reads as "the model is
+    broken" unless growth-rate sensitivity is shown explicitly.
+    """
+    forecast = d["calc"].get("forecast", {})
+    if d["fcf_base"] is None or d["beta"] is None or not forecast.get("scenarios"):
+        return None
+    return {
+        "fcf_base": d["fcf_base"],
+        "beta": d["beta"],
+        "shares_outstanding": d["shares_outstanding"],
+        "diluted_shares": d["shares_outstanding"],
+        "market_cap": d["market_cap"],
+        "total_debt": d["total_debt_ttm"],
+        "cash": d["total_cash_ttm"],
+        # Kept None rather than silently converted to zero. The assessment
+        # marks it NOT_APPLICABLE because Yahoo totalCash is the combined
+        # cash/short-term-investment bucket.
+        "marketable_securities": None,
+        "lease_liabilities": d["lease_liabilities_ttm"],
+        "minority_interest": d["minority_interest_ttm"],
+        "pre_tax_cost_of_debt_pct": d["pre_tax_cost_of_debt_pct"],
+        "effective_tax_rate_pct": d["effective_tax_rate_pct"],
+        "input_assessments": d["valuation_input_assessments"],
+        "forecast_scenarios": forecast.get("scenarios", {}),
+    }, "derived:annual_projection"
+
+
+def _map_dcf_multi_factor_monte_carlo(d):
+    """
+    Runs alongside the three named scenarios: bear/base/bull are easier to
+    narrate, while P10/P50/P90 percentiles give a continuous picture of
+    valuation uncertainty rather than three discrete points.
+    """
+    base_dcf = d["calc"].get("dcf", {}).get("base", {})
+    base_forecast = d["calc"].get("forecast", {}).get("scenarios", {}).get("base", {})
+    if base_dcf.get("error") is not None or not base_forecast.get("fcf_by_year"):
+        return None
+    return {
+        "fcf_by_year": base_forecast["fcf_by_year"],
+        "wacc_pct": base_dcf.get("wacc_pct"),
+        "terminal_growth_rate_pct": base_dcf.get("assumptions", {}).get("terminal_growth_rate_pct", 2.5),
+        "cash": d["total_cash_ttm"] or 0.0,
+        "total_debt": d["total_debt_ttm"] or 0.0,
+        "lease_liabilities": d["lease_liabilities_ttm"] or 0.0,
+        "minority_interest": d["minority_interest_ttm"] or 0.0,
+        "diluted_shares": d["shares_outstanding"],
+        "n_simulations": 2000,
+    }, "derived:annual_projection"
+
+
+def _map_dcf_monte_carlo(d):
+    """
+    Single-factor MC: randomises the FCF growth rate only, anchored on the
+    company's own revenue CAGR. Complements the multi-factor variant.
+    """
+    args = _args(
+        fcf_base=d["fcf_base"], beta=d["beta"],
+        base_growth_rate_pct=d["calc"].get("cagr", {}).get("cagr_pct"),
+    )
+    if args is None:
+        return None
+    args["shares_outstanding"] = d["shares_outstanding"]
+    args["n_simulations"] = 2000
+    return args, "derived:annual_projection"
+
+
+def _map_reverse_dcf(d):
+    args = _args(
+        fcf_base=d["fcf_base"], beta=d["beta"], target_enterprise_value=d["target_ev"],
+        market_cap=d["market_cap"], total_debt=d["total_debt_ttm"],
+    )
+    if args is None or d["target_ev"] <= 0:
+        return None
+    args["pre_tax_cost_of_debt_pct"] = d["pre_tax_cost_of_debt_pct"]
+    args["effective_tax_rate_pct"] = d["effective_tax_rate_pct"]
+    return args, "MIXED(fcf=annual_derived, market_cap/debt/cash=ttm)"
+
+
+def _map_composite_score(d):
+    """
+    DELIBERATELY built from ratios spanning several periods (ttm P/E, annual
+    ROE/net_margin, mrq current/D-E ratio, multi-year CAGR) — fine for a
+    single composite health score, but tagged "mixed" explicitly so
+    validate_period_consistency.py doesn't flag it the way it flags an
+    *accidental* mix. Unlike every other mapper this does NOT gate on None:
+    the tool is designed to score partial inputs and reports which were
+    missing, so passing the Nones through is the informative behaviour.
+    """
+    cr = d["calc"]
+    return {
+        "pe":                cr.get("pe", {}).get("pe_ratio"),
+        "roe_pct":           cr.get("roe", {}).get("roe_pct"),
+        "net_margin_pct":    cr.get("net_margin", {}).get("net_margin_pct"),
+        "de_ratio":          cr.get("de_ratio", {}).get("de_ratio"),
+        "revenue_cagr_pct":  cr.get("cagr", {}).get("cagr_pct"),
+        "current_ratio_val": d["current_ratio_val"],
+    }, "mixed"
+
+
+COMPUTE_REGISTRY: dict[str, ComputeSpec] = {
+    "tool_calc_pe":               ComputeSpec("pe", _map_pe, {"pe_ratio": None, "interpretation": "unavailable"}),
+    "tool_calc_pb":               ComputeSpec("pb", _map_pb, {"pb_ratio": None, "interpretation": "unavailable"}),
+    "tool_calc_ev_ebitda":        ComputeSpec("ev_ebitda", _map_ev_ebitda, {"ev_ebitda": None, "interpretation": "unavailable"}),
+    "tool_calc_peg":              ComputeSpec("peg", _map_peg, {"peg_ratio": None, "interpretation": "unavailable"}),
+    "tool_calc_gross_margin":     ComputeSpec("gross_margin", _map_gross_margin, {"gross_margin_pct": None, "interpretation": "unavailable"}),
+    "tool_calc_operating_margin": ComputeSpec("operating_margin", _map_operating_margin, {"operating_margin_pct": None, "interpretation": "unavailable"}),
+    "tool_calc_net_margin":       ComputeSpec("net_margin", _map_net_margin, {"net_margin_pct": None, "interpretation": "insufficient_data"}),
+    "tool_calc_roe":              ComputeSpec("roe", _map_roe, {"roe_pct": None, "interpretation": "insufficient_data"}),
+    "tool_calc_roa":              ComputeSpec("roa", _map_roa, {"roa_pct": None, "interpretation": "unavailable"}),
+    "tool_calc_roic":             ComputeSpec("roic", _map_roic, {"roic_pct": None, "interpretation": "unavailable"}, _post_roic),
+    "tool_calc_roce":             ComputeSpec("roce", _map_roce, {"roce_pct": None, "interpretation": "unavailable"}),
+    "tool_calc_debt_to_equity":   ComputeSpec("de_ratio", _map_debt_to_equity, {"de_ratio": None, "interpretation": "unavailable"}, _post_de_ratio),
+    "tool_calc_debt_ratio":       ComputeSpec("debt_ratio", _map_debt_ratio, {"debt_ratio": None, "interpretation": "unavailable"}),
+    "tool_calc_equity_ratio":     ComputeSpec("equity_ratio", _map_equity_ratio, {"equity_ratio": None, "interpretation": "unavailable"}),
+    "tool_calc_interest_coverage": ComputeSpec("interest_coverage", _map_interest_coverage, {"interest_coverage": None, "interpretation": "unavailable"}),
+    "tool_calc_net_debt_to_ebitda": ComputeSpec("net_debt_to_ebitda", _map_net_debt_to_ebitda, {"net_debt_to_ebitda": None, "interpretation": "unavailable"}),
+    "tool_calc_current_ratio":    ComputeSpec("current_ratio_calc", _map_current_ratio, {"current_ratio": None, "interpretation": "unavailable"}),
+    "tool_calc_quick_ratio":      ComputeSpec("quick_ratio", _map_quick_ratio, {"quick_ratio": None, "interpretation": "unavailable"}),
+    "tool_calc_ocf_ratio":        ComputeSpec("ocf_ratio", _map_ocf_ratio, {"ocf_ratio": None, "interpretation": "unavailable"}),
+    "tool_calc_altman_z_score":   ComputeSpec("altman_z_score", _map_altman_z_score, {"z_score": None, "interpretation": "unavailable"}),
+    "tool_calc_cagr":             ComputeSpec("cagr", _map_cagr, {"cagr_pct": None, "interpretation": "insufficient_history"}),
+    "tool_calc_revenue_cagr_from_growth": ComputeSpec("revenue_cagr_from_growth", _map_revenue_cagr_from_growth, {"cagr_pct": None, "interpretation": "insufficient_history"}),
+    "tool_calc_fcf_margin":       ComputeSpec("fcf_margin", _map_fcf_margin, {"fcf_margin_pct": None, "interpretation": "unavailable"}),
+    "tool_calc_fcf_yield":        ComputeSpec("fcf_yield", _map_fcf_yield, {"fcf_yield_pct": None, "interpretation": "unavailable"}),
+    "tool_build_forecast":        ComputeSpec("forecast", _map_build_forecast, {"interpretation": "unavailable", "error": "Missing fcf_base/beta/revenue_base, or no revenue_cagr available to anchor the base-case FCF growth assumption."}),
+    "tool_calc_dcf_scenarios":    ComputeSpec("dcf", _map_dcf_scenarios, {"enterprise_value": None, "interpretation": "unavailable", "error": "Missing operating_cash_flow_annual/capex_annual from XBRL (fcf_base), beta from Yahoo ratios, or a base forecast — cannot run DCF."}),
+    "tool_calc_dcf_multi_factor_monte_carlo": ComputeSpec("dcf_monte_carlo", _map_dcf_multi_factor_monte_carlo, {"interpretation": "unavailable", "model_classification": "MULTI_FACTOR", "error": "A valid explicit base forecast and WACC are required."}),
+    "tool_calc_dcf_monte_carlo":  ComputeSpec("dcf_monte_carlo_growth", _map_dcf_monte_carlo, {"interpretation": "unavailable", "model_classification": "SINGLE_FACTOR", "error": "Missing fcf_base, beta, or a revenue CAGR to anchor the growth distribution."}),
+    "tool_calc_reverse_dcf":      ComputeSpec("reverse_dcf", _map_reverse_dcf, {"implied_growth_rate_pct": None, "interpretation": "unavailable", "error": "Missing fcf_base, beta, or a valid target enterprise value (market_cap + total_debt − total_cash)."}),
+    "tool_calc_composite_score":  ComputeSpec("composite_score", _map_composite_score, {"score": None, "interpretation": "unavailable"}),
+}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -193,14 +1115,23 @@ class FinancialAnalystAgent:
         asynchronous MCP tool calls to the YahooFinanceClient and SecEdgarParser
         servers. All retrieved data is written into ``state["raw_numerical_data"]``.
 
-        MCP Tools Called
-        ----------------
+        INTENT-DRIVEN: the set of tools called is no longer fixed. It comes from
+        ``_resolve_tools(state)``, which expands the Brain's classified intents
+        into a curated bundle (always including BASELINE_EXTRACTION). Each tool
+        is dispatched through the single loop below via EXTRACTION_REGISTRY —
+        the five copy-pasted call blocks this replaced were identical apart from
+        the tool name and the store key.
+
+        MCP Tools Available (selected per intent)
+        ----------------------------------------
         - ``tool_get_financial_ratios``  → P/E, P/B, EPS, market cap, beta, etc.
         - ``tool_get_revenue_growth``    → Annual/quarterly revenue & net income trends.
         - ``tool_get_xbrl_financials``   → SEC EDGAR XBRL structured balance-sheet data.
         - ``tool_get_balance_sheet_snapshot`` → EBIT, current assets/liabilities,
           retained earnings (yfinance) -- feeds ROIC/ROCE/debt_ratio/
           equity_ratio/altman_z_score in _execute_ratio_computation.
+        - ``tool_get_peer_comparison``   → Relative valuation vs. static peers
+          (skipped when no peers are mapped for the ticker's industry).
 
         Parameters
         ----------
@@ -212,6 +1143,7 @@ class FinancialAnalystAgent:
             ``state["raw_numerical_data"]["revenue_growth"]``
             ``state["raw_numerical_data"]["xbrl_financials"]``
             ``state["raw_numerical_data"]["balance_sheet_snapshot"]``
+            ``state["raw_numerical_data"]["peer_comparison"]``
 
         Returns
         -------
@@ -231,6 +1163,7 @@ class FinancialAnalystAgent:
             return
 
         state["raw_numerical_data"]["ticker"] = ticker
+        raw = state["raw_numerical_data"]
         errors: list[str] = []
         session_id = session_from_directives(state["manager_directives"])
         _publish_progress(
@@ -239,218 +1172,76 @@ class FinancialAnalystAgent:
             detail={"ticker": ticker},
         )
 
-        # -- Yahoo Finance: key ratios ----------------------------------------
-        log.info("Executor: calling tool_get_financial_ratios for %s", ticker)
-        _publish_progress(
-            session_id, "agent_tool_call", agent="financial",
-            message="Financial Agent: calling tool 'tool_get_financial_ratios'...",
-            detail={"tool": "tool_get_financial_ratios"},
-        )
-        try:
-            if sentry_enabled():
-                import sentry_sdk
-                sentry_sdk.add_breadcrumb(
-                    category="mcp.financial",
-                    message="Calling tool_get_financial_ratios",
-                    data={"tool": "tool_get_financial_ratios", "ticker": ticker},
-                    level="info",
+        extraction_tools, _ = self._resolve_tools(state)
+        log.info("Executor: intent-resolved extraction tools = %s", extraction_tools)
+
+        for idx, tool in enumerate(extraction_tools):
+            args_builder, store_key = EXTRACTION_REGISTRY[tool]
+            args = args_builder(ticker, raw)
+
+            # A None args dict means the tool's inputs cannot be sourced from
+            # this ticker — skip it rather than call with fabricated values.
+            # Only tool_get_peer_comparison currently gates this way; its
+            # "no peers mapped" note is preserved verbatim.
+            if args is None:
+                industry = raw.get("yahoo_ratios", {}).get("industry", "")
+                log.info(
+                    "Executor: skipping %s — inputs unavailable for ticker=%s "
+                    "(industry=%r).", tool, ticker, industry,
                 )
-            ratios_result = await session.call_tool(
-                "tool_get_financial_ratios",
-                arguments={"ticker": ticker},
-            )
-            ratios_data = json.loads(ratios_result.content[0].text)
-            if ratios_data.get("error"):
-                errors.append(f"tool_get_financial_ratios error: {ratios_data['error']}")
-            state["raw_numerical_data"]["yahoo_ratios"] = ratios_data
-        except Exception as exc:
-            errors.append(f"tool_get_financial_ratios exception: {exc}")
-            state["raw_numerical_data"]["yahoo_ratios"] = {}
-            log.exception("Executor: tool_get_financial_ratios failed")
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("tool", "tool_get_financial_ratios")
-                    scope.set_tag("component", "mcp.financial")
-                    sentry_sdk.capture_exception(exc)
+                if tool == "tool_get_peer_comparison":
+                    raw["peer_comparison"] = {
+                        "note": f"No peer mapping available for industry={industry!r}.",
+                    }
+                continue
 
-        # -- Yahoo Finance: peer comparison (relative valuation) --------------
-        # Deterministic step (not LLM-planned) — peers come from the static
-        # _INDUSTRY_PEERS map keyed off the industry/sector just fetched
-        # above, since get_peer_comparison's own auto-inference is broken
-        # (see _infer_peers docstring). Never blocks the pipeline: if the
-        # industry isn't in the map, peers=[] and this call is skipped.
-        industry = state["raw_numerical_data"].get("yahoo_ratios", {}).get("industry", "")
-        sector   = state["raw_numerical_data"].get("yahoo_ratios", {}).get("sector", "")
-        peers    = infer_peers(sector, industry, ticker)
-
-        if peers:
-            log.info("Executor: calling tool_get_peer_comparison for %s vs %s", ticker, peers)
+            log.info("Executor: calling %s for %s", tool, ticker)
             _publish_progress(
                 session_id, "agent_tool_call", agent="financial",
-                message="Financial Agent: calling tool 'tool_get_peer_comparison'...",
-                detail={"tool": "tool_get_peer_comparison", "peers": peers},
+                message=f"Financial Agent: calling tool '{tool}'...",
+                detail={"tool": tool, **({"peers": args["peers"]} if "peers" in args else {})},
             )
             try:
-                peer_result = await session.call_tool(
-                    "tool_get_peer_comparison",
-                    arguments={"ticker": ticker, "peers": peers},
-                )
-                peer_data = json.loads(peer_result.content[0].text)
-                if peer_data.get("error"):
-                    errors.append(f"tool_get_peer_comparison error: {peer_data['error']}")
-                state["raw_numerical_data"]["peer_comparison"] = peer_data
+                if sentry_enabled():
+                    import sentry_sdk
+                    sentry_sdk.add_breadcrumb(
+                        category="mcp.financial",
+                        message=f"Calling {tool}",
+                        data={"tool": tool, "ticker": ticker},
+                        level="info",
+                    )
+                result = await session.call_tool(tool, arguments=args)
+                data = json.loads(result.content[0].text)
+                if data.get("error"):
+                    errors.append(f"{tool} error: {data['error']}")
+                raw[store_key] = data
             except Exception as exc:
-                errors.append(f"tool_get_peer_comparison exception: {exc}")
-                state["raw_numerical_data"]["peer_comparison"] = {}
-                log.exception("Executor: tool_get_peer_comparison failed")
+                errors.append(f"{tool} exception: {exc}")
+                raw[store_key] = {}
+                log.exception("Executor: %s failed", tool)
                 if sentry_enabled():
                     import sentry_sdk
                     with sentry_sdk.push_scope() as scope:
-                        scope.set_tag("tool", "tool_get_peer_comparison")
+                        scope.set_tag("tool", tool)
                         scope.set_tag("component", "mcp.financial")
                         sentry_sdk.capture_exception(exc)
-        else:
-            log.info(
-                "Executor: skipping tool_get_peer_comparison — no static "
-                "peers mapped for industry=%r (ticker=%s).", industry, ticker,
-            )
-            state["raw_numerical_data"]["peer_comparison"] = {
-                "note": f"No peer mapping available for industry={industry!r}.",
-            }
 
-        # -- Yahoo Finance: revenue growth ------------------------------------
-        log.info("Executor: calling tool_get_revenue_growth for %s", ticker)
-        _publish_progress(
-            session_id, "agent_tool_result", agent="financial",
-            message="Financial Agent: 'tool_get_financial_ratios' completed",
-            detail={"tool": "tool_get_financial_ratios"},
-        )
-        _publish_progress(
-            session_id, "agent_tool_call", agent="financial",
-            message="Financial Agent: calling tool 'tool_get_revenue_growth'...",
-            detail={"tool": "tool_get_revenue_growth"},
-        )
-        try:
-            if sentry_enabled():
-                import sentry_sdk
-                sentry_sdk.add_breadcrumb(
-                    category="mcp.financial",
-                    message="Calling tool_get_revenue_growth",
-                    data={"tool": "tool_get_revenue_growth", "ticker": ticker},
-                    level="info",
-                )
-            growth_result = await session.call_tool(
-                "tool_get_revenue_growth",
-                arguments={"ticker": ticker},
+            is_last = idx == len(extraction_tools) - 1
+            _publish_progress(
+                session_id, "agent_tool_result", agent="financial",
+                message=(
+                    f"Financial Agent: '{tool}' completed — data extraction done"
+                    if is_last else f"Financial Agent: '{tool}' completed"
+                ),
+                detail=(
+                    {"tool": tool, "errors": len(errors)} if is_last else {"tool": tool}
+                ),
             )
-            growth_data = json.loads(growth_result.content[0].text)
-            if growth_data.get("error"):
-                errors.append(f"tool_get_revenue_growth error: {growth_data['error']}")
-            state["raw_numerical_data"]["revenue_growth"] = growth_data
-        except Exception as exc:
-            errors.append(f"tool_get_revenue_growth exception: {exc}")
-            state["raw_numerical_data"]["revenue_growth"] = {}
-            log.exception("Executor: tool_get_revenue_growth failed")
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("tool", "tool_get_revenue_growth")
-                    scope.set_tag("component", "mcp.financial")
-                    sentry_sdk.capture_exception(exc)
-
-        # -- SEC EDGAR: XBRL structured financials ----------------------------
-        log.info("Executor: calling tool_get_xbrl_financials for %s", ticker)
-        _publish_progress(
-            session_id, "agent_tool_result", agent="financial",
-            message="Financial Agent: 'tool_get_revenue_growth' completed",
-            detail={"tool": "tool_get_revenue_growth"},
-        )
-        _publish_progress(
-            session_id, "agent_tool_call", agent="financial",
-            message="Financial Agent: calling tool 'tool_get_xbrl_financials'...",
-            detail={"tool": "tool_get_xbrl_financials"},
-        )
-        try:
-            if sentry_enabled():
-                import sentry_sdk
-                sentry_sdk.add_breadcrumb(
-                    category="mcp.financial",
-                    message="Calling tool_get_xbrl_financials",
-                    data={"tool": "tool_get_xbrl_financials", "ticker": ticker},
-                    level="info",
-                )
-            xbrl_result = await session.call_tool(
-                "tool_get_xbrl_financials",
-                arguments={"ticker": ticker},
-            )
-            xbrl_data = json.loads(xbrl_result.content[0].text)
-            if xbrl_data.get("error"):
-                errors.append(f"tool_get_xbrl_financials error: {xbrl_data['error']}")
-            state["raw_numerical_data"]["xbrl_financials"] = xbrl_data
-        except Exception as exc:
-            errors.append(f"tool_get_xbrl_financials exception: {exc}")
-            state["raw_numerical_data"]["xbrl_financials"] = {}
-            log.exception("Executor: tool_get_xbrl_financials failed")
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("tool", "tool_get_xbrl_financials")
-                    scope.set_tag("component", "mcp.financial")
-                    sentry_sdk.capture_exception(exc)
-
-        # -- Yahoo Finance: balance-sheet snapshot (EBIT, current assets/
-        #    liabilities, retained earnings -- not in tool_get_financial_ratios'
-        #    flat .info-based output, needed for ROIC/ROCE/debt_ratio/
-        #    equity_ratio/altman_z_score in _execute_ratio_computation) -------
-        _publish_progress(
-            session_id, "agent_tool_result", agent="financial",
-            message="Financial Agent: 'tool_get_xbrl_financials' completed",
-            detail={"tool": "tool_get_xbrl_financials"},
-        )
-        log.info("Executor: calling tool_get_balance_sheet_snapshot for %s", ticker)
-        _publish_progress(
-            session_id, "agent_tool_call", agent="financial",
-            message="Financial Agent: calling tool 'tool_get_balance_sheet_snapshot'...",
-            detail={"tool": "tool_get_balance_sheet_snapshot"},
-        )
-        try:
-            if sentry_enabled():
-                import sentry_sdk
-                sentry_sdk.add_breadcrumb(
-                    category="mcp.financial",
-                    message="Calling tool_get_balance_sheet_snapshot",
-                    data={"tool": "tool_get_balance_sheet_snapshot", "ticker": ticker},
-                    level="info",
-                )
-            bs_result = await session.call_tool(
-                "tool_get_balance_sheet_snapshot",
-                arguments={"ticker": ticker},
-            )
-            bs_data = json.loads(bs_result.content[0].text)
-            if bs_data.get("error"):
-                errors.append(f"tool_get_balance_sheet_snapshot error: {bs_data['error']}")
-            state["raw_numerical_data"]["balance_sheet_snapshot"] = bs_data
-        except Exception as exc:
-            errors.append(f"tool_get_balance_sheet_snapshot exception: {exc}")
-            state["raw_numerical_data"]["balance_sheet_snapshot"] = {}
-            log.exception("Executor: tool_get_balance_sheet_snapshot failed")
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("tool", "tool_get_balance_sheet_snapshot")
-                    scope.set_tag("component", "mcp.financial")
-                    sentry_sdk.capture_exception(exc)
 
         if errors:
-            state["raw_numerical_data"]["extraction_errors"] = errors
+            raw["extraction_errors"] = errors
         log.info(
             "Executor: data extraction complete — %d error(s) recorded.", len(errors)
-        )
-        _publish_progress(
-            session_id, "agent_tool_result", agent="financial",
-            message="Financial Agent: 'tool_get_balance_sheet_snapshot' completed — data extraction done",
-            detail={"tool": "tool_get_balance_sheet_snapshot", "errors": len(errors)},
         )
 
     @traceable(name="financial.compute", run_type="tool")
@@ -467,14 +1258,17 @@ class FinancialAnalystAgent:
         compute standardised ratios. Results are stored in
         ``state["calculated_ratios"]``.
 
-        MCP Tools Called
-        ----------------
-        - ``tool_calc_pe``               → Price-to-Earnings with interpretation.
-        - ``tool_calc_roe``              → Return on Equity (%).
-        - ``tool_calc_net_margin``       → Net Profit Margin (%).
-        - ``tool_calc_debt_to_equity``   → Debt-to-Equity leverage ratio.
-        - ``tool_calc_cagr``             → Revenue CAGR over available history.
-        - ``tool_calc_composite_score``  → Weighted composite health score (0-100).
+        INTENT-DRIVEN: which ratios get computed comes from
+        ``_resolve_tools(state)`` — the Brain's classified intents expanded into
+        a curated bundle (always including BASELINE_COMPUTE). Every argument is
+        still built by code, in COMPUTE_REGISTRY's mappers, from
+        ``raw_numerical_data`` only. The LLM supplies no numbers, ever.
+
+        Order matters and is fixed by ``_COMPUTE_ORDER``: tool_build_forecast
+        feeds tool_calc_dcf_scenarios, which feeds the multi-factor Monte
+        Carlo, and tool_calc_composite_score consumes pe/roe/net_margin/
+        de_ratio/cagr. Mappers read those upstream results through the live
+        ``calculated_ratios`` reference in the derived-facts dict.
 
         Parameters
         ----------
@@ -491,8 +1285,6 @@ class FinancialAnalystAgent:
             Individual tool failures are logged but do not abort the full run.
         """
         raw        = state["raw_numerical_data"]
-        ratios_src = raw.get("yahoo_ratios", {})
-        growth_src = raw.get("revenue_growth", {})
         xbrl_src   = raw.get("xbrl_financials", {})
         session_id = session_from_directives(state["manager_directives"])
 
@@ -553,585 +1345,42 @@ class FinancialAnalystAgent:
                 return {"error": str(exc), "_inputs": dict(args), "_period": period}
 
         # Phase 6/P1.1: same-period SEC earnings-quality normalization. This
-        # remains deterministic and never invents missing tax or operating data.
+        # remains deterministic and never invents missing tax or operating
+        # data, and is unconditional — it is a pure local transform of already
+        # extracted XBRL, not an MCP tool, so no intent gates it.
         state["calculated_ratios"]["earnings_quality"] = normalize_earnings_quality(xbrl_src)
 
-        # -- P/E Ratio --------------------------------------------------------
-        price = ratios_src.get("current_price")
-        eps   = ratios_src.get("eps_trailing")
-        if price is not None and eps is not None and eps != 0:
-            log.info("Computing P/E: price=%.2f eps=%.4f", price, eps)
-            state["calculated_ratios"]["pe"] = await _call(
-                "tool_calc_pe", {"price": price, "eps": eps}, period="ttm",
-            )
-        else:
-            state["calculated_ratios"]["pe"] = {
-                "pe_ratio": ratios_src.get("pe_ratio"),
-                "interpretation": "sourced_from_yahoo",
-                "note": "Used pre-computed Yahoo Finance P/E (price or EPS unavailable for direct calc).",
-                "_inputs": {"pe_ratio": ratios_src.get("pe_ratio")},
-                "_period": "ttm",
-            }
+        _, compute_tools = self._resolve_tools(state)
+        log.info("Executor: intent-resolved compute tools = %s", compute_tools)
 
-        # -- Return on Equity -------------------------------------------------
-        xbrl_assets      = xbrl_src.get("total_assets", [])
-        xbrl_liabilities = xbrl_src.get("total_liabilities", [])
-        annual_ni        = growth_src.get("annual_net_income", [])
+        d = _derive_compute_facts(raw, state["calculated_ratios"])
 
-        net_income = annual_ni[0]["net_income"] if annual_ni else None
-        net_income_year = annual_ni[0].get("year") if annual_ni else None
-        # Approximate equity = assets - liabilities (most recent period)
-        # NOTE: xbrl_assets/xbrl_liabilities come from sec_edgar.py's
-        # _extract_annual(), which only pulls 10-K/FY entries — so this is
-        # an ANNUAL balance-sheet snapshot, not a quarterly one, even though
-        # it's paired here with the *current* net_income figure above.
-        shareholders_equity: float | None = None
-        equity_period_end: str | None = None
-        if xbrl_assets and xbrl_liabilities:
-            try:
-                shareholders_equity = (
-                    xbrl_assets[0]["value"] - xbrl_liabilities[0]["value"]
-                )
-                equity_period_end = xbrl_assets[0].get("period_end")
-            except (KeyError, TypeError, IndexError):
-                shareholders_equity = None
+        for tool in compute_tools:
+            spec = COMPUTE_REGISTRY[tool]
+            plan = spec.mapper(d)
 
-        # ROE mixes an annual (10-K) net_income with an annual (10-K)
-        # balance sheet — same source family, but don't just assume index
-        # [0] on both lists lines up to the same fiscal year; check it.
-        years_aligned = (
-            net_income_year is not None
-            and equity_period_end is not None
-            and str(net_income_year) in str(equity_period_end)
-        )
-        if net_income_year is None:
-            roe_period = None
-        elif equity_period_end is not None and not years_aligned:
-            roe_period = f"MIXED(net_income=annual:{net_income_year}, equity=annual:{equity_period_end})"
-        else:
-            roe_period = f"annual:{net_income_year}"
+            if plan is None:
+                # Inputs unavailable — skip the call entirely (no partial or
+                # zero-filled arguments) and record the documented placeholder
+                # so data_quality still counts it as an unavailable metric.
+                log.info("Compute: skipping %s — required inputs missing.", tool)
+                state["calculated_ratios"][spec.key] = dict(spec.unavailable)
+                continue
 
-        if net_income and shareholders_equity and shareholders_equity != 0:
-            log.info("Computing ROE: net_income=%.0f equity=%.0f", net_income, shareholders_equity)
-            state["calculated_ratios"]["roe"] = await _call(
-                "tool_calc_roe",
-                {"net_income": net_income, "shareholders_equity": shareholders_equity},
-                period=roe_period,
-            )
-        else:
-            state["calculated_ratios"]["roe"] = {"roe_pct": None, "interpretation": "insufficient_data"}
+            if isinstance(plan, dict):
+                # A finished result needing no MCP round-trip (e.g. a ratio
+                # Yahoo already published). Stored verbatim, provenance intact.
+                state["calculated_ratios"][spec.key] = plan
+                continue
 
-        # -- Net Margin -------------------------------------------------------
-        # REAL FIX (previously worked around by tagging annual as annual):
-        # quarterly_net_income now exists (see yahoo_finance.py), mirroring
-        # quarterly_revenue. Prefer the most recent matching quarter for
-        # both net_income and revenue so net_margin describes the SAME
-        # quarter as gross_margin/operating_margin (which the report writer
-        # pulls straight from the 10-Q's quarterly MD&A text). Only fall
-        # back to annual figures — clearly tagged as such — when quarterly
-        # data isn't available (e.g. some tickers/data providers don't
-        # expose quarterly_financials).
-        quarterly_rev  = growth_src.get("quarterly_revenue", [])
-        quarterly_ni   = growth_src.get("quarterly_net_income", [])
-        annual_rev     = growth_src.get("annual_revenue", [])
-        revenue_year   = annual_rev[0].get("year") if annual_rev else None
-
-        use_quarterly = (
-            quarterly_rev and quarterly_ni
-            and quarterly_rev[0].get("quarter") == quarterly_ni[0].get("quarter")
-            and quarterly_rev[0].get("revenue") is not None
-            and quarterly_ni[0].get("net_income") is not None
-        )
-
-        if use_quarterly:
-            nm_net_income = quarterly_ni[0]["net_income"]
-            nm_revenue    = quarterly_rev[0]["revenue"]
-            net_margin_period = f"quarterly:{quarterly_rev[0]['quarter']}"
-        else:
-            # Fallback: most recent ANNUAL (10-K/FY) figures. Still tagged
-            # accurately (and flagged MIXED if the two annual arrays'
-            # index-[0] years don't actually agree) so a caller narrating
-            # this next to quarterly text can catch the period difference
-            # instead of silently mismatching them — see the NVDA bug this
-            # was built to catch.
-            nm_net_income = net_income
-            nm_revenue    = annual_rev[0]["revenue"] if annual_rev else None
-            net_margin_period = (
-                f"MIXED(net_income=annual:{net_income_year}, revenue=annual:{revenue_year})"
-                if net_income_year is not None and revenue_year is not None and net_income_year != revenue_year
-                else f"annual:{revenue_year}" if revenue_year is not None
-                else None
-            )
-
-        if nm_net_income is not None and nm_revenue is not None and nm_revenue != 0:
-            log.info("Computing Net Margin: net_income=%.0f revenue=%.0f (period=%s, quarterly=%s)",
-                      nm_net_income, nm_revenue, net_margin_period, use_quarterly)
-            state["calculated_ratios"]["net_margin"] = await _call(
-                "tool_calc_net_margin",
-                {"net_income": nm_net_income, "revenue": nm_revenue},
-                period=net_margin_period,
-            )
-        else:
-            state["calculated_ratios"]["net_margin"] = {"net_margin_pct": None, "interpretation": "insufficient_data"}
-
-        # -- Debt-to-Equity ---------------------------------------------------
-        # D/E from Yahoo Finance info if available; otherwise note as unavailable
-        de_ratio_yahoo = ratios_src.get("de_ratio") or ratios_src.get("debtToEquity")
-        if de_ratio_yahoo is not None:
-            # Yahoo already provides D/E; store directly without an MCP round-trip.
-            # yfinance's `.info["debtToEquity"]` is a most-recent-quarter (MRQ)
-            # balance-sheet snapshot, not a full-quarter income-statement figure
-            # and not the annual 10-K figure used elsewhere in this function.
-            state["calculated_ratios"]["de_ratio"] = {
-                "de_ratio": de_ratio_yahoo,
-                "interpretation": "sourced_from_yahoo",
-                "_inputs": {"de_ratio_yahoo": de_ratio_yahoo},
-                "_period": "mrq",
-            }
-        elif shareholders_equity and shareholders_equity != 0:
-            # Attempt approximation from XBRL (annual 10-K balance sheet —
-            # see the shareholders_equity/equity_period_end computation above)
-            total_liabilities_val = xbrl_liabilities[0]["value"] if xbrl_liabilities else None
-            if total_liabilities_val:
-                log.info("Computing D/E from XBRL liabilities/equity")
-                de_result = await _call(
-                    "tool_calc_debt_to_equity",
-                    {
-                        "total_debt": total_liabilities_val,
-                        "shareholders_equity": shareholders_equity,
-                    },
-                    period=f"annual:{equity_period_end}" if equity_period_end else None,
-                )
-                # tool_get_xbrl_financials only exposes total_liabilities,
-                # not interest-bearing debt separately — so this ratio
-                # includes non-interest-bearing liabilities (accounts
-                # payable, deferred revenue, etc.) that a true D/E ratio
-                # excludes. The tool's own threshold-based interpretation
-                # (e.g. "moderate_leverage") is calibrated for TRUE D/E and
-                # is NOT comparable to standard thresholds when computed
-                # this way — override it so that's never silently hidden.
-                de_result["formula"] = "total_liabilities / shareholders_equity (approximation)"
-                de_result["interpretation"] = "approximation_not_comparable_to_standard_thresholds"
-                de_result["is_approximation"] = True
-                de_result["note"] = (
-                    "tool_get_xbrl_financials only exposes total_liabilities, not "
-                    "interest-bearing debt separately, so this uses total liabilities "
-                    "as a rough stand-in. This is NOT a true debt-to-equity ratio and "
-                    "should not be compared against standard D/E leverage thresholds."
-                )
-                state["calculated_ratios"]["de_ratio"] = de_result
-            else:
-                state["calculated_ratios"]["de_ratio"] = {"de_ratio": None, "interpretation": "unavailable"}
-        else:
-            state["calculated_ratios"]["de_ratio"] = {"de_ratio": None, "interpretation": "unavailable"}
-
-        # -- Revenue CAGR (using oldest & newest annual revenue points) --------
-        # IMPORTANT: annual_rev may contain entries whose "revenue" is None
-        # (e.g. the oldest fiscal year often has no value from yfinance). Using
-        # annual_rev[-1] blindly picks that null and voids the whole CAGR, even
-        # when 3-4 valid years are present. Filter to valid points first.
-        #
-        # DEFENSE-IN-DEPTH: this also excludes NaN, not just None. yfinance/
-        # pandas represents a missing cell in an otherwise-present row as
-        # `numpy.nan`, and `nan is not None` is True — so a None-only check
-        # let a NaN "revenue" through as if it were valid data. That NaN then
-        # silently failed the `oldest > 0` guard below (NaN fails every
-        # ordering comparison) and made every CAGR computation report
-        # "unavailable" even with 4 good years of history, and separately
-        # broke JSON persistence downstream ("NaN is not JSON compliant").
-        # yahoo_finance.py's get_revenue_growth() now converts NaN cells to
-        # None at the source (_safe_float()); this check stays as a second
-        # line of defense in case any other upstream source ever supplies a
-        # raw NaN here.
-        def _is_valid_number(x: Any) -> bool:
-            return x is not None and not (isinstance(x, float) and math.isnan(x))
-
-        valid_rev = [
-            e for e in annual_rev
-            if _is_valid_number(e.get("revenue")) and e.get("year") is not None
-        ]
-        valid_rev.sort(key=lambda e: e["year"])  # oldest -> newest
-        if len(valid_rev) >= 2:
-            oldest = valid_rev[0]["revenue"]
-            newest = valid_rev[-1]["revenue"]
-            years  = valid_rev[-1]["year"] - valid_rev[0]["year"]
-            if newest and oldest and oldest > 0 and years > 0:
-                log.info("Computing Revenue CAGR: start=%.0f end=%.0f years=%d", oldest, newest, years)
-                cagr_period = f"annual:{valid_rev[0]['year']}-{valid_rev[-1]['year']}"
-                state["calculated_ratios"]["cagr"] = await _call(
-                    "tool_calc_cagr",
-                    {"start_value": oldest, "end_value": newest, "years": float(years)},
-                    period=cagr_period,
-                )
-            else:
-                state["calculated_ratios"]["cagr"] = {"cagr_pct": None, "interpretation": "unavailable"}
-        else:
-            state["calculated_ratios"]["cagr"] = {"cagr_pct": None, "interpretation": "insufficient_history"}
-
-        # -- DCF Valuation ------------------------------------------------------
-        # FCF = operating cash flow − capex (most recent year, matched by
-        # taking the newest entry from each series — both come from
-        # tool_get_xbrl_financials, sorted newest-first by _extract_annual).
-        operating_cf_annual = xbrl_src.get("operating_cash_flow_annual", [])
-        capex_annual         = xbrl_src.get("capex_annual", [])
-        beta                 = ratios_src.get("beta")
-        market_cap           = ratios_src.get("market_cap")
-        current_price        = ratios_src.get("current_price")
-        observed_diluted_shares = ratios_src.get("diluted_shares")
-        shares_outstanding   = observed_diluted_shares or (
-            market_cap / current_price
-            if market_cap and current_price else None
-        )
-        total_debt_ttm = ratios_src.get("total_debt")
-        total_cash_ttm = ratios_src.get("total_cash")
-        lease_liabilities_ttm = ratios_src.get("lease_liabilities")
-        minority_interest_ttm = ratios_src.get("minority_interest")
-        interest_expense_ttm = ratios_src.get("interest_expense")
-        tax_rate_raw = ratios_src.get("effective_tax_rate")
-        tax_rate_observed = tax_rate_raw is not None
-        effective_tax_rate_pct = (
-            float(tax_rate_raw) * 100 if tax_rate_raw is not None and abs(float(tax_rate_raw)) <= 1
-            else float(tax_rate_raw) if tax_rate_raw is not None else 21.0
-        )
-        cost_of_debt_observed = interest_expense_ttm is not None and bool(total_debt_ttm and total_debt_ttm > 0)
-        pre_tax_cost_of_debt_pct = (
-            abs(float(interest_expense_ttm)) / total_debt_ttm * 100
-            if interest_expense_ttm is not None and total_debt_ttm and total_debt_ttm > 0
-            else 5.0
-        )
-        valuation_input_assessments = build_valuation_input_assessments(
-            market_cap=market_cap, total_debt=total_debt_ttm, cash=total_cash_ttm,
-            marketable_securities=None, lease_liabilities=lease_liabilities_ttm,
-            minority_interest=minority_interest_ttm, diluted_shares=shares_outstanding,
-            diluted_shares_observed=observed_diluted_shares is not None,
-            cost_of_debt_observed=cost_of_debt_observed,
-            tax_rate_observed=tax_rate_observed,
-            pre_tax_cost_of_debt_pct=pre_tax_cost_of_debt_pct,
-            effective_tax_rate_pct=effective_tax_rate_pct,
-            sector=ratios_src.get("sector"),
-        )
-
-        fcf_base = None
-        if operating_cf_annual and capex_annual:
-            try:
-                # capex is typically reported as a positive outflow figure
-                # in XBRL's PaymentsToAcquirePropertyPlantAndEquipment tag
-                # (a "payments" concept, not a signed reduction), so it's
-                # subtracted here rather than added.
-                fcf_base = operating_cf_annual[0]["value"] - capex_annual[0]["value"]
-            except (KeyError, TypeError, IndexError):
-                fcf_base = None
-
-        revenue_base = valid_rev[-1]["revenue"] if valid_rev else None
-        if fcf_base is not None and beta is not None and revenue_base:
-            # Ground the base-case FCF growth assumption in the company's
-            # own revenue CAGR (already computed above) — bear/bull default
-            # to ~0.5x/~1.75x of this inside dcf_scenario_range unless
-            # overridden. Using the scenario-range tool (not the single-
-            # point one) deliberately: a single DCF number using trailing
-            # growth routinely lands far below market price for a
-            # high-growth stock, which reads as "the model is broken"
-            # unless the growth-rate sensitivity is shown explicitly.
-            cagr_result = state["calculated_ratios"].get("cagr", {})
-            historical_cagr_pct = cagr_result.get("cagr_pct")
-            if historical_cagr_pct is None:
-                # No CAGR available to ground the assumption — skip rather
-                # than guessing a base growth rate out of thin air.
-                state["calculated_ratios"]["dcf"] = {
-                    "interpretation": "unavailable",
-                    "error": "No revenue_cagr available to anchor the base-case FCF growth assumption.",
-                }
-            else:
-                trajectory_raw = growth_src.get("revenue_growth_ttm")
-                if trajectory_raw is None and len(valid_rev) >= 2:
-                    trajectory_raw = valid_rev[-1]["revenue"] / valid_rev[-2]["revenue"] - 1.0
-                current_growth_pct = (
-                    float(trajectory_raw) * 100.0
-                    if trajectory_raw is not None and abs(float(trajectory_raw)) <= 2.0
-                    else float(trajectory_raw) if trajectory_raw is not None else None
-                )
-                capex_pct_revenue = capex_annual[0]["value"] / revenue_base * 100.0 if capex_annual else None
-                forecast = await _call(
-                    "tool_build_forecast",
-                    {
-                        "revenue_base": revenue_base,
-                        "fcf_base": fcf_base,
-                        "historical_revenue_cagr_pct": historical_cagr_pct,
-                        "current_revenue_growth_pct": current_growth_pct,
-                        "capex_pct_revenue": capex_pct_revenue,
-                        "projection_years": 5,
-                        "source_period": f"annual:{valid_rev[-1]['year']}",
-                    },
-                    period="derived:annual_projection",
-                )
-                state["calculated_ratios"]["forecast"] = forecast
-                # Derived/projected — built from the most recent ANNUAL
-                # operating cash flow & capex (both XBRL 10-K, same
-                # source/period family as net_margin/roe above), grounded on
-                # the annual revenue CAGR. Not comparable to a quarterly
-                # actual; label it as such rather than silently "annual".
-                state["calculated_ratios"]["dcf"] = await _call(
-                    "tool_calc_dcf_scenarios",
-                    {
-                        "fcf_base": fcf_base,
-                        "beta": beta,
-                        "shares_outstanding": shares_outstanding,
-                        "diluted_shares": shares_outstanding,
-                        "market_cap": market_cap,
-                        "total_debt": total_debt_ttm,
-                        "cash": total_cash_ttm,
-                        # Kept None rather than silently converted to zero. The
-                        # assessment marks it NOT_APPLICABLE because Yahoo totalCash
-                        # is the combined cash/short-term-investment bucket.
-                        "marketable_securities": None,
-                        "lease_liabilities": lease_liabilities_ttm,
-                        "minority_interest": minority_interest_ttm,
-                        "pre_tax_cost_of_debt_pct": pre_tax_cost_of_debt_pct,
-                        "effective_tax_rate_pct": effective_tax_rate_pct,
-                        "input_assessments": valuation_input_assessments,
-                        "forecast_scenarios": forecast.get("scenarios", {}),
-                    },
-                    period="derived:annual_projection",
-                )
-                # Also run the Monte Carlo version alongside the three
-                # named scenarios — bear/base/bull are easier to narrate,
-                # while the P10/P50/P90 percentiles give a continuous
-                # picture of valuation uncertainty rather than three
-                # discrete points. Both are kept since they serve
-                # different reading purposes in the final report.
-                base_dcf = state["calculated_ratios"]["dcf"].get("base", {})
-                base_forecast = forecast.get("scenarios", {}).get("base", {})
-                if base_dcf.get("error") is None and base_forecast.get("fcf_by_year"):
-                    state["calculated_ratios"]["dcf_monte_carlo"] = await _call(
-                        "tool_calc_dcf_multi_factor_monte_carlo",
-                        {
-                            "fcf_by_year": base_forecast["fcf_by_year"],
-                            "wacc_pct": base_dcf.get("wacc_pct"),
-                            "terminal_growth_rate_pct": base_dcf.get("assumptions", {}).get("terminal_growth_rate_pct", 2.5),
-                            "cash": total_cash_ttm or 0.0,
-                            "total_debt": total_debt_ttm or 0.0,
-                            "lease_liabilities": lease_liabilities_ttm or 0.0,
-                            "minority_interest": minority_interest_ttm or 0.0,
-                            "diluted_shares": shares_outstanding,
-                            "n_simulations": 2000,
-                        },
-                        period="derived:annual_projection",
-                    )
-                else:
-                    state["calculated_ratios"]["dcf_monte_carlo"] = {
-                        "interpretation": "unavailable", "model_classification": "MULTI_FACTOR",
-                        "error": "A valid explicit base forecast and WACC are required.",
-                    }
-        else:
-            state["calculated_ratios"]["dcf"] = {
-                "enterprise_value": None,
-                "interpretation": "unavailable",
-                "error": (
-                    "Missing operating_cash_flow_annual/capex_annual from "
-                    "XBRL (fcf_base) or beta from Yahoo ratios — cannot run DCF."
-                ),
-            }
-
-        # -- Phase 1: Cash Flow Ratios & Reverse DCF ---------------------------
-        # total_debt/total_cash/ebitda are TTM (Yahoo .info, added to
-        # yahoo_finance.get_financial_ratios for exactly these ratios).
-        ebitda_ttm     = ratios_src.get("ebitda")
-
-        if total_debt_ttm is not None and total_cash_ttm is not None and ebitda_ttm:
-            log.info("Computing Net Debt/EBITDA: debt=%.0f cash=%.0f ebitda=%.0f",
-                      total_debt_ttm, total_cash_ttm, ebitda_ttm)
-            state["calculated_ratios"]["net_debt_to_ebitda"] = await _call(
-                "tool_calc_net_debt_to_ebitda",
-                {"total_debt": total_debt_ttm, "total_cash": total_cash_ttm, "ebitda": ebitda_ttm},
-                period="ttm",
-            )
-        else:
-            state["calculated_ratios"]["net_debt_to_ebitda"] = {"net_debt_to_ebitda": None, "interpretation": "unavailable"}
-
-        # fcf_base is annual (XBRL, computed above for DCF); revenue here
-        # uses the most recent ANNUAL figure to stay in the same source
-        # family, but the two annual series (XBRL cash flow vs. yfinance
-        # income statement) aren't guaranteed to be the exact same fiscal
-        # year — tag MIXED rather than assume alignment, same convention
-        # as net_margin's fallback path above.
-        fcf_margin_revenue = annual_rev[0]["revenue"] if annual_rev else None
-        if fcf_base is not None and fcf_margin_revenue:
-            log.info("Computing FCF Margin: fcf=%.0f revenue=%.0f", fcf_base, fcf_margin_revenue)
-            state["calculated_ratios"]["fcf_margin"] = await _call(
-                "tool_calc_fcf_margin",
-                {"free_cash_flow": fcf_base, "revenue": fcf_margin_revenue},
-                period=f"MIXED(fcf=annual_derived, revenue=annual:{revenue_year})",
-            )
-        else:
-            state["calculated_ratios"]["fcf_margin"] = {"fcf_margin_pct": None, "interpretation": "unavailable"}
-
-        if fcf_base is not None and market_cap:
-            log.info("Computing FCF Yield: fcf=%.0f market_cap=%.0f", fcf_base, market_cap)
-            state["calculated_ratios"]["fcf_yield"] = await _call(
-                "tool_calc_fcf_yield",
-                {"free_cash_flow": fcf_base, "market_cap": market_cap},
-                period="MIXED(fcf=annual_derived, market_cap=ttm)",
-            )
-        else:
-            state["calculated_ratios"]["fcf_yield"] = {"fcf_yield_pct": None, "interpretation": "unavailable"}
-
-        bs_snapshot = raw.get("balance_sheet_snapshot", {})
-        current_liabilities_snap = bs_snapshot.get("current_liabilities")
-
-        if operating_cf_annual and current_liabilities_snap:
-            ocf_annual = operating_cf_annual[0]["value"]
-            log.info("Computing OCF Ratio: ocf=%.0f current_liab=%.0f", ocf_annual, current_liabilities_snap)
-            state["calculated_ratios"]["ocf_ratio"] = await _call(
-                "tool_calc_ocf_ratio",
-                {"operating_cash_flow": ocf_annual, "current_liabilities": current_liabilities_snap},
-                period=f"MIXED(ocf=annual, current_liabilities={bs_snapshot.get('period_end', 'unknown')})",
-            )
-        else:
-            state["calculated_ratios"]["ocf_ratio"] = {"ocf_ratio": None, "interpretation": "unavailable"}
-
-        # Reverse DCF: target enterprise value ≈ market_cap + total_debt −
-        # total_cash (all TTM) -- see reverse_dcf's own docstring for why
-        # raw market_cap alone would bias the result.
-        target_ev = None
-        if market_cap is not None and total_debt_ttm is not None and total_cash_ttm is not None:
-            target_ev = market_cap + total_debt_ttm - total_cash_ttm
-
-        if fcf_base is not None and beta is not None and target_ev is not None and target_ev > 0:
-            log.info("Computing Reverse DCF: fcf_base=%.0f beta=%.3f target_ev=%.0f",
-                      fcf_base, beta, target_ev)
-            state["calculated_ratios"]["reverse_dcf"] = await _call(
-                "tool_calc_reverse_dcf",
-                {
-                    "fcf_base": fcf_base, "beta": beta,
-                    "target_enterprise_value": target_ev,
-                    "market_cap": market_cap, "total_debt": total_debt_ttm,
-                    "pre_tax_cost_of_debt_pct": pre_tax_cost_of_debt_pct,
-                    "effective_tax_rate_pct": effective_tax_rate_pct,
-                },
-                period="MIXED(fcf=annual_derived, market_cap/debt/cash=ttm)",
-            )
-        else:
-            state["calculated_ratios"]["reverse_dcf"] = {
-                "implied_growth_rate_pct": None, "interpretation": "unavailable",
-                "error": "Missing fcf_base, beta, or a valid target enterprise value (market_cap + total_debt − total_cash).",
-            }
-
-        # -- Phase 2: Advanced Profitability, Leverage & Bankruptcy Risk ------
-        total_assets_val      = xbrl_assets[0]["value"] if xbrl_assets else None
-        total_liabilities_val_p2 = xbrl_liabilities[0]["value"] if xbrl_liabilities else None
-        ebit_snap    = bs_snapshot.get("ebit")
-        retained_earnings_snap = bs_snapshot.get("retained_earnings")
-        working_capital_snap   = bs_snapshot.get("working_capital")
-
-        # ROIC needs an effective tax rate this pipeline doesn't have a
-        # direct source for (no pretax-income/tax-provision series
-        # available here) — use the US federal statutory rate (21%) as a
-        # documented placeholder, NOT the company's real effective rate.
-        # Flagged explicitly in the result, same "is_approximation" pattern
-        # used for the D/E-from-XBRL approximation above.
-        _STATUTORY_TAX_RATE_PCT = 21.0
-        if ebit_snap is not None and total_debt_ttm is not None and shareholders_equity and total_cash_ttm is not None:
-            log.info("Computing ROIC: ebit=%.0f equity=%.0f", ebit_snap, shareholders_equity)
-            roic_result = await _call(
-                "tool_calc_roic",
-                {
-                    "ebit": ebit_snap, "tax_rate_pct": _STATUTORY_TAX_RATE_PCT,
-                    "total_debt": total_debt_ttm, "total_equity": shareholders_equity,
-                    "cash": total_cash_ttm,
-                },
-                period=f"MIXED(ebit={bs_snapshot.get('period_end','unknown')}, equity=annual:{equity_period_end}, debt/cash=ttm)",
-            )
-            roic_result["is_approximation"] = True
-            roic_result["note"] = (
-                f"tax_rate_pct used the US statutory rate ({_STATUTORY_TAX_RATE_PCT}%) as a "
-                "placeholder, not this company's actual effective tax rate (no pretax-income/"
-                "tax-provision series available in this pipeline) -- NOPAT here is an approximation."
-            )
-            state["calculated_ratios"]["roic"] = roic_result
-        else:
-            state["calculated_ratios"]["roic"] = {"roic_pct": None, "interpretation": "unavailable"}
-
-        if ebit_snap is not None and total_assets_val and current_liabilities_snap is not None:
-            log.info("Computing ROCE: ebit=%.0f total_assets=%.0f", ebit_snap, total_assets_val)
-            state["calculated_ratios"]["roce"] = await _call(
-                "tool_calc_roce",
-                {"ebit": ebit_snap, "total_assets": total_assets_val, "current_liabilities": current_liabilities_snap},
-                period=f"MIXED(ebit={bs_snapshot.get('period_end','unknown')}, total_assets=annual:{equity_period_end})",
-            )
-        else:
-            state["calculated_ratios"]["roce"] = {"roce_pct": None, "interpretation": "unavailable"}
-
-        # debt_ratio / equity_ratio: total_liabilities and total_assets are
-        # BOTH from the same XBRL annual snapshot (index [0] of each series,
-        # same source/period family as ROE/D-E above) -- clean annual tag,
-        # not mixed.
-        if total_liabilities_val_p2 is not None and total_assets_val:
-            state["calculated_ratios"]["debt_ratio"] = await _call(
-                "tool_calc_debt_ratio",
-                {"total_liabilities": total_liabilities_val_p2, "total_assets": total_assets_val},
-                period=f"annual:{equity_period_end}" if equity_period_end else "annual",
-            )
-        else:
-            state["calculated_ratios"]["debt_ratio"] = {"debt_ratio": None, "interpretation": "unavailable"}
-
-        if shareholders_equity and total_assets_val:
-            state["calculated_ratios"]["equity_ratio"] = await _call(
-                "tool_calc_equity_ratio",
-                {"total_equity": shareholders_equity, "total_assets": total_assets_val},
-                period=f"annual:{equity_period_end}" if equity_period_end else "annual",
-            )
-        else:
-            state["calculated_ratios"]["equity_ratio"] = {"equity_ratio": None, "interpretation": "unavailable"}
-
-        altman_revenue = annual_rev[0]["revenue"] if annual_rev else None
-        if (working_capital_snap is not None and retained_earnings_snap is not None
-                and ebit_snap is not None and total_assets_val and market_cap is not None
-                and total_liabilities_val_p2 is not None and altman_revenue is not None):
-            log.info("Computing Altman Z-Score")
-            state["calculated_ratios"]["altman_z_score"] = await _call(
-                "tool_calc_altman_z_score",
-                {
-                    "working_capital": working_capital_snap, "retained_earnings": retained_earnings_snap,
-                    "ebit": ebit_snap, "total_assets": total_assets_val, "market_cap": market_cap,
-                    "total_liabilities": total_liabilities_val_p2, "revenue": altman_revenue,
-                },
-                period="mixed",
-            )
-        else:
-            state["calculated_ratios"]["altman_z_score"] = {"z_score": None, "interpretation": "unavailable"}
-
-        # -- Composite Financial Score ----------------------------------------
-        log.info("Computing composite financial score")
-        cr   = state["calculated_ratios"]
-        # current_ratio now comes through from tool_get_financial_ratios
-        # (yfinance .info "currentRatio"). Without passing it here the composite
-        # score always flagged current_ratio as a missing input.
-        current_ratio_val = ratios_src.get("current_ratio")
-        # This composite is DELIBERATELY built from ratios spanning several
-        # periods (ttm P/E, annual ROE/net_margin, mrq current/D-E ratio,
-        # multi-year CAGR) — that's fine for a single composite health score,
-        # but tag it "mixed" explicitly so validate_period_consistency.py
-        # doesn't (correctly, but unhelpfully) flag it the way it flags an
-        # *accidental* mix like the net_margin bug. See each component's own
-        # `_period` tag (in cr[...]["_period"]) for its specific provenance.
-        state["calculated_ratios"]["composite_score"] = await _call(
-            "tool_calc_composite_score",
-            {
-                "pe":                cr.get("pe", {}).get("pe_ratio"),
-                "roe_pct":           cr.get("roe", {}).get("roe_pct"),
-                "net_margin_pct":    cr.get("net_margin", {}).get("net_margin_pct"),
-                "de_ratio":          cr.get("de_ratio", {}).get("de_ratio"),
-                "revenue_cagr_pct":  cr.get("cagr", {}).get("cagr_pct"),
-                "current_ratio_val": current_ratio_val,
-            },
-            period="mixed",
-        )
+            args, period = plan
+            log.info("Computing %s (period=%s)", tool, period)
+            result = await _call(tool, args, period=period)
+            if spec.post is not None:
+                spec.post(result, d)
+            state["calculated_ratios"][spec.key] = result
 
         log.info("Executor: ratio computation complete.")
-
-    # =========================================================================
-    # LAYER 2 — CHECKER / CRITIC (Validation & Quality Control)
-    # =========================================================================
 
     @traceable(name="financial.checker", run_type="llm")
     async def _check_data_quality(self, state: FinancialAgentState) -> dict[str, Any]:
@@ -1368,32 +1617,36 @@ class FinancialAnalystAgent:
     @traceable(name="financial.brain", run_type="llm")
     async def _brain(self, state: FinancialAgentState) -> dict[str, Any]:
         """
-        BRAIN — Planning Node for the Internal Execution Loop.
+        BRAIN — Intent Classifier for the Internal Execution Loop.
 
-        Consults Claude to review the current state of the extraction loop,
-        digest any incoming ``validation_feedback`` from the Checker, and produce
-        structured internal instructions for the Executor nodes in the next cycle.
+        Consults Claude to classify the user's query into one or more analysis
+        INTENTS, digesting any incoming ``validation_feedback`` from the
+        Checker. The intents (not raw tool names, and never numbers) are what
+        drive tool selection: ``_resolve_tools()`` expands them into curated
+        extraction/compute bundles for the Executor nodes.
 
-        This method is called once per loop iteration before the Executor nodes
-        run. Its output is advisory: the Executor nodes use the Brain's plan
-        to prioritise which MCP tools to invoke.
+        This replaced a freeform ``priority_tools`` list, which let the model
+        name tools this pipeline cannot supply arguments for. The only escape
+        hatch left is ``extra_tools``, allow-listed against the real MCP
+        registry and silently dropped when unrecognised.
 
         Parameters
         ----------
         state : FinancialAgentState
             Current mutable agent-local state. Read fields:
-            - ``state["messages"]``           : Full conversation history.
+            - ``state["messages"]``            : Full conversation history.
             - ``state["loop_counter"]``        : Current iteration index.
             - ``state["validation_feedback"]`` : Last Checker critique (may be "").
-            - ``state["task_query"]`` / ``state["manager_directives"]``  : Original Manager task.
+            - ``state["task_query"]`` / ``state["manager_directives"]``.
 
         Returns
         -------
         dict[str, Any]
-            Structured planning output with keys:
-            - ``"plan"``        (str)          : Summary of intended actions.
-            - ``"priority_tools"`` (list[str]) : Ordered list of MCP tools to call.
-            - ``"raw_plan"``    (str)          : Full model response text.
+            - ``"intents"``     (list[str]) : Subset of the INTENTS enum; never
+                                              empty (defaults to ``["overview"]``).
+            - ``"extra_tools"`` (list[str]) : Validated exact MCP tool names.
+            - ``"rationale"``   (str)       : One-sentence justification.
+            - ``"raw_plan"``    (str)       : Full model response text.
         """
         iteration   = state["loop_counter"]
         feedback    = state["validation_feedback"]
@@ -1401,11 +1654,31 @@ class FinancialAnalystAgent:
         directives  = state["manager_directives"]
 
         system_prompt = (
-            "You are the Brain of a FinancialAnalystAgent. "
-            "Your role is to produce concise, structured execution plans for financial data extraction loops. "
-            "Always respond in valid JSON with exactly two keys: "
-            "'plan' (a 1-3 sentence summary of what to do) and "
-            "'priority_tools' (an ordered list of MCP tool name strings to invoke). "
+            "You are the Brain of a FinancialAnalystAgent. You do NOT choose numbers, "
+            "formulas, or tool arguments — code does all of that deterministically. "
+            "Your ONLY job is to classify the analyst's query into analysis intents.\n\n"
+            "Respond with valid JSON and exactly three keys:\n"
+            '  "intents"     — a list drawn ONLY from this closed set: '
+            "valuation, financial_health, profitability, growth, liquidity, "
+            "cash_flow, peer_relative, overview, full_report\n"
+            '  "rationale"   — one sentence explaining the choice\n'
+            '  "extra_tools" — usually [] ; only exact MCP tool names the query '
+            "explicitly demands beyond the intent bundles\n\n"
+            "Intent guidance:\n"
+            "- valuation: fair value, intrinsic value, over/undervalued, price target, DCF.\n"
+            "- financial_health: solvency, leverage, balance-sheet strength, bankruptcy risk.\n"
+            "- profitability: margins, returns on equity/assets/capital.\n"
+            "- growth: revenue/earnings growth trajectory, CAGR, forecasts.\n"
+            "- liquidity: short-term obligations, current/quick ratio, working capital.\n"
+            "- cash_flow: free cash flow, cash conversion, FCF yield.\n"
+            "- peer_relative: comparison against competitors or sector peers.\n"
+            "- overview: generic, ambiguous, or 'tell me about X' queries.\n"
+            "- full_report: the query asks for a COMPREHENSIVE write-up — an "
+            "investment analysis report, a full research note, or a complete "
+            "assessment of a company (e.g. 'INVESTMENT ANALYSIS REPORT: <COMPANY>'). "
+            "Return intents = [\"full_report\"], optionally plus any narrower "
+            "intent the query explicitly emphasises.\n\n"
+            "Pick multiple intents when the query genuinely spans several. "
             "Do not include any explanation outside the JSON object."
         )
 
@@ -1414,13 +1687,13 @@ class FinancialAnalystAgent:
             f"TASK QUERY: {task_query}\n"
             f"MANAGER DIRECTIVES: {json.dumps(directives)}\n"
             f"CHECKER FEEDBACK: {feedback if feedback else 'None — first iteration or prior run passed.'}\n\n"
-            "Based on the above, produce the execution plan for this iteration."
+            "Classify the analysis intents for this iteration."
         )
 
         # Append user message to the running conversation log
         state["messages"].append({"role": "user", "content": user_message})
 
-        log.info("Brain: invoking Claude for iteration %d planning...", iteration)
+        log.info("Brain: invoking Claude for iteration %d intent classification...", iteration)
         try:
             response = await asyncio.to_thread(
                 self._llm.messages.create,
@@ -1433,43 +1706,135 @@ class FinancialAnalystAgent:
             raw_plan = response.content[0].text.strip()
             state["messages"].append({"role": "assistant", "content": raw_plan})
 
-            # Attempt to parse as JSON; fall back gracefully
-            try:
-                clean = raw_plan.replace("```json", "").replace("```", "").strip()
-                parsed = json.loads(clean)
-                plan           = parsed.get("plan", "Execute standard extraction.")
-                priority_tools = parsed.get("priority_tools", [])
-            except json.JSONDecodeError:
-                log.warning("Brain: Claude response was not valid JSON — using defaults.")
-                plan           = raw_plan
-                priority_tools = [
-                    "tool_get_financial_ratios",
-                    "tool_get_revenue_growth",
-                    "tool_get_xbrl_financials",
-                ]
+            clean = raw_plan.replace("```json", "").replace("```", "").strip()
+            parsed = json.loads(clean)
+            result = self._validate_brain_output(parsed)
+            result["raw_plan"] = raw_plan
+            log.info(
+                "Brain intents for iteration %d: %s (%s)",
+                iteration, result["intents"], result["rationale"],
+            )
+            return result
 
-            log.info("Brain plan for iteration %d: %s", iteration, plan)
-            return {"plan": plan, "priority_tools": priority_tools, "raw_plan": raw_plan}
+        except json.JSONDecodeError:
+            # Unparseable classification is not worth guessing at — fall back
+            # to the overview bundle, which is designed to yield a coherent
+            # minimal report on its own.
+            log.warning("Brain: Claude response was not valid JSON — defaulting to overview.")
+            return {
+                "intents": ["overview"], "extra_tools": [],
+                "rationale": "Brain response was not valid JSON; defaulted to overview.",
+                "raw_plan": raw_plan,
+            }
 
         except Exception as exc:
-            log.exception("Brain: Claude API call failed — using default plan.")
+            log.exception("Brain: Claude API call failed — defaulting to overview.")
             if sentry_enabled():
                 import sentry_sdk
                 with sentry_sdk.push_scope() as scope:
                     scope.set_tag("component", "financial.brain")
                     scope.set_tag("iteration", str(iteration))
                     sentry_sdk.capture_exception(exc)
-            default_plan = "Default plan: run full data extraction and ratio computation."
+            default_plan = "Default plan: overview bundle (extraction + core ratios)."
             state["messages"].append({"role": "assistant", "content": default_plan})
             return {
-                "plan": default_plan,
-                "priority_tools": [
-                    "tool_get_financial_ratios",
-                    "tool_get_revenue_growth",
-                    "tool_get_xbrl_financials",
-                ],
+                "intents": ["overview"], "extra_tools": [],
+                "rationale": "Brain API call failed; defaulted to overview.",
                 "raw_plan": default_plan,
             }
+
+    @staticmethod
+    def _validate_brain_output(parsed: dict[str, Any]) -> dict[str, Any]:
+        """
+        Filter the Brain's raw JSON down to what this agent will actually act
+        on. Unrecognised intents and unknown tool names are DROPPED, not
+        errored on — a mis-classification should degrade to a thinner report,
+        never crash the run or reach the MCP server as a bad tool name.
+        """
+        raw_intents = parsed.get("intents") or []
+        if not isinstance(raw_intents, list):
+            raw_intents = []
+        intents = [i for i in raw_intents if isinstance(i, str) and i in INTENTS]
+
+        raw_extras = parsed.get("extra_tools") or []
+        if not isinstance(raw_extras, list):
+            raw_extras = []
+        known_tools = set(EXTRACTION_REGISTRY) | set(COMPUTE_REGISTRY)
+        extra_tools = [t for t in raw_extras if isinstance(t, str) and t in known_tools]
+
+        if not intents:
+            intents = ["overview"]
+
+        return {
+            "intents": intents,
+            "extra_tools": extra_tools,
+            "rationale": str(parsed.get("rationale", "")),
+        }
+
+    # =========================================================================
+    # INTENT → TOOL RESOLUTION
+    # =========================================================================
+
+    def _resolve_tools(
+        self, state: FinancialAgentState,
+    ) -> tuple[list[str], list[str]]:
+        """
+        Expand the Brain's intents into the concrete tool bundles to execute.
+
+        Returns ``(extraction_tools, compute_tools)``, both deduped and in a
+        deterministic order (_EXTRACTION_ORDER / _COMPUTE_ORDER) so the DCF
+        chain's dependencies resolve and traces stay comparable across runs.
+
+        Resolution
+        ----------
+        1. ``full_report`` expands to the UNION of _FULL_REPORT_PROFILES, so it
+           can never drift out of sync with the narrow profiles.
+        2. baseline ∪ every chosen profile ∪ allow-listed ``extra_tools``.
+        3. Depth gate: on ``shallow`` the Monte-Carlo variants are dropped
+           (dcf_scenarios + reverse_dcf survive); on ``deep`` they are kept.
+           ``full_report`` implies deep unless the request said shallow.
+
+        Note that ``tool_get_peer_comparison`` is NOT gated here: its peer list
+        depends on the industry, which is only known after
+        tool_get_financial_ratios returns. That gate lives in
+        _extract_peer_args, which skips the call when no peers are mapped.
+        """
+        chosen = list(state.get("intents") or []) or ["overview"]
+
+        if "full_report" in chosen:
+            chosen = [i for i in chosen if i != "full_report"] + list(_FULL_REPORT_PROFILES)
+
+        extraction: set[str] = set(BASELINE_EXTRACTION)
+        compute:    set[str] = set(BASELINE_COMPUTE)
+        for intent in chosen:
+            profile = ANALYSIS_PROFILES.get(intent)
+            if profile is None:
+                continue
+            extraction.update(profile["extraction"])
+            compute.update(profile["compute"])
+
+        for tool in state.get("extra_tools") or []:
+            if tool in EXTRACTION_REGISTRY:
+                extraction.add(tool)
+            elif tool in COMPUTE_REGISTRY:
+                compute.add(tool)
+
+        depth = _normalize_depth(state["manager_directives"])
+        if "full_report" in (state.get("intents") or []) and depth != "shallow":
+            depth = "deep"
+        if depth == "shallow":
+            compute -= _MONTE_CARLO_TOOLS
+
+        # TODO: the chained SEC tools (tool_get_cik → tool_list_filings →
+        # tool_get_filing_text) stay out of every bundle. tool_get_filing_text
+        # needs accession_number + cik, which are not derivable from a ticker
+        # in one step, and this agent has no place to put unstructured filing
+        # prose. Wiring them needs a real multi-step extraction plan, not a
+        # fabricated argument.
+        return (
+            [t for t in _EXTRACTION_ORDER if t in extraction],
+            [t for t in _COMPUTE_ORDER if t in compute],
+        )
 
     # =========================================================================
     # LANGGRAPH NODES — thin wrappers over the layer methods above
@@ -1485,8 +1850,20 @@ class FinancialAnalystAgent:
         new_counter = state["loop_counter"] + 1
         log.info("--- Loop iteration %d ---", new_counter)
         brain_output = await self._brain(state)
-        log.info("Brain plan: %s", brain_output.get("plan"))
-        return {"loop_counter": new_counter}
+        log.info(
+            "Brain intents: %s — %s",
+            brain_output["intents"], brain_output["rationale"],
+        )
+        # This node used to return ONLY loop_counter, silently discarding the
+        # plan — so the Brain could never influence the Executors and tool
+        # selection was effectively hardcoded. Persist the classification so
+        # _resolve_tools() (called by both Executors) can act on it.
+        return {
+            "loop_counter": new_counter,
+            "intents":      brain_output["intents"],
+            "extra_tools":  brain_output["extra_tools"],
+            "rationale":    brain_output["rationale"],
+        }
 
     async def _node_extract(self, state: FinancialAgentState) -> dict[str, Any]:
         await self._execute_data_extraction(self._session, state)
@@ -1624,6 +2001,11 @@ class FinancialAnalystAgent:
             "is_complete":         False,
             "task_query":          shared_state["task_query"],
             "manager_directives":  dict(shared_state.get("manager_directives", {})),
+            # Populated by _node_brain each iteration; empty here means
+            # "unclassified", which _resolve_tools() reads as ["overview"].
+            "intents":             [],
+            "extra_tools":         [],
+            "rationale":           "",
         }
 
         # -- Open MCP client session ------------------------------------------

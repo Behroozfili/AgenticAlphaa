@@ -431,6 +431,24 @@ class FinancialAgentState(TypedDict):
         can access ``task_query`` and ``manager_directives`` without
         requiring them to be injected as separate parameters.
         Must NOT be mutated by any internal node.
+
+    intents : list[str]
+        Analysis intents classified by ``_brain()`` for this iteration, drawn
+        from the closed ``INTENTS`` enum in financial_agent.py (e.g.
+        ``["valuation", "financial_health"]``). Consumed by
+        ``_resolve_tools()`` to expand into the curated extraction/compute
+        tool bundles the Executors actually run. Empty means "not yet
+        classified"; ``_resolve_tools()`` falls back to ``["overview"]``.
+        The LLM chooses ONLY from this enum — never raw numeric arguments.
+
+    extra_tools : list[str]
+        Rare escape hatch: exact MCP tool names the Brain explicitly asked
+        for beyond the intent bundles. Validated against the real tool
+        registry and silently dropped when unknown.
+
+    rationale : str
+        One-sentence justification the Brain gave for its intent choice.
+        Advisory/observability only — never affects tool selection.
     """
 
     messages:            list[dict]
@@ -441,6 +459,9 @@ class FinancialAgentState(TypedDict):
     is_complete:         bool
     task_query:          str
     manager_directives:  dict[str, Any]
+    intents:             list[str]
+    extra_tools:         list[str]
+    rationale:           str
 
 
 # ══════════════════════════════════════════════════════════════════
