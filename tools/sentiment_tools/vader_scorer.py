@@ -144,14 +144,16 @@ class VaderResult:
         total_chunks  : Number of chunks successfully scored.
         skipped_chunks: Number of empty / invalid texts skipped.
     """
-    compound:       float
-    positive_mean:  float
-    negative_mean:  float
-    neutral_mean:   float
-    label:          str
+    compound:       float | None
+    positive_mean:  float | None
+    negative_mean:  float | None
+    neutral_mean:   float | None
+    label:          str | None
     chunk_scores:   list[ChunkVaderScore] = field(default_factory=list)
     total_chunks:   int                   = 0
     skipped_chunks: int                   = 0
+    status:         str                   = "VALID"
+    polarity:       str | None            = None
 
 
 # ---------------------------------------------------------------------------
@@ -259,6 +261,8 @@ class VaderLexiconScorer:
             chunk_scores   = chunk_scores,
             total_chunks   = n,
             skipped_chunks = skipped,
+            status         = "VALID",
+            polarity       = corpus_label.upper(),
         )
         logger.info(
             "VADER scoring complete: %d chunks | %s (compound=%.4f)",
@@ -341,15 +345,17 @@ class VaderLexiconScorer:
         Returns
         -------
         VaderResult
-            All scores at 0.0, label "Neutral".
+            Scores and polarity are null with status NO_DATA.
         """
         return VaderResult(
-            compound       = 0.0,
-            positive_mean  = 0.0,
-            negative_mean  = 0.0,
-            neutral_mean   = 0.0,
-            label          = "Neutral",
+            compound       = None,
+            positive_mean  = None,
+            negative_mean  = None,
+            neutral_mean   = None,
+            label          = None,
             chunk_scores   = [],
             total_chunks   = 0,
             skipped_chunks = skipped,
+            status         = "NO_DATA",
+            polarity       = None,
         )

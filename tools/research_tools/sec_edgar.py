@@ -142,21 +142,237 @@ async def sec_edgar_search(
     return {"query": query, "filings": filings}
 
 
+# A rough "sub-heading" inside a section body: a short run of ALL-CAPS
+# words immediately followed by a normal sentence (e.g. "STRATEGIC AND
+# COMPETITIVE RISKS We face intense competition..."). These come from SEC's
+# own bolded sub-headers within Risk Factors / MD&A and are the cheapest
+# possible signal an agent can use to jump to the right part of a huge
+# section without reading the whole thing. Heuristic, not perfect: misses
+# sub-headers that don't happen to be followed directly by a capitalized
+# sentence, and can occasionally catch a stray all-caps phrase that isn't
+# really a heading. Good enough as a navigation aid, not a source of truth.
+_HEADING_PATTERN = re.compile(
+    r"(?:(?<=[.?!]\s)|^)((?:[A-Z][A-Z&,'\u2019\-]{1,}\s+){1,7}[A-Z][A-Z&,'\u2019\-]{1,})(?=\s+[A-Z][a-z])"
+)
+_MAX_HEADINGS = 15
+
+
+def _find_headings(body: str) -> list:
+    seen = []
+    for m in _HEADING_PATTERN.finditer(body):
+        h = m.group(1).strip()
+        # Skip the section's own title line re-matching (e.g. "RISK FACTORS"
+        # right at the start, from "ITEM 1A. RISK FACTORS ...") and
+        # near-duplicates -- these aren't useful sub-headings.
+        if h.startswith("ITEM ") or h in seen or m.start() <= 25:
+            continue
+        seen.append(h)
+        if len(seen) >= _MAX_HEADINGS:
+            break
+    return seen
+
+
+def _query_snippet(body: str, query: str, window: int) -> dict:
+    pos = body.lower().find(query.lower())
+    if pos == -1:
+        return {"found": False}
+    start = max(0, pos - window // 2)
+    end = min(len(body), pos + len(query) + window // 2)
+    return {
+        "found": True,
+        "position": pos,
+        "snippet": body[start:end],
+        "snippet_range": [start, end],
+    }
+
+
+# ── Deterministic compression, no LLM ──────────────────────────────
+#
+# Preview mode's raw `preview` (first N chars) and `headings` (bare list of
+# sub-header titles) are still useful, but neither is actually a *summary*
+# -- one is just the beginning of the document, the other has no content.
+# These two helpers turn the section into something genuinely short but
+# information-dense, using only string/regex work (no model call, no
+# risk of paraphrasing a number wrong):
+#
+#   - `_heading_leads`: for prose sections (risk_factors, mda, business),
+#     pairs each detected sub-heading with the first sentence that follows
+#     it -- a structural TL;DR the agent can scan in one screen.
+#   - `_extract_key_figures`: for financial_statements, which is a table
+#     of numbers rather than prose, pulls the standard income-statement
+#     line items out verbatim (exact strings, never rounded/reformatted)
+#     instead of returning any prose at all.
+
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'])")
+_LEAD_SENTENCE_CHARS = 220
+_MAX_LEADS = 10
+
+# Sentences containing a dollar figure, a percentage, or "million"/"billion"
+# are disproportionately likely to be the actual analyst-relevant content
+# in a prose section (revenue growth, tax exposure, cost changes, ...).
+# Pulling these out separately from _heading_leads catches numeric detail
+# that a heading's *first* sentence often doesn't include (the number
+# usually lands 2-3 sentences in, after the topic is introduced).
+_NUMERIC_HINT = re.compile(r"(\$\s?[\d,]+|\d+(?:\.\d+)?%|\bmillion\b|\bbillion\b)", re.I)
+_MAX_EXCERPTS = 6
+_EXCERPT_CHARS = 220
+
+
+def _important_excerpts(body: str) -> list:
+    out = []
+    seen = set()
+    for s in _SENTENCE_END.split(body):
+        s = s.strip()
+        if len(s) < 20 or not _NUMERIC_HINT.search(s):
+            continue
+        snippet = s[:_EXCERPT_CHARS]
+        if snippet in seen:
+            continue
+        seen.add(snippet)
+        out.append(snippet)
+        if len(out) >= _MAX_EXCERPTS:
+            break
+    return out
+
+
+def _heading_leads(body: str) -> list:
+    out = []
+    for h in _find_headings(body):
+        pos = body.find(h)
+        if pos == -1:
+            continue
+        after = body[pos + len(h):].strip()
+        lead = _SENTENCE_END.split(after, maxsplit=1)[0][:_LEAD_SENTENCE_CHARS].strip()
+        out.append({"heading": h, "lead": lead})
+        if len(out) >= _MAX_LEADS:
+            break
+    return out
+
+
+# Standard 10-K/10-Q financial-statement line items this looks for, in
+# roughly the order they appear across Income Statement, then Cash Flow
+# Statement. Each is followed by 1-4 numeric tokens (current/prior period,
+# quarter/YTD -- the exact count varies by filing), which this pulls out
+# character-for-character (with $, commas, and parens intact) rather than
+# re-parsing into floats -- avoids ever silently mangling a number.
+#
+# The cash-flow items (Additions to property and equipment, Net cash from
+# operations, Net cash used in investing) matter as much as the income
+# statement ones: "Additions to property and equipment" IS the capex
+# figure -- for a query like "AI infrastructure spending", this is often
+# THE number that answers the question, and previously wasn't extracted
+# at all (income-statement-only list), forcing the agent to fall back to
+# weaker secondary sources (news articles that only mention capex in
+# passing) instead of the filing's own authoritative figure.
+_KEY_FIGURE_LABELS = [
+    "Total revenue",
+    "Total cost of revenue",
+    "Gross margin",
+    "Research and development",
+    "Sales and marketing",
+    "General and administrative",
+    "Operating income",
+    "Income before income taxes",
+    "Provision for income taxes",
+    "Net income",
+    "Net cash from operations",
+    "Additions to property and equipment",
+    "Net cash used in investing",
+]
+
+# Matches a number, optionally $-prefixed, optionally wrapped in
+# parentheses (SEC's convention for a negative/outflow figure). The `\s*`
+# immediately before the closing paren is required: real filings routinely
+# render negatives as "(30,876 )" with a space before ")", and without
+# tolerating that space here, the match silently stops short (e.g. capturing
+# just "(30,876" with no closing paren and dropping the rest of the row) --
+# this went unnoticed for the income-statement labels above because SEC
+# income-statement rows are rarely negative, but cash-flow outflow lines
+# (capex, investing activities) are negative far more often and would have
+# been silently mis-extracted without this fix.
+_NUM_TOKEN = r"\$?\s*\(?-?[\d,]+(?:\.\d+)?\s*\)?"
+
+
+def _extract_key_figures(body: str) -> dict:
+    out = {}
+    for label in _KEY_FIGURE_LABELS:
+        pat = re.compile(re.escape(label) + r"\s+((?:" + _NUM_TOKEN + r"\s*){1,4})")
+        m = pat.search(body)
+        if m:
+            nums = re.findall(_NUM_TOKEN, m.group(1))
+            out[label] = [n.strip() for n in nums]
+    return out
+
+
 # ─────────────────────────────────────────────
 # Tool 2: Fetch and parse a specific filing
 # ─────────────────────────────────────────────
 async def sec_edgar_filing(
     ticker: str,
     form_type: str = "10-K",
-    sections: list = None,             # ["business","risk_factors","mda","all"]
-    max_chars: int = 25000,
+    sections: list = None,             # e.g. ["risk_factors","mda"] -- REQUIRED, no silent "all"
+    mode: str = "preview",             # "preview" | "full"
+    preview_chars: int = 2000,
+    query: str = None,                 # find this text inside each requested section
+    query_window: int = 3000,          # chars of context around the query match
+    offset: int = 0,                   # mode="full" only: start position within the section
+    length: int = None,                # mode="full" only: chars to return (default: max_chars)
+    max_chars: int = 25000,            # hard ceiling on how much of a section is ever parsed out
 ) -> dict:
     """
-    Fetch the latest SEC filing (10-K / 10-Q) for a ticker.
-    Parses and returns named sections: business, risk_factors, mda, financial_statements.
+    Fetch the latest SEC filing (10-K / 10-Q) for a ticker and return one or
+    more named sections: business, risk_factors, mda, financial_statements.
+
+    `sections` must be given explicitly and must name real sections -- there
+    is no "give me everything" default. A single filing's sections can run
+    to tens of thousands of tokens each; forcing an explicit, scoped request
+    keeps a single tool call from flooding an agent's context.
+
+    Two response shapes depending on `mode`:
+
+    mode="preview" (default) -- for each section, returns `total_chars`,
+    a short `preview` (first `preview_chars`), a best-effort list of
+    `headings`, and one of:
+      - `key_figures` (financial_statements only) -- standard income-
+        statement line items (Total revenue, Net income, ...) pulled out
+        character-for-character, never rounded or reparsed.
+      - `digest` (all other sections) -- each detected sub-heading paired
+        with the sentence right after it, a structural TL;DR of the whole
+        section in a few hundred characters.
+      - `important_excerpts` (all other sections) -- up to 6 sentences
+        containing a dollar figure, a percentage, or "million"/"billion",
+        pulled out verbatim. Headings' lead sentences often miss the
+        actual number (it tends to land a sentence or two later); this
+        catches it without re-reading the section.
+    Use these to decide whether -- and where -- to read further, without
+    paying for the full text up front.
+
+    mode="full" -- returns the actual section text, sliced with
+    `offset`/`length` (default: from 0 up to `max_chars`). Use this once
+    you already know (from a preview, or from `query`) which section you
+    need in full.
+
+    `query`, if given, is a plain substring search (case-insensitive) run
+    against each section's full text regardless of `mode`; returns whether
+    it was found, its position, and a `query_window`-sized snippet around
+    it. This is the intended way to jump to a specific topic ("cash flow
+    outlook", "cybersecurity", ...) instead of guessing a char offset.
     """
-    if sections is None:
-        sections = ["all"]
+    if not sections:
+        return {
+            "ticker": ticker,
+            "error": (
+                "`sections` is required -- name the specific section(s) you need "
+                "(e.g. ['risk_factors'] or ['mda','financial_statements']). "
+                "There's no default 'all' anymore: a single filing's sections "
+                "can run to tens of thousands of tokens each, so an unscoped "
+                "request isn't allowed. Valid names for a 10-K: business, "
+                "risk_factors, mda, financial_statements. A 10-Q has no "
+                "'business' section."
+            ),
+        }
+    if mode not in ("preview", "full"):
+        return {"ticker": ticker, "error": f"mode must be 'preview' or 'full', got {mode!r}"}
 
     cik = await _resolve_cik(ticker)
     if not cik:
@@ -173,7 +389,46 @@ async def sec_edgar_filing(
     acc_dash   = filing_meta["accessionNumber"]          # e.g. 0000320193-26-000013
     acc_nodash = acc_dash.replace("-", "")               # e.g. 000032019326000013
     raw_text   = await _fetch_text(cik, acc_dash, acc_nodash)
-    parsed     = _extract_sections(raw_text, sections, max_chars, form_type)
+    # Extract with a generous internal cap -- NOT max_chars. Preview mode's
+    # total_chars/headings/query need the section's real full size; if we
+    # truncated at max_chars (which defaults to 25000, a "full mode response
+    # size" cap) before computing those, preview would report a fake,
+    # artificially-small total instead of the document's actual length.
+    # max_chars/length are applied below, only when slicing for output.
+    _EXTRACTION_SAFETY_CAP = 750_000  # generous ceiling against pathological input, not a response cap
+    parsed = _extract_sections(raw_text, sections, _EXTRACTION_SAFETY_CAP, form_type)
+
+    sections_out = {}
+    for name, body in parsed.items():
+        entry = {"total_chars": len(body)}
+
+        if mode == "preview":
+            entry["preview"] = body[:preview_chars]
+            entry["preview_chars_returned"] = min(preview_chars, len(body))
+            entry["headings"] = _find_headings(body)
+            if name == "financial_statements":
+                # Numbers table, not prose -- pull the standard line items
+                # out verbatim instead of a heading+sentence digest.
+                entry["key_figures"] = _extract_key_figures(body)
+            else:
+                # Structural TL;DR: each sub-heading + the sentence right
+                # after it. Usually all the signal an agent needs without
+                # reading the full section.
+                entry["digest"] = _heading_leads(body)
+                # Numeric-signal sentences the heading+lead approach can
+                # miss (the number is often a few sentences into a
+                # subsection, not in its opening line).
+                entry["important_excerpts"] = _important_excerpts(body)
+        else:  # mode == "full"
+            take = length if length is not None else max_chars
+            entry["text"] = body[offset:offset + take]
+            entry["offset"] = offset
+            entry["returned_chars"] = len(entry["text"])
+
+        if query:
+            entry["query_match"] = _query_snippet(body, query, query_window)
+
+        sections_out[name] = entry
 
     return {
         "ticker":           ticker,
@@ -181,8 +436,10 @@ async def sec_edgar_filing(
         "form_type":        form_type,
         "filed_at":         filing_meta.get("filingDate", ""),
         "accession_number": filing_meta.get("accessionNumber", ""),
-        "sections":         parsed,
+        "mode":             mode,
+        "sections":         sections_out,
     }
+
 
 
 # ─────────────────────────────────────────────
@@ -306,10 +563,17 @@ def _html_to_text(raw: str) -> str:
     sit between e.g. 'Item 2.' and 'Management', breaking contiguous matches.
     """
     raw = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", raw)
-    raw = re.sub(r"(?s)<[^>]+>", " ", raw)        # drop all remaining tags
+    # Block/structural tags genuinely separate content -- replace with a space.
+    # Everything else (inline wrapper tags like <span>, <font>, <ix:nonFraction>,
+    # <a>, etc.) is frequently inserted MID-WORD by SEC's Inline XBRL tagging
+    # (e.g. "FINANC<ix:nonFraction ...>IAL</ix:nonFraction>" must become
+    # "FINANCIAL", not "FINANC IAL"). Stripping those with no space avoids
+    # splitting words apart and breaking the "item N. <heading>" regexes.
+    raw = re.sub(r"(?is)</?(p|div|tr|td|th|table|br|hr|h[1-6]|li|ul|ol)[^>]*>", " ", raw)
+    raw = re.sub(r"(?s)<[^>]+>", "", raw)          # drop remaining inline tags, no space
     raw = _html.unescape(raw)                      # &#160; &amp; &#8217; ...
     raw = raw.replace("\u00a0", " ")               # non-breaking space
-    raw = re.sub(r"[ \t]+", " ", raw)
+    raw = re.sub(r"\s+", " ", raw)
     return raw
 
 
@@ -338,6 +602,40 @@ _SECTION_PATTERNS = {
 # section body — see MIN_SECTION_CHARS usage in _extract_sections below.
 MIN_SECTION_CHARS = 800
 
+# A bare "PART I" / "PART II" trailer left dangling at the very END of an
+# extracted section (immediately before the next real header starts) is
+# table-of-contents/section-break noise, not content -- strip it.
+#
+# NOTE: this must be a tail-only cleanup, NOT a general boundary used to cut
+# section spans. Real SEC filings repeat "PART I. FINANCIAL INFORMATION" /
+# "PART II. OTHER INFORMATION" as a running header on EVERY page. Treating
+# every occurrence as a hard boundary (an earlier version of this function
+# did) truncates real sections after their first page -- e.g. MD&A cut off
+# mid-sentence after ~700 chars instead of running its full multi-page
+# length. Only strip it when it's trailing noise, never use it to bound
+# extraction.
+_TRAILING_PART_MARKER = re.compile(
+    r"(?i)\s*part\s+[ivx]+\.?(?:\s+[a-z][a-z'\-]*){0,4}\s*$"
+)
+
+# Generic boundary for ANY numbered item header ("ITEM 3.", "ITEM 4.",
+# "ITEM 1.", etc.) -- not just the 4 named sections we extract. Without
+# this, content from untracked items (e.g. Item 3 Quantitative Disclosures,
+# Item 4 Controls and Procedures, Part II Item 1 Legal Proceedings) gets
+# silently swallowed into the tail of whichever named section precedes it,
+# because only business/risk_factors/mda/financial_statements were ever
+# treated as boundaries.
+#
+# Deliberately CASE-SENSITIVE and requires the period right after the
+# number/letter. Real section headers appear as "ITEM 3. QUANTITATIVE...".
+# Real SEC filings ALSO repeat a short running header on every page, e.g.
+# "PART I Item 2" or "PART II Item 1A" (mixed case, no period) -- matching
+# those too would re-truncate sections after their first page, which is
+# exactly the regression that occurred with the earlier PART-only boundary.
+# Requiring "ITEM" in all caps + "." excludes those running-header stubs
+# while still catching every genuine header.
+_ITEM_BOUNDARY_PATTERN = re.compile(r"\bITEM\s+\d{1,2}[A-Z]?\.")
+
 
 def _extract_sections(text: str, sections: list, max_chars: int,
                       form_type: str = "10-K") -> dict:
@@ -361,6 +659,7 @@ def _extract_sections(text: str, sections: list, max_chars: int,
 
     merged_boundaries = sorted(
         {pos for starts in all_matches.values() for pos in starts}
+        | {m.start() for m in _ITEM_BOUNDARY_PATTERN.finditer(clean)}
     )
 
     def _end_boundary_after(start: int) -> int:
@@ -395,7 +694,18 @@ def _extract_sections(text: str, sections: list, max_chars: int,
 
     result = {}
     for idx, (name, start) in enumerate(sorted_pos):
-        end = sorted_pos[idx + 1][1] if idx + 1 < len(sorted_pos) else len(clean)
-        result[name] = clean[start:end].strip()[:max_chars]
+        next_requested = sorted_pos[idx + 1][1] if idx + 1 < len(sorted_pos) else len(clean)
+        # Cap at whichever comes first: the next requested section's start,
+        # or the nearest ITEM-header boundary (tracked or not). Without the
+        # second cap, an untracked item (Item 3, Item 4, Part II Item 1
+        # Legal Proceedings, ...) sitting between this section and the next
+        # *requested* section leaks into this section's tail.
+        end = min(next_requested, _end_boundary_after(start))
+        body = clean[start:end].strip()
+        # Strip a dangling "PART II" (etc.) that sits right before the next
+        # real header -- tail-only, so it never affects where real content
+        # gets cut.
+        body = _TRAILING_PART_MARKER.sub("", body).strip()
+        result[name] = body[:max_chars]
 
     return result

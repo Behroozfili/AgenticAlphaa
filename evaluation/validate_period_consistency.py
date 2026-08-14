@@ -345,6 +345,66 @@ def check_narration_vs_period(final_report: str, financial_metrics_summary: dict
     return findings
 
 
+def period_key(fact: dict[str, Any]) -> tuple[Any, ...]:
+    """Canonical period identity; quarter and duration are never interchangeable."""
+    return (
+        fact.get("fiscal_year"), fact.get("fiscal_quarter"),
+        fact.get("period_start"), fact.get("period_end"),
+        fact.get("duration_months"), fact.get("metric_scope"),
+    )
+
+
+def validate_financial_fact_contract(fact: dict[str, Any]) -> list[str]:
+    required = (
+        "fiscal_year", "fiscal_quarter", "period_start", "period_end",
+        "duration_months", "filing_type", "accession_number",
+        "metric_scope", "gaap_status",
+    )
+    return [field for field in required if field not in fact]
+
+
+def detect_material_period_conflicts(
+    claims: list[dict[str, Any]], *, material_metrics: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Block silent merging of materially different period keys.
+
+    Each claim may include ``comparison=True`` to explicitly authorize a
+    cross-period comparison. Merely sharing a metric name never authorizes a
+    Q1/Q2 or quarterly/YTD merge.
+    """
+    material_metrics = material_metrics or {
+        "revenue", "net_income", "operating_income", "free_cash_flow",
+        "gross_margin", "operating_margin", "net_margin", "eps",
+    }
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    findings: list[dict[str, Any]] = []
+    for claim in claims:
+        metric = str(claim.get("metric", ""))
+        if metric not in material_metrics:
+            continue
+        missing = validate_financial_fact_contract(claim)
+        if missing:
+            findings.append({
+                "severity": "HIGH", "metric": metric,
+                "issue": "material financial fact has incomplete period provenance",
+                "missing_fields": missing, "blocking": True,
+            })
+            continue
+        grouped.setdefault(metric, []).append(claim)
+
+    for metric, facts in grouped.items():
+        non_comparison = [fact for fact in facts if fact.get("comparison") is not True]
+        keys = {period_key(fact) for fact in non_comparison}
+        if len(keys) > 1:
+            findings.append({
+                "severity": "CRITICAL", "metric": metric,
+                "issue": "material facts from different period keys would be merged without an explicit comparison",
+                "period_keys": [list(key) for key in sorted(keys, key=str)],
+                "blocking": True,
+            })
+    return findings
+
+
 # --------------------------------------------------------------------------
 # Loading a real trace
 # --------------------------------------------------------------------------

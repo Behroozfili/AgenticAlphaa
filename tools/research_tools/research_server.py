@@ -78,9 +78,16 @@ def _normalize_sections(raw) -> list[str]:
     canonical keyword (e.g. "mda"). Unrecognized values are dropped
     (rather than raising) so a partially-wrong call still returns
     whatever sections it can, instead of failing outright.
+
+    Returns [] (not ["all"]) when nothing valid survives -- sec_edgar_filing
+    itself now rejects an empty/missing `sections` with an explanatory
+    error rather than silently fetching everything. A single filing's
+    sections can run to tens of thousands of tokens each; an agent that
+    forgot to specify one should be told to be specific, not handed all
+    four sections by default.
     """
     if raw is None:
-        return ["all"]
+        return []
     if isinstance(raw, str):
         raw = [raw]
 
@@ -93,7 +100,7 @@ def _normalize_sections(raw) -> list[str]:
         else:
             log.warning("Dropping unrecognized 'sections' value: %r", item)
 
-    return normalized or ["all"]
+    return normalized
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -117,8 +124,8 @@ async def list_tools() -> ListToolsResult:
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Max results to return (default: 5)",
-                        "default": 5
+                        "description": "Max results to return (default: 3 -- Tavily is a supplementary source; re-fetch a specific URL directly if you need more than the snippet)",
+                        "default": 3
                     },
                     "search_depth": {
                         "type": "string",
@@ -178,8 +185,8 @@ async def list_tools() -> ListToolsResult:
                     },
                     "page_size": {
                         "type": "integer",
-                        "description": "Number of articles (default: 10, max: 100)",
-                        "default": 10
+                        "description": "Number of articles (default: 5, max: 100) -- news is supplementary/recency coverage relative to SEC filings; the same story is often republished across many outlets, so more articles mostly buys duplication",
+                        "default": 5
                     },
                     "exclude_domains": {
                         "type": "array",
@@ -227,10 +234,28 @@ async def list_tools() -> ListToolsResult:
         # ── 4. SEC EDGAR — fetch filing ────────────────────────────
         Tool(
             name="sec_edgar_filing",
-            description="Fetch and parse the latest SEC filing (10-K/10-Q) for a ticker. Returns named sections: business, risk_factors, mda, financial_statements.",
+            description=(
+                "Fetch and parse a section of the latest SEC filing (10-K/10-Q) for a "
+                "ticker. Two-step workflow, since a single section can run to tens of "
+                "thousands of tokens:\n"
+                "1) Call with mode='preview' (the default) first. Returns each "
+                "section's real total length, a short raw text preview, and -- "
+                "the actually useful part -- either `key_figures` (for "
+                "financial_statements: standard line items like Total revenue, "
+                "Net income, pulled out verbatim, never rounded) or `digest` (for "
+                "risk_factors/mda/business: each sub-heading paired with the "
+                "sentence right after it, a structural TL;DR). Usually enough to "
+                "answer without reading further.\n"
+                "2) If you need the actual text, either pass `query` (a plain "
+                "keyword/phrase -- returns a snippet centered on where it was found, "
+                "in either mode) or switch to mode='full' with `offset`/`length` once "
+                "you know which part you need.\n"
+                "`sections` is required and must be scoped to what you actually need "
+                "-- there is no 'give me everything' default."
+            ),
             inputSchema={
                 "type": "object",
-                "required": ["ticker"],
+                "required": ["ticker", "sections"],
                 "properties": {
                     "ticker": {
                         "type": "string",
@@ -243,13 +268,15 @@ async def list_tools() -> ListToolsResult:
                     },
                     "sections": {
                         "description": (
-                            "Sections to extract. MUST use one of these exact keywords: "
-                            "'business', 'risk_factors', 'mda', 'financial_statements', 'all'. "
-                            "Do NOT use raw item numbers like 'Item 7' — use 'mda' instead. "
-                            "Can be passed as a single string (e.g. 'mda') or a list of "
-                            "strings (e.g. ['mda', 'risk_factors'])."
+                            "REQUIRED. Sections to extract. MUST use one of these exact "
+                            "keywords: 'business', 'risk_factors', 'mda', "
+                            "'financial_statements', 'all'. Do NOT use raw item numbers "
+                            "like 'Item 7' — use 'mda' instead. Can be passed as a single "
+                            "string (e.g. 'mda') or a list of strings (e.g. ['mda', "
+                            "'risk_factors']). A 10-Q has no 'business' section. Prefer "
+                            "naming the specific section(s) you need over 'all' -- 'all' "
+                            "returns 3-4x the payload."
                         ),
-                        "default": ["all"],
                         "oneOf": [
                             {
                                 "type": "string",
@@ -264,10 +291,50 @@ async def list_tools() -> ListToolsResult:
                             }
                         ]
                     },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["preview", "full"],
+                        "description": (
+                            "'preview' (default): total_chars + a short preview + "
+                            "sub-headings for each section. 'full': the actual section "
+                            "text, sliced by offset/length."
+                        ),
+                        "default": "preview"
+                    },
+                    "preview_chars": {
+                        "type": "integer",
+                        "description": "mode='preview' only: chars of raw preview text to return per section, IN ADDITION to the always-included `digest`/`key_figures` (default: 2000)",
+                        "default": 2000
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": (
+                            "Optional plain-text keyword/phrase to locate inside each "
+                            "requested section (case-insensitive substring search). "
+                            "Works in either mode. Returns whether it was found, its "
+                            "position, and a snippet of context around it -- this is the "
+                            "intended way to jump to a topic (e.g. 'cash flow outlook', "
+                            "'cybersecurity') instead of guessing an offset."
+                        )
+                    },
+                    "query_window": {
+                        "type": "integer",
+                        "description": "Chars of context around a `query` match (default: 3000)",
+                        "default": 3000
+                    },
+                    "offset": {
+                        "type": "integer",
+                        "description": "mode='full' only: character position to start reading from within the section (default: 0)",
+                        "default": 0
+                    },
+                    "length": {
+                        "type": "integer",
+                        "description": "mode='full' only: characters to return starting at offset (default: max_chars)"
+                    },
                     "max_chars": {
                         "type": "integer",
-                        "description": "Max characters per section (default: 8000)",
-                        "default": 8000
+                        "description": "mode='full' only, used when `length` isn't given: max characters to return per section (default: 25000)",
+                        "default": 25000
                     },
                 },
             },
@@ -431,8 +498,26 @@ async def list_tools() -> ListToolsResult:
                     },
                     "max_results": {
                         "type": "integer",
-                        "description": "Max Tavily results (default: 5)",
-                        "default": 5
+                        "description": "Max Tavily results (default: 3)",
+                        "default": 3
+                    },
+                    "filing_mode": {
+                        "type": "string",
+                        "enum": ["preview", "full"],
+                        "description": (
+                            "Passed to sec_edgar_filing. 'preview' (default): compressed "
+                            "total_chars/digest/key_figures/important_excerpts, not the raw "
+                            "section text. 'full': the actual section text."
+                        ),
+                        "default": "preview"
+                    },
+                    "filing_query": {
+                        "type": "string",
+                        "description": (
+                            "Passed to sec_edgar_filing's `query`: a plain keyword/phrase to "
+                            "locate inside the requested filing section, with a snippet of "
+                            "surrounding context. Works regardless of filing_mode."
+                        )
                     },
                 },
             },
@@ -454,10 +539,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             case "tavily_search":
                 result = await tavily_search(
                     query=arguments["query"],
-                    max_results=arguments.get("max_results", 5),
+                    max_results=arguments.get("max_results", 3),
                     search_depth=arguments.get("search_depth", "basic"),
                     include_domains=arguments.get("include_domains"),
                     topic=arguments.get("topic", "finance"),
+                    snippet_chars=arguments.get("snippet_chars", 500),
                 )
 
             case "news_search":
@@ -467,7 +553,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     to_date=arguments.get("to_date"),
                     language=arguments.get("language", "en"),
                     sort_by=arguments.get("sort_by", "relevancy"),
-                    page_size=arguments.get("page_size", 10),
+                    page_size=arguments.get("page_size", 5),
                     exclude_domains=arguments.get("exclude_domains"),
                 )
 
@@ -483,10 +569,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                 result = await sec_edgar_filing(
                     ticker=arguments["ticker"],
                     form_type=arguments.get("form_type") or arguments.get("filing_type") or "10-K",
-                    sections=_normalize_sections(arguments.get("sections", ["all"])),
-                    # Floor the cap: section bodies (esp. MD&A) routinely exceed
-                    # small values, cutting off the R&D / capex discussion.
-                    max_chars=max(arguments.get("max_chars", 25000), 25000),
+                    sections=_normalize_sections(arguments.get("sections")),
+                    mode=arguments.get("mode", "preview"),
+                    preview_chars=arguments.get("preview_chars", 4000),
+                    query=arguments.get("query"),
+                    query_window=arguments.get("query_window", 3000),
+                    offset=arguments.get("offset", 0),
+                    length=arguments.get("length"),
+                    max_chars=arguments.get("max_chars", 25000),
                 )
 
             case "rag_vector_search":
@@ -521,7 +611,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     topic_query=arguments.get("topic_query"),
                     form_type=arguments.get("form_type") or arguments.get("filing_type") or "10-Q",
                     sections=_normalize_sections(arguments.get("sections", ["mda"])),
-                    max_results=arguments.get("max_results", 5),
+                    max_results=arguments.get("max_results", 3),
+                    filing_mode=arguments.get("filing_mode", "preview"),
+                    filing_query=arguments.get("filing_query"),
                 )
 
             case _:

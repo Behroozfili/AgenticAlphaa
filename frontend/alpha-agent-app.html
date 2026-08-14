@@ -322,6 +322,269 @@ function buildGraph() {
   }));
 }
 
+/* ────────────────────────────────────────────────────────────────
+   TOOL-CALL LEAVES  (dynamic tree that grows per external request)
+
+   Each agent_tool_call spawns a small leaf node linked to its parent
+   agent. Up to MAX_LEAVES_PER_AGENT are shown per agent; beyond that a
+   single "+N more" overflow leaf is kept and its counter grows. Leaves
+   persist after completion (dimmed), so the finished run reads as a
+   full tree of everything each agent touched.
+   ──────────────────────────────────────────────────────────────── */
+const MAX_LEAVES_PER_AGENT = 8;
+let leaves = [];          // {id, parentId, label, color, state:'active'|'done'|'error', bornTick, alpha, px,py,vx,vy, r}
+let leafEdges = [];       // {fromNode, toLeaf}
+let overflow = {};        // parentId -> { leaf, count }
+let leafSeq = 0;
+
+function agentLeaves(parentId) {
+  return leaves.filter(l => l.parentId === parentId && !l.isOverflow);
+}
+
+function spawnLeaf(parentId, toolName, color) {
+  const parent = nodes.find(n => n.id === parentId);
+  if (!parent) return null;
+
+  const existing = agentLeaves(parentId);
+  if (existing.length >= MAX_LEAVES_PER_AGENT) {
+    // fold into a single overflow leaf whose counter grows
+    let ov = overflow[parentId];
+    if (!ov) {
+      const leaf = {
+        id: 'leaf-ov-' + parentId, parentId, label: '', color,
+        state: 'done', bornTick: tick, alpha: 0, isOverflow: true,
+        px: parent.px + (Math.random()-.5)*40,
+        py: parent.py + (Math.random()-.5)*40,
+        vx: 0, vy: 0, r: 16,
+      };
+      leaves.push(leaf);
+      leafEdges.push({ fromNode: parent, toLeaf: leaf });
+      ov = overflow[parentId] = { leaf, count: 0 };
+    }
+    ov.count++;
+    ov.leaf.label = '+' + ov.count;
+    ov.leaf.bornTick = tick;
+    return ov.leaf;
+  }
+
+  // spawn near the parent, offset so physics can spread them out
+  const ang = Math.random() * Math.PI * 2;
+  const leaf = {
+    id: 'leaf-' + (++leafSeq), parentId,
+    label: (toolName || 'call').replace(/^tool_get_/, '').replace(/^tool_/, ''),
+    color, state: 'active', bornTick: tick, alpha: 0,
+    px: parent.px + Math.cos(ang) * 70,
+    py: parent.py + Math.sin(ang) * 70,
+    vx: 0, vy: 0, r: 20,
+  };
+  leaves.push(leaf);
+  leafEdges.push({ fromNode: parent, toLeaf: leaf });
+  return leaf;
+}
+
+// Mark the most recent active leaf of an agent as finished (done/error).
+function completeLeaf(parentId, outcome) {
+  const act = agentLeaves(parentId).filter(l => l.state === 'active');
+  const leaf = act[act.length - 1];
+  if (leaf) leaf.state = (outcome === 'error') ? 'error' : 'done';
+}
+
+// Force-directed relaxation: leaves repel each other, springs pull each
+// leaf toward its parent at a rest length. Agents drift upward as their
+// leaf count grows, so the tree has room and labels don't collide.
+function relaxPhysics() {
+  // Dynamic lift: the more leaves an agent has, the higher its anchor rises,
+  // opening vertical room below it for the growing tree.
+  for (const n of nodes) {
+    if (n.id === 'manager') continue;
+    const count = agentLeaves(n.id).length;
+    const baseY = n.y * H;
+    const lift = Math.min(count * 12, H * 0.22);
+    const targetY = baseY - lift;
+    n.py += (targetY - n.py) * 0.05;
+    // financial sits directly under the manager (x=.5); as it lifts, nudge it
+    // sideways so it doesn't rise straight into the manager circle.
+    let targetX = n.x * W;
+    if (n.id === 'financial') targetX = n.x * W - Math.min(count * 10, W * 0.12);
+    n.px += (targetX - n.px) * 0.04;
+  }
+
+  // Repulsion between the main nodes (manager + agents) so a lifting agent
+  // never overlaps the manager or a sibling. Manager is heavier (moves less).
+  for (let i = 0; i < nodes.length; i++) {
+    for (let j = i + 1; j < nodes.length; j++) {
+      const a = nodes[i], b = nodes[j];
+      const dx = a.px - b.px, dy = a.py - b.py;
+      const d = Math.hypot(dx, dy) || 0.01;
+      const minGap = a.r + b.r + 46;          // required clear space
+      if (d < minGap) {
+        const push = (minGap - d);
+        const ux = dx / d, uy = dy / d;
+        // manager barely budges; agents give way
+        const aW = a.id === 'manager' ? 0.15 : 0.6;
+        const bW = b.id === 'manager' ? 0.15 : 0.6;
+        a.px += ux * push * aW; a.py += uy * push * aW;
+        b.px -= ux * push * bW; b.py -= uy * push * bW;
+      }
+    }
+  }
+  // keep agents on-canvas
+  for (const n of nodes) {
+    n.px = Math.max(n.r + 8, Math.min(W - n.r - 8, n.px));
+    n.py = Math.max(n.r + 8, Math.min(H - n.r - 8, n.py));
+  }
+
+  // spring: leaf → parent
+  for (const le of leafEdges) {
+    const p = le.fromNode, l = le.toLeaf;
+    const dx = l.px - p.px, dy = l.py - p.py;
+    const dist = Math.hypot(dx, dy) || 0.01;
+    const rest = 95;
+    const k = 0.014;
+    const f = (dist - rest) * k;
+    const ux = dx / dist, uy = dy / dist;
+    l.vx -= ux * f; l.vy -= uy * f;
+    l.vy += 0.06;
+  }
+  // repulsion between leaves (and from their own agents)
+  for (let i = 0; i < leaves.length; i++) {
+    const a = leaves[i];
+    for (let j = i + 1; j < leaves.length; j++) {
+      const b = leaves[j];
+      const dx = a.px - b.px, dy = a.py - b.py;
+      const d2 = dx*dx + dy*dy || 1;
+      if (d2 < 22000) {
+        const force = 900 / d2;
+        const d = Math.sqrt(d2);
+        const ux = dx / d, uy = dy / d;
+        a.vx += ux * force; a.vy += uy * force;
+        b.vx -= ux * force; b.vy -= uy * force;
+      }
+    }
+    // push leaves off every agent node so they don't overlap the circles
+    for (const n of nodes) {
+      const dx = a.px - n.px, dy = a.py - n.py;
+      const d2 = dx*dx + dy*dy || 1;
+      const min = (n.r + a.r + 16);
+      if (d2 < min*min) {
+        const d = Math.sqrt(d2);
+        const ux = dx / d, uy = dy / d;
+        const push = (min - d) * 0.5;
+        a.px += ux * push; a.py += uy * push;
+      }
+    }
+  }
+  // integrate + damping + keep on-canvas
+  for (const l of leaves) {
+    l.vx *= 0.82; l.vy *= 0.82;
+    l.px += l.vx; l.py += l.vy;
+    l.px = Math.max(l.r+4, Math.min(W - l.r-4, l.px));
+    l.py = Math.max(l.r+4, Math.min(H - l.r-4, l.py));
+    // fade in; dim once finished
+    const target = l.state === 'active' ? 1 : 0.42;
+    l.alpha += (target - l.alpha) * 0.08;
+  }
+}
+
+function drawLeafEdge(le) {
+  const p = le.fromNode, l = le.toLeaf;
+  const dx = l.px - p.px, dy = l.py - p.py;
+  const len = Math.hypot(dx, dy) || 0.01;
+  const ux = dx / len, uy = dy / len;
+  const nx = -uy, ny = ux;                 // perpendicular
+  // control point for a gentle curve (bow the tunnel sideways)
+  const cx = (p.px + l.px)/2 + nx * len * 0.18;
+  const cy = (p.py + l.py)/2 + ny * len * 0.18;
+  const bez = (t) => {
+    const mt = 1 - t;
+    return {
+      x: mt*mt*p.px + 2*mt*t*cx + t*t*l.px,
+      y: mt*mt*p.py + 2*mt*t*cy + t*t*l.py,
+    };
+  };
+
+  if (l.state === 'active') {
+    // OPEN TUNNEL — a live, glowing curved channel with flowing pulses while
+    // the request is in flight. Closes (stops flowing) once it completes.
+    const halfW = 6;
+
+    // channel walls (two offset curves)
+    for (const side of [halfW, -halfW]) {
+      ctx.beginPath();
+      ctx.moveTo(p.px + nx*side, p.py + ny*side);
+      ctx.quadraticCurveTo(cx + nx*side, cy + ny*side, l.px + nx*side, l.py + ny*side);
+      ctx.strokeStyle = hexAlpha(l.color, 0.4);
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    }
+    // soft channel glow (thick translucent curve)
+    ctx.beginPath();
+    ctx.moveTo(p.px, p.py);
+    ctx.quadraticCurveTo(cx, cy, l.px, l.py);
+    ctx.strokeStyle = hexAlpha(l.color, 0.12);
+    ctx.lineWidth = halfW * 2;
+    ctx.stroke();
+
+    // flowing pulses along the curve
+    const nPulses = Math.max(2, Math.floor(len / 34));
+    for (let i = 0; i < nPulses; i++) {
+      const t = ((tick * 0.016) + i / nPulses) % 1;
+      const pt = bez(t);
+      const fade = Math.sin(t * Math.PI);
+      const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, 8);
+      g.addColorStop(0, hexAlpha(l.color, 0.95 * fade));
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 8, 0, Math.PI*2); ctx.fillStyle = g; ctx.fill();
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 2.4, 0, Math.PI*2); ctx.fillStyle = hexAlpha(l.color, fade); ctx.fill();
+    }
+  } else {
+    // CLOSED — request finished: a calm, dim static curve.
+    ctx.beginPath();
+    ctx.moveTo(p.px, p.py);
+    ctx.quadraticCurveTo(cx, cy, l.px, l.py);
+    ctx.strokeStyle = hexAlpha(l.color, 0.16 * (l.alpha / 0.42));
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  }
+}
+
+function drawLeaf(l) {
+  const x = l.px, y = l.py, r = l.r;
+  const active = l.state === 'active';
+
+  if (active) {
+    const pr = r + 4 + Math.sin(tick*.1)*2.5;
+    const g = ctx.createRadialGradient(x,y,r,x,y,pr+4);
+    g.addColorStop(0, hexAlpha(l.color,.22));
+    g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.beginPath();ctx.arc(x,y,pr+4,0,Math.PI*2);ctx.fillStyle=g;ctx.fill();
+  }
+
+  ctx.globalAlpha = Math.max(0, Math.min(1, l.alpha));
+
+  // fill
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.fillStyle = active ? hexAlpha(l.color,.16) : 'rgba(12,15,29,0.85)';
+  ctx.fill();
+
+  // border — green done, red error, agent-color while active
+  ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);
+  ctx.strokeStyle = active ? hexAlpha(l.color,.8)
+                  : l.state === 'error' ? 'rgba(240,96,128,.55)'
+                  : 'rgba(45,212,160,.4)';
+  ctx.lineWidth = active ? 1.6 : 1;
+  ctx.stroke();
+
+  // label
+  ctx.font = `600 ${l.isOverflow ? 12 : 9}px 'JetBrains Mono',monospace`;
+  ctx.fillStyle = active ? '#fff' : 'rgba(255,255,255,.6)';
+  ctx.textAlign='center';ctx.textBaseline='middle';
+  const txt = l.isOverflow ? l.label : (l.label.length > 11 ? l.label.slice(0,10)+'…' : l.label);
+  ctx.fillText(txt, x, y);
+
+  ctx.globalAlpha = 1;
+}
+
 // Packets flowing along edges
 function spawnPacket(edgeId, color) {
   const e = edges[edgeId];
@@ -347,6 +610,9 @@ function triggerRunAnimation() {
   runTimer = 0;
   nodes.forEach(n => { n.active = false; n.done = false; n.errored = false; n.pulse = 0; });
   packets = [];
+  leaves = [];
+  leafEdges = [];
+  overflow = {};
 }
 
 // No-op: the pipeline is now driven entirely by real SSE events via
@@ -368,12 +634,43 @@ function drawEdge(e) {
   // slight curve
   const cx=(sx+ex)/2-ny*30, cy=(sy+ey)/2+nx*30;
 
+  if (active) {
+    // LIVE TUNNEL between agents — curved channel, colored by the source
+    // agent, with pulses flowing while the dispatch/return is in flight.
+    const bez = (u) => {
+      const mu = 1 - u;
+      return { x: mu*mu*sx + 2*mu*u*cx + u*u*ex, y: mu*mu*sy + 2*mu*u*cy + u*u*ey };
+    };
+    ctx.beginPath();
+    ctx.moveTo(sx,sy); ctx.quadraticCurveTo(cx,cy,ex,ey);
+    ctx.strokeStyle = hexAlpha(f.color, 0.14);
+    ctx.lineWidth = 10; ctx.stroke();
+
+    ctx.beginPath();
+    ctx.moveTo(sx,sy); ctx.quadraticCurveTo(cx,cy,ex,ey);
+    ctx.strokeStyle = hexAlpha(f.color, 0.5);
+    ctx.lineWidth = 1.4; ctx.stroke();
+
+    const nP = Math.max(3, Math.floor(len / 40));
+    for (let i = 0; i < nP; i++) {
+      const u = ((tick * 0.014) + i / nP) % 1;
+      const pt = bez(u);
+      const fade = Math.sin(u * Math.PI);
+      const g = ctx.createRadialGradient(pt.x, pt.y, 0, pt.x, pt.y, 9);
+      g.addColorStop(0, hexAlpha(f.color, 0.95 * fade));
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 9, 0, Math.PI*2); ctx.fillStyle = g; ctx.fill();
+      ctx.beginPath(); ctx.arc(pt.x, pt.y, 2.6, 0, Math.PI*2); ctx.fillStyle = hexAlpha(f.color, fade); ctx.fill();
+    }
+    return;
+  }
+
   ctx.beginPath();
   ctx.moveTo(sx,sy);
   ctx.quadraticCurveTo(cx,cy,ex,ey);
-  ctx.strokeStyle = active ? hexAlpha(f.color,.35) : hexAlpha(f.color,.12);
-  ctx.lineWidth = active ? 1.5 : 1;
-  ctx.setLineDash(active ? [] : [4,6]);
+  ctx.strokeStyle = hexAlpha(f.color,.12);
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4,6]);
   ctx.stroke();
   ctx.setLineDash([]);
 
@@ -385,7 +682,7 @@ function drawEdge(e) {
   ctx.lineTo(ex - al*Math.cos(angle-.45), ey - al*Math.sin(angle-.45));
   ctx.lineTo(ex - al*Math.cos(angle+.45), ey - al*Math.sin(angle+.45));
   ctx.closePath();
-  ctx.fillStyle = active ? hexAlpha(f.color,.5) : hexAlpha(f.color,.2);
+  ctx.fillStyle = hexAlpha(f.color,.2);
   ctx.fill();
 }
 
@@ -497,6 +794,11 @@ function frame() {
 
   // draw edges
   edges.forEach(drawEdge);
+
+  // tool-call tree: physics + edges + leaves (under the agent circles)
+  relaxPhysics();
+  leafEdges.forEach(drawLeafEdge);
+  leaves.forEach(drawLeaf);
 
   // update + draw packets
   packets = packets.filter(p => p.t < 1);
@@ -778,6 +1080,42 @@ function findEdgeIndex(from, to) {
 
 const AGENT_COLOR = { manager: '#6382FF', research: '#A78BFA', financial: '#F5A623', sentiment: '#2DD4A0' };
 
+/* ────────────────────────────────────────────────────────────────
+   DEMO DRIVER — preview the growing tool-call tree with no backend.
+   Open the browser console and run:  runTreeDemo()
+   It emits synthetic progress events (the same shape core/progress_bus.py
+   sends) so you can see leaves spawn, complete, dim, and overflow.
+   ──────────────────────────────────────────────────────────────── */
+function runTreeDemo() {
+  triggerRunAnimation();
+  startClock && startClock();
+  const emit = (e) => handleProgressEvent({ ts: Date.now()/1000, ...e });
+  const tools = {
+    research:  ['tavily_search','sec_edgar_search','sec_edgar_filing','rag_vector_search','rag_hybrid_query','news_search','rag_graph_traverse','tavily_search','sec_edgar_filing','news_search'],
+    financial: ['tool_get_financial_ratios','tool_get_revenue_growth','tool_get_xbrl_financials','tool_get_balance_sheet_snapshot','tool_get_peer_comparison'],
+    sentiment: ['finbert_infer','vader_score','fear_greed_calc','news_fetch','finbert_infer','vader_score'],
+  };
+  let delay = 0;
+  const step = 900;
+  emit({ type:'pipeline_start', agent:'manager', message:'Pipeline started' });
+  for (const agent of ['research','financial','sentiment']) {
+    delay += step;
+    setTimeout(() => emit({ type:'dispatch_start', agent, message:`Dispatching ${agent}` }), delay);
+    tools[agent].forEach((tool) => {
+      delay += step;
+      const d1 = delay;
+      setTimeout(() => emit({ type:'agent_tool_call', agent, message:`calling ${tool}`, detail:{ tool } }), d1);
+      const outcome = Math.random() < 0.15 ? 'error' : 'success';
+      setTimeout(() => emit({ type:'agent_tool_result', agent, message:`${tool} ${outcome}`, detail:{ tool, outcome } }), d1 + step*0.6);
+    });
+    delay += step;
+    setTimeout(() => emit({ type:'dispatch_end', agent, message:`${agent} complete`, detail:{ outcome:'success' } }), delay);
+  }
+  delay += step;
+  setTimeout(() => emit({ type:'pipeline_complete', agent:'manager', message:'Analysis complete' }), delay);
+}
+window.runTreeDemo = runTreeDemo;
+
 // Maps a single event pushed by core/progress_bus.py (see manager_agent.py /
 // research_agent.py / financial_agent.py / sentiment_agent.py instrumentation)
 // into the existing graph/rail/bubble visual primitives, plus a persistent
@@ -808,9 +1146,7 @@ function handleProgressEvent(evt) {
       if (n) { n.active = true; n.done = false; }
       const idx = findEdgeIndex('manager', agent);
       if (idx >= 0) {
-        spawnPacket(idx, AGENT_COLOR[agent]);
-        edges[idx].active = true;
-        setTimeout(() => { edges[idx].active = false; }, 2500);
+        edges[idx].active = true;   // tunnel stays open until dispatch_end
       }
       showBubble('manager', message);
       break;
@@ -825,14 +1161,23 @@ function handleProgressEvent(evt) {
         const suffix = detail.outcome === 'error' ? ' ✗' : (detail.outcome === 'success' ? ' ✓' : '…');
         setAgentDetail(agent, detail.tool + suffix);
       }
+      // Grow the tool-call tree: a call spawns a leaf, a result finishes it.
+      if (type === 'agent_tool_call' && detail?.tool) {
+        spawnLeaf(agent, detail.tool, AGENT_COLOR[agent] || '#6382FF');
+      } else if (type === 'agent_tool_result' && detail?.tool) {
+        completeLeaf(agent, detail.outcome);
+      }
       break;
 
     case 'dispatch_end': {
+      // close the outgoing tunnel
+      const outIdx = findEdgeIndex('manager', agent);
+      if (outIdx >= 0) edges[outIdx].active = false;
+      // open the return tunnel briefly to show results flowing back
       const idx = findEdgeIndex(agent, 'manager');
       if (idx >= 0) {
-        spawnPacket(idx, AGENT_COLOR[agent]);
         edges[idx].active = true;
-        setTimeout(() => { edges[idx].active = false; }, 2500);
+        setTimeout(() => { edges[idx].active = false; }, 2600);
       }
       const n = nodes.find(x => x.id === agent);
       if (detail?.outcome === 'error') {

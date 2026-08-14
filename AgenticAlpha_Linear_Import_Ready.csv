@@ -1,0 +1,674 @@
+Title,Description,Priority,Status,Assignee,Labels,Estimate
+agents/state.py — Define shared state contracts,"**Module/Path:** agents/state.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Define SharedManagerState, ResearchAgentState, FinancialAgentState, SentimentAgentState, EvaluationSnapshot and ManagerGraphState as TypedDicts, establishing the single source of truth for cross-agent and per-agent state. Each SharedManagerState field is owned by exactly one agent.
+
+**Dependencies:** Python typing
+
+**Notes/Debt**
+No runtime validation on TypedDicts — a bad write from an agent would only surface downstream. Consider Pydantic models if stricter contracts are needed later.",High,Done,Behrooz,"Python typing, Moderate",
+"ManagerAgent.__init__ — Wire agents, memory, and compile graph","**Module/Path:** agents/manager_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Store injected research/financial/sentiment agents and ManagerMemory, build the agent registry, instantiate AsyncAnthropic client, and compile the LangGraph state machine at construction time.
+
+**Dependencies:** LangGraph, Anthropic SDK",High,Done,Behrooz,"LangGraph, Moderate",
+ManagerAgent._hydrate_state — Initialize SharedManagerState,"**Module/Path:** agents/manager_agent.py
+**Complexity:** Easy
+
+**Function Purpose**
+Build a fresh SharedManagerState with all contract fields empty at the start of a run.",Medium,Done,Behrooz,Easy,
+ManagerAgent._recall — Pull memory context for routing/eval,"**Module/Path:** agents/manager_agent.py
+**Complexity:** Easy
+
+**Function Purpose**
+Fetch short-term + long-term recall context for a given ticker to inform routing and evaluation prompts.
+
+**Dependencies:** ManagerMemory",Medium,Done,Behrooz,"ManagerMemory, Easy",
+ManagerAgent._brain_route — Brain pass 1 (routing decision),"**Module/Path:** agents/manager_agent.py
+**Complexity:** Hard
+
+**Function Purpose**
+Ask Claude to choose the next of 8 routing actions given current state and memory context; falls back to a deterministic R→F→S→finalise chain if the API call fails.
+
+**Dependencies:** Anthropic Claude, Sentry, ManagerMemory
+
+**Notes/Debt**
+Fallback path is exercised by chaos tests but has limited unit coverage of edge cases (e.g. partial JSON from the model).",High,Done,Behrooz,"Anthropic Claude, Hard",
+ManagerAgent._brain_evaluate — Brain pass 2 (quality gate),"**Module/Path:** agents/manager_agent.py
+**Complexity:** Hard
+
+**Function Purpose**
+Grade the last dispatched agent's output on a 0-100 scale with a pass/fail verdict and next-action suggestion; on LLM failure, falls back to passed=True, score=50 to avoid stalling the pipeline.
+
+**Dependencies:** Anthropic Claude, Sentry
+
+**Notes/Debt**
+Known risk: the score=50 fallback can silently advance a genuinely low-quality output. Flagged for follow-up — see 'Improve LLM evaluator failure handling' ticket.",High,Done,Behrooz,"Anthropic Claude, Hard",
+ManagerAgent._brain_finalise — Brain pass 3 (report synthesis),"**Module/Path:** agents/manager_agent.py
+**Complexity:** Hard
+
+**Function Purpose**
+Synthesize the final 400-600 word investment report from research/financial/sentiment summaries, applying fair per-section and per-article character budgeting so no single source starves the prompt.
+
+**Dependencies:** Anthropic Claude",High,Done,Behrooz,"Anthropic Claude, Hard",
+_format_filing_chunk_fairly / _format_news_chunk_fairly — Fair budgeting helpers,"**Module/Path:** agents/manager_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Give each SEC filing section and each news article its own character budget instead of a flat truncation, so large sections/articles don't crowd out smaller ones in the finalise prompt.
+
+**Dependencies:** json",Medium,Done,Behrooz,"json, Moderate",
+ManagerAgent._dispatch — Route work to a specialist agent,"**Module/Path:** agents/manager_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Call the correct specialist agent's run(), await its result, record timing/outcome in memory, and publish progress events.
+
+**Dependencies:** ResearchAgent, FinancialAnalystAgent, SentimentAgent, ManagerMemory, progress_bus",High,Done,Behrooz,"ResearchAgent, Moderate",
+ManagerAgent._persist — Write execution outcomes to memory,"**Module/Path:** agents/manager_agent.py
+**Complexity:** Easy
+
+**Function Purpose**
+Persist operational heuristics and ticker insights into memory after each dispatch step.
+
+**Dependencies:** ManagerMemory",Medium,Done,Behrooz,"ManagerMemory, Easy",
+ManagerAgent — LangGraph node wiring (_node_hydrate..._node_abort),"**Module/Path:** agents/manager_agent.py
+**Complexity:** Hard
+
+**Function Purpose**
+Implement the 7 LangGraph node wrappers (hydrate, brain_route, dispatch, evaluate, persist, finalise, abort) and the two conditional edge functions that route between them.
+
+**Dependencies:** LangGraph
+
+**Notes/Debt**
+DC-5: fixed a rerun-mislabeling bug where the evaluator could force a rerun of the wrong agent; regression test added.",High,Done,Behrooz,"LangGraph, Hard",
+ManagerAgent._build_graph + run() — Compile and expose entry point,"**Module/Path:** agents/manager_agent.py
+**Complexity:** Hard
+
+**Function Purpose**
+Wire all 7 nodes and conditional edges into a compiled StateGraph; run() seeds session/memory and invokes the graph with a recursion limit sized to max_routing_loops.
+
+**Dependencies:** LangGraph, ManagerMemory, progress_bus",High,Done,Behrooz,"LangGraph, Hard",
+ResearchAgent.__init__ + _build_graph — Init and compile 3-node graph,"**Module/Path:** agents/research_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Initialize the sync Anthropic client (wrapped in asyncio.to_thread) and MCP server params; compile the brain→executor→checker LangGraph with its conditional loop-back edge.
+
+**Dependencies:** Anthropic SDK, LangGraph, MCP",High,Done,Behrooz,"Anthropic SDK, Moderate",
+ResearchAgent._brain_node — Planner (1-3 tool JSON plan),"**Module/Path:** agents/research_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Ask Claude to produce a JSON action plan selecting 1-3 of the 8 available research tools for the current query state.
+
+**Dependencies:** Anthropic Claude, progress_bus",High,Done,Behrooz,"Anthropic Claude, Moderate",
+ResearchAgent._executor_node — Run planned MCP tool calls,"**Module/Path:** agents/research_agent.py
+**Complexity:** Hard
+
+**Function Purpose**
+Open a stdio MCP session to research_server.py, execute each planned tool call with per-tool try/except, and append labelled result chunks to state.
+
+**Dependencies:** MCP, Sentry",High,Done,Behrooz,"MCP, Hard",
+ResearchAgent._checker_node — Completeness audit,"**Module/Path:** agents/research_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Have Claude audit whether accumulated context chunks are sufficient to answer the query, applying per-chunk budgeting; sets is_complete and loop feedback.
+
+**Dependencies:** Anthropic Claude, progress_bus",High,Done,Behrooz,"Anthropic Claude, Moderate",
+_parse_plan / _format_tool_result / _ensure_ticker_argument — Plan & tool-arg helpers,"**Module/Path:** agents/research_agent.py
+**Complexity:** Easy
+
+**Function Purpose**
+Strip markdown fences and extract the actions array from the Brain's plan text; format raw MCP results into labelled LLM-friendly chunks; inject a missing ticker argument defensively when the Brain omits it for a ticker-scoped tool.
+
+**Dependencies:** json",Medium,Done,Behrooz,"json, Easy",
+ResearchAgent.run — Public gateway + context synthesis,"**Module/Path:** agents/research_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Hydrate private research state, run the internal graph (max 3 loops), synthesize a compressed summary via context_synthesizer, and append chunks to aggregated_research_context.
+
+**Dependencies:** context_synthesizer, LangGraph",High,Done,Behrooz,"context_synthesizer, Moderate",
+FinancialAnalystAgent.__init__ — Init LLM + MCP session config,"**Module/Path:** agents/financial_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Configure the LLM client, model, max_loops, and long-lived MCP session parameters for financial_server.py.
+
+**Dependencies:** Anthropic SDK, MCP",High,Done,Behrooz,"Anthropic SDK, Moderate",
+FinancialAnalystAgent._extract_ticker — Resolve ticker from query/directives,"**Module/Path:** agents/financial_agent.py
+**Complexity:** Easy
+
+**Function Purpose**
+Resolve the target ticker from manager directives first, falling back to a regex scan of the task query.
+
+**Dependencies:** re",Medium,Done,Behrooz,"re, Easy",
+FinancialAnalystAgent._execute_data_extraction — Layer 1a-c (raw data pull),"**Module/Path:** agents/financial_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Call Yahoo Finance ratios, revenue growth, SEC XBRL financials, and peer comparison via MCP tools; collect results into raw_numerical_data.
+
+**Dependencies:** MCP financial tools, Sentry, _infer_peers
+
+**Notes/Debt**
+get_peer_comparison's auto-peer inference is broken (fetches recommendations then discards it); worked around with a static _INDUSTRY_PEERS map. See dedicated fix ticket.",High,Done,Behrooz,"MCP financial tools, Moderate",
+FinancialAnalystAgent._execute_ratio_computation — Layer 1d (ratio math),"**Module/Path:** agents/financial_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Call the MCP ratio-calculator tools (P/E, ROE, margins, CAGR, DCF, composite score) and tag each result with its reporting period for later provenance checks.
+
+**Dependencies:** MCP calc tools
+
+**Notes/Debt**
+DC-series comment history documents past current_ratio/de_ratio sub-score misattribution bugs; now covered by regression tests.",High,Done,Behrooz,"MCP calc tools, Moderate",
+FinancialAnalystAgent._check_data_quality — Layer 2 (7-criterion checker),"**Module/Path:** agents/financial_agent.py
+**Complexity:** Hard
+
+**Function Purpose**
+Claude audits the extracted/computed data against 7 quality criteria, returning is_complete and structured feedback.
+
+**Dependencies:** Anthropic Claude",High,Done,Behrooz,"Anthropic Claude, Hard",
+FinancialAnalystAgent._brain — Layer 3 (iteration planning),"**Module/Path:** agents/financial_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Claude plans the next iteration's priority tools when the checker flags the data as incomplete.
+
+**Dependencies:** Anthropic Claude",High,Done,Behrooz,"Anthropic Claude, Moderate",
+FinancialAnalystAgent.run — Entry point / loop driver,"**Module/Path:** agents/financial_agent.py
+**Complexity:** Hard
+
+**Function Purpose**
+Drive the Brain→Executors→Checker loop up to max_loops and commit financial_metrics_summary to shared state.
+
+**Dependencies:** MCP, progress_bus, all layer methods",High,Done,Behrooz,"MCP, Hard",
+_infer_peers / _sanitize_nans — Financial agent utility helpers,"**Module/Path:** agents/financial_agent.py
+**Complexity:** Easy
+
+**Function Purpose**
+Look up static peer tickers by industry/sector (excluding self, capped at 5); recursively replace NaN/inf floats with None so ratio results are JSON-safe.
+
+**Dependencies:** math",Low,Done,Behrooz,"math, Easy",
+SentimentAgent.__init__ — Init LLM + MCP server config,"**Module/Path:** agents/sentiment_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Configure the LLM client, model, max_loops, and sentiment_server.py MCP session path.
+
+**Dependencies:** Anthropic SDK, MCP",High,Done,Behrooz,"Anthropic SDK, Moderate",
+SentimentAgent._extract_ticker — Resolve ticker (directives → financial summary → regex),"**Module/Path:** agents/sentiment_agent.py
+**Complexity:** Easy
+
+**Function Purpose**
+Resolve the ticker from manager directives, then financial_metrics_summary, then a regex scan of the query as a last resort.
+
+**Dependencies:** re",Medium,Done,Behrooz,"re, Easy",
+SentimentAgent._brain_plan — Brain pass 1 (retrieval query planning),"**Module/Path:** agents/sentiment_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Claude produces a structured retrieval_query/ticker/days_back plan with reasoning for the sentiment data pull.
+
+**Dependencies:** Anthropic Claude",High,Done,Behrooz,"Anthropic Claude, Moderate",
+SentimentAgent._execute_sentiment_pipeline — retrieve→FinBERT→VADER→Fear/Greed,"**Module/Path:** agents/sentiment_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Sequentially call the 4 sentiment MCP tools and assemble their outputs into agent state, capturing per-tool errors without aborting the run.
+
+**Dependencies:** MCP sentiment tools",High,Done,Behrooz,"MCP sentiment tools, Moderate",
+SentimentAgent._brain_analyze — Brain pass 2 (narrative synthesis),"**Module/Path:** agents/sentiment_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Claude synthesizes a narrative verdict (conviction, risk flags, model agreement) from the FinBERT/VADER/Fear-Greed signals.
+
+**Dependencies:** Anthropic Claude",High,Done,Behrooz,"Anthropic Claude, Moderate",
+SentimentAgent.run — Entry point (plan→execute→analyze),"**Module/Path:** agents/sentiment_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Drive plan→execute→analyze, retrying the execute step once if zero chunks were retrieved (max_loops=2), and commit sentiment_analysis_summary.
+
+**Dependencies:** MCP, progress_bus",High,Done,Behrooz,"MCP, Moderate",
+api/main.py — FastAPI lifespan (startup singleton wiring),"**Module/Path:** api/main.py
+**Complexity:** Hard
+
+**Function Purpose**
+Validate settings, initialize Sentry/LangSmith, connect the Supabase client, instantiate all agents and ManagerMemory, and compile ManagerAgent onto app.state at process startup.
+
+**Dependencies:** FastAPI, Supabase, Sentry, LangSmith, all agents",High,Done,Behrooz,"FastAPI, Hard",
+api/main.py — Global exception handlers,"**Module/Path:** api/main.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Convert AlphaAgentError subclasses into structured JSON responses with trace_id; catch-all handler hides internal detail in production and still emits a trace_id.
+
+**Dependencies:** Sentry",High,Done,Behrooz,"Sentry, Moderate",
+api/main.py — health / readiness / index routes,"**Module/Path:** api/main.py
+**Complexity:** Easy
+
+**Function Purpose**
+Liveness probe, a Supabase-backed readiness probe, and serving the single-page frontend at GET /.
+
+**Dependencies:** Supabase",Medium,Done,Behrooz,"Supabase, Easy",
+api/config.py — Settings + startup validation,"**Module/Path:** api/config.py
+**Complexity:** Easy
+
+**Function Purpose**
+Env-driven Pydantic settings (Anthropic/Supabase keys, APP_ENV, MAX_ROUTING_LOOPS, LOG_LEVEL, ALLOWED_ORIGINS) with a lru_cache singleton and fail-fast validation of required vars.
+
+**Dependencies:** pydantic-settings",High,Done,Behrooz,"pydantic-settings, Easy",
+"api/dependencies.py — Per-request DI (user id, ManagerMemory)","**Module/Path:** api/dependencies.py
+**Complexity:** Easy
+
+**Function Purpose**
+Resolve user id from header/default, and construct a per-request, user-scoped ManagerMemory using the shared Supabase client.
+
+**Dependencies:** ManagerMemory",Medium,Done,Behrooz,"ManagerMemory, Easy",
+api/routes/analyze.py — Request/response models + validators,"**Module/Path:** api/routes/analyze.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Define AnalyzeRequest/AnalyzeResponse Pydantic models with ticker uppercasing/format validation and search_depth restriction.
+
+**Dependencies:** pydantic",High,Done,Behrooz,"pydantic, Moderate",
+api/routes/analyze.py — analyze() endpoint + persistence,"**Module/Path:** api/routes/analyze.py
+**Complexity:** Moderate
+
+**Function Purpose**
+POST /api/v1/analyze: build directives, run ManagerAgent.run, fire-and-forget persist to Supabase, return the structured report.
+
+**Dependencies:** ManagerAgent, Supabase, Sentry
+
+**Notes/Debt**
+_persist_analysis never raises on failure — a failed insert is logged only, so an analysis result can silently fail to save. See 'Add retry/durability for analysis persistence' ticket.",High,Done,Behrooz,"ManagerAgent, Moderate",
+api/routes/progress.py — SSE progress stream,"**Module/Path:** api/routes/progress.py
+**Complexity:** Moderate
+
+**Function Purpose**
+GET /api/v1/analyze/stream/{session_id}: stream progress events over SSE with a 15s heartbeat, closing on pipeline_complete/pipeline_error.
+
+**Dependencies:** progress_bus",Medium,Done,Behrooz,"progress_bus, Moderate",
+api/core/exceptions.py — AlphaAgentError hierarchy,"**Module/Path:** api/core/exceptions.py
+**Complexity:** Easy
+
+**Function Purpose**
+Base error type with message/code/detail/auto trace_id plus 6 typed subclasses mapped to appropriate HTTP status codes.",High,Done,Behrooz,Easy,
+core/observability.py — Sentry + LangSmith bootstrap,"**Module/Path:** core/observability.py
+**Complexity:** Easy
+
+**Function Purpose**
+Idempotently initialize Sentry (if SENTRY_DSN set) and LangSmith tracing env vars (if LANGSMITH_API_KEY set); expose enabled-state guards used before every capture/trace call.
+
+**Dependencies:** Sentry SDK, LangSmith",Medium,Done,Behrooz,"Sentry SDK, Easy",
+core/progress_bus.py — In-process pub/sub for SSE events,"**Module/Path:** core/progress_bus.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Per-session asyncio.Queue (cap 300, drop-on-full) with publish/subscribe/close primitives backing the progress SSE stream.
+
+**Dependencies:** asyncio
+
+**Notes/Debt**
+Won't survive a multi-worker deployment — documented as needing a Redis/broker-backed replacement before horizontal scaling.",Medium,Done,Behrooz,"asyncio, Moderate",
+core/error_handler.py — Reusable error-reporting decorator,"**Module/Path:** core/error_handler.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Decorator and sync/async context managers that wrap functions with Sentry breadcrumbs + capture on exception, with a serialization-safe kwargs subset for breadcrumb data.
+
+**Dependencies:** Sentry SDK
+
+**Notes/Debt**
+A stray _executor_node example at module scope looks like leftover illustrative/demo code — should be removed or moved to docs.",Medium,Done,Behrooz,"Sentry SDK, Moderate",
+memory/manager_memory.py — ShortTermMemory (session-scoped),"**Module/Path:** memory/manager_memory.py
+**Complexity:** Moderate
+
+**Function Purpose**
+FIFO message buffer (cap 50), dispatch log, and evaluation log for the current session, serializable to a context dict for LLM prompts.",High,Done,Behrooz,Moderate,
+memory/manager_memory.py — LongTermMemory (Supabase-backed),"**Module/Path:** memory/manager_memory.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Cross-session heuristics (cap 100), per-ticker insights (cap 200), and user preferences, loaded from and UPSERTed to the long_term_memory Supabase table.
+
+**Dependencies:** Supabase",High,Done,Behrooz,"Supabase, Moderate",
+memory/manager_memory.py — ManagerMemory facade,"**Module/Path:** memory/manager_memory.py
+**Complexity:** Easy
+
+**Function Purpose**
+Compose ShortTermMemory + LongTermMemory behind one interface; proxy methods for message/dispatch/eval/heuristic/preference operations.
+
+**Dependencies:** ShortTermMemory, LongTermMemory",Medium,Done,Behrooz,"ShortTermMemory, Easy",
+rag/ingestion.py — 5-stage ETL orchestrator,"**Module/Path:** rag/ingestion.py
+**Complexity:** Hard
+
+**Function Purpose**
+run_ingestion_pipeline: Load → Process → Embed → Vector upsert → (optional) Graph upsert, with the graph stage gated on vector-upsert success.
+
+**Dependencies:** AlphaLoader, AlphaProcessor, AlphaEmbedder, AlphaVectorStore, AlphaGraphStore",High,Done,Behrooz,"AlphaLoader, Hard",
+rag/seed.py — CLI ingestion entry point,"**Module/Path:** rag/seed.py
+**Complexity:** Easy
+
+**Function Purpose**
+Command-line entry point that triggers the ingestion pipeline for a given ticker list.
+
+**Dependencies:** rag/ingestion.py",Low,Done,Behrooz,"rag/ingestion.py, Easy",
+rag/loader.py — AlphaLoader (yfinance news + Reddit RSS),"**Module/Path:** rag/loader.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Fetch and normalize yfinance news and Reddit RSS documents per ticker, with per-source circuit breakers and UTC ISO-8601 timestamp normalization.
+
+**Dependencies:** yfinance, feedparser",High,Done,Behrooz,"yfinance, Moderate",
+rag/processor.py — AlphaProcessor (chunking + dedup),"**Module/Path:** rag/processor.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Recursive-character chunking of loaded documents with SHA-256 content hashing and per-URL hash tracking to dedupe near-identical content before embedding.
+
+**Dependencies:** langchain text splitter",High,Done,Behrooz,"langchain text splitter, Moderate",
+rag/embedding_manager.py — AlphaEmbedder singleton,"**Module/Path:** rag/embedding_manager.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Process-wide bge-small-en-v1.5 embedding singleton with CUDA→MPS→CPU device selection, batched L2-normalized encoding, and GPU-OOM→CPU retry.
+
+**Dependencies:** sentence-transformers, torch",High,Done,Behrooz,"sentence-transformers, Moderate",
+rag/vector_store.py — AlphaVectorStore (pgvector),"**Module/Path:** rag/vector_store.py
+**Complexity:** Moderate
+
+**Function Purpose**
+UPSERT embedding records into Supabase pgvector keyed by chunk id; hybrid_search wraps the alpha_hybrid_search RPC (vector + full-text, RRF fusion).
+
+**Dependencies:** Supabase, pgvector
+
+**Notes/Debt**
+alpha_hybrid_search RPC and its indexes are provisioned externally in Supabase, not as checked-in migrations — see follow-up ticket.",High,Done,Behrooz,"Supabase, Moderate",
+rag/graph_store.py — AlphaGraphStore (Neo4j knowledge graph),"**Module/Path:** rag/graph_store.py
+**Complexity:** Hard
+
+**Function Purpose**
+Claude-based entity/relation extraction over raw documents; idempotent Neo4j MERGE upserts with running-average edge weights; degrades to driver=None (no crash) if Neo4j is unavailable.
+
+**Dependencies:** Anthropic Claude, Neo4j",High,Done,Behrooz,"Anthropic Claude, Hard",
+rag/hybrid_rag.py — Vector + graph retrieval with RRF fusion,"**Module/Path:** rag/hybrid_rag.py
+**Complexity:** Hard
+
+**Function Purpose**
+rag_vector_search, rag_graph_traverse (hops capped at 3), and rag_hybrid_query which runs both concurrently via asyncio.gather and fuses results via reciprocal-rank-fusion (k=60), weighted blend, or union; degrades to vector-only if Neo4j is down.
+
+**Dependencies:** Supabase pgvector, Neo4j, AlphaEmbedder",High,Done,Behrooz,"Supabase pgvector, Hard",
+rag/retriever.py — AlphaRetriever (5-stage retrieval),"**Module/Path:** rag/retriever.py
+**Complexity:** Hard
+
+**Function Purpose**
+Hybrid search → freshness re-ranking (72h half-life exponential decay) → source-diversity filter (max 2/URL, 3/source_type) → token-budget greedy selection → citation-formatted output, used by the sentiment pipeline.
+
+**Dependencies:** rag/hybrid_rag.py",High,Done,Behrooz,"rag/hybrid_rag.py, Hard",
+rag/evaluation.py — AlphaEvaluator (RAGAS-style LLM-judge metrics),"**Module/Path:** rag/evaluation.py
+**Complexity:** Hard
+
+**Function Purpose**
+Faithfulness, context precision/recall, and answer-relevance metrics computed via an LLM judge; batch evaluation + score aggregation across a sample set.
+
+**Dependencies:** Anthropic Claude, RAGAS",Medium,Done,Behrooz,"Anthropic Claude, Hard",
+tools/research_tools/research_server.py — MCP server (8 tools),"**Module/Path:** tools/research_tools/research_server.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Advertise and dispatch the 8 research tools (tavily/news/sec_edgar/rag_vector/rag_graph/rag_hybrid/comprehensive_analysis) over stdio JSON-RPC via match/case routing.
+
+**Dependencies:** mcp (Server API)",High,Done,Behrooz,"mcp (Server API), Moderate",
+tools/research_tools/tavily_search.py — Tavily client,"**Module/Path:** tools/research_tools/tavily_search.py
+**Complexity:** Easy
+
+**Function Purpose**
+Thin async client wrapping Tavily's web/news search API.
+
+**Dependencies:** Tavily API",Medium,Done,Behrooz,"Tavily API, Easy",
+tools/research_tools/news_search.py — NewsAPI client with query restructuring,"**Module/Path:** tools/research_tools/news_search.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Convert a natural-language query into a boolean keyword query, run it against NewsAPI, and filter results by a term-match relevance threshold.
+
+**Dependencies:** NewsAPI",Medium,Done,Behrooz,"NewsAPI, Moderate",
+tools/research_tools/sec_edgar.py (research) — Filing search + section extraction,"**Module/Path:** tools/research_tools/sec_edgar.py
+**Complexity:** Hard
+
+**Function Purpose**
+EDGAR full-text search plus 10-K/10-Q fetch-and-section-extraction (CIK resolution, HTML→text, named section boundary detection).
+
+**Dependencies:** SEC EDGAR API
+
+**Notes/Debt**
+There are two independent sec_edgar.py implementations (research vs financial tools) with overlapping responsibility — candidate for consolidation.",High,Done,Behrooz,"SEC EDGAR API, Hard",
+tools/research_tools/comprehensive_analysis.py — Concurrent Tavily+EDGAR combo,"**Module/Path:** tools/research_tools/comprehensive_analysis.py
+**Complexity:** Easy
+
+**Function Purpose**
+Run tavily_search and sec_edgar_filing concurrently via asyncio.gather for a single combined result.
+
+**Dependencies:** tavily_search, sec_edgar",Medium,Done,Behrooz,"tavily_search, Easy",
+tools/research_tools/context_synthesizer.py — Claude research compression,"**Module/Path:** tools/research_tools/context_synthesizer.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Compress raw research chunks into one dense Claude-generated summary without discarding the raw chunks; returns None (never raises) on failure.
+
+**Dependencies:** Anthropic Claude",Medium,Done,Behrooz,"Anthropic Claude, Moderate",
+tools/financial_tools/financial_ratio_calculator.py — Ratio math + DCF + composite score,"**Module/Path:** tools/financial_tools/financial_ratio_calculator.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Pure-Python valuation/margin/return/liquidity/leverage/efficiency ratios, CAGR, DCF (point + bear/base/bull + Monte-Carlo P10/P50/P90), and the weighted composite financial health score (ROE 25%, Net Margin 20%, Revenue CAGR 20%, P/E 15%, Current Ratio 10%, D/E 10%) → 0-100 + grade A-F.",High,Done,Behrooz,Moderate,
+tools/financial_tools/yahoo_finance.py — yfinance wrapper,"**Module/Path:** tools/financial_tools/yahoo_finance.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Price history, financial ratios/quote payload, fiscal-quarter labeling, revenue growth, and peer comparison via yfinance.
+
+**Dependencies:** yfinance
+
+**Notes/Debt**
+get_peer_comparison's automatic peer inference is broken (fetches recommendations then discards the result) — worked around upstream by a static peer map. Needs a real fix.",High,Done,Behrooz,"yfinance, Moderate",
+tools/financial_tools/sec_edgar.py (financial) — XBRL + CIK resolution,"**Module/Path:** tools/financial_tools/sec_edgar.py
+**Complexity:** Hard
+
+**Function Purpose**
+CIK resolution, filing listing, filing text fetch, and annual XBRL fact extraction (balance-sheet assets/liabilities) with retry-aware HTTP GET.
+
+**Dependencies:** SEC EDGAR API",High,Done,Behrooz,"SEC EDGAR API, Hard",
+tools/financial_tools/financial_server.py — FastMCP wrapper (~30 tools),"**Module/Path:** tools/financial_tools/financial_server.py
+**Complexity:** Moderate
+
+**Function Purpose**
+FastMCP @mcp.tool() wrappers adapting the Yahoo/EDGAR/ratio-calculator modules into MCP tools, each wrapped with Sentry breadcrumb/capture.
+
+**Dependencies:** FastMCP, Sentry",High,Done,Behrooz,"FastMCP, Moderate",
+"tools/sentiment_tools/sentiment_server.py — MCP server (4 tools, lazy singletons)","**Module/Path:** tools/sentiment_tools/sentiment_server.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Advertise and dispatch retrieve/finbert/vader/fear_greed tools; lazily initializes model singletons on first call and offloads sync model inference via asyncio.to_thread.
+
+**Dependencies:** mcp (Server API)
+
+**Notes/Debt**
+Cold start on first sentiment call is 2-5s while FinBERT loads — acknowledged, not yet mitigated with a warm-up hook.",High,Done,Behrooz,"mcp (Server API), Moderate",
+tools/sentiment_tools/finbert_analyzer.py — FinBERT deep sentiment,"**Module/Path:** tools/sentiment_tools/finbert_analyzer.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Batch FinBERT inference (ProsusAI/finbert) over text chunks with CUDA/MPS/CPU device selection, producing mean bullish/bearish/neutral probabilities and an argmax label.
+
+**Dependencies:** transformers, torch",High,Done,Behrooz,"transformers, Moderate",
+tools/sentiment_tools/vader_scorer.py — VADER lexical sentiment,"**Module/Path:** tools/sentiment_tools/vader_scorer.py
+**Complexity:** Easy
+
+**Function Purpose**
+NLTK VADER compound scoring per chunk and aggregate mean compound/pos/neg/neu with lexicon auto-download on first use.
+
+**Dependencies:** NLTK",Medium,Done,Behrooz,"NLTK, Easy",
+tools/sentiment_tools/fear_greed_calculator.py — Weighted FinBERT+VADER fusion,"**Module/Path:** tools/sentiment_tools/fear_greed_calculator.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Weighted fusion (FinBERT 0.65 / VADER 0.35) of the two sentiment signals into a single [-1,+1] score mapped to a 5-band label (Extreme Fear...Extreme Greed).",Medium,Done,Behrooz,Moderate,
+scheduler/daily_refresh.py — Scheduled ingestion entry point,"**Module/Path:** scheduler/daily_refresh.py
+**Complexity:** Easy
+
+**Function Purpose**
+Cron-triggered (GitHub Actions) script that calls run_ingestion_pipeline for the tracked ticker list.
+
+**Dependencies:** rag/ingestion.py",Medium,Done,Behrooz,"rag/ingestion.py, Easy",
+evaluation/run_ragas.py — RAGAS evaluation harness,"**Module/Path:** evaluation/run_ragas.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Load evaluation samples from disk and run the RAGAS metric suite against the RAG pipeline's outputs.
+
+**Dependencies:** RAGAS, rag/evaluation.py",Medium,Done,Behrooz,"RAGAS, Moderate",
+evaluation/validate_period_consistency.py — Period-provenance QA,"**Module/Path:** evaluation/validate_period_consistency.py
+**Complexity:** Hard
+
+**Function Purpose**
+PeriodRegistry maps financial values to their reporting period; check_narration_vs_period flags final-report sentences that narrate a metric against the wrong period. Runs non-blocking after finalise.",Medium,Done,Behrooz,Hard,
+Add JWT authentication + per-user authorization,"**Module/Path:** api/dependencies.py, api/routes/analyze.py
+**Complexity:** Hard
+
+**Function Purpose**
+Replace the current trust-everything model (user_id taken directly from request body / X-User-Id header) with real JWT-based auth so a caller can only read/write their own long-term memory.
+
+**Dependencies:** FastAPI, JWT
+
+**Notes/Debt**
+Currently ANY caller can read/write ANY user's long-term memory — flagged in code comments as future work (get_user_id). Must be resolved before any production exposure. Highest-priority open item.",High,Backlog,Behrooz,"FastAPI, Hard",
+Add application-level rate limiting on /analyze,"**Module/Path:** api/routes/analyze.py
+**Complexity:** Moderate
+
+**Function Purpose**
+No rate limiting currently exists on the analyze endpoint despite it fanning out to several paid external APIs (Anthropic, Tavily, NewsAPI, SEC EDGAR) — a single abusive caller can drive real cost.
+
+**Dependencies:** FastAPI middleware / Redis
+
+**Notes/Debt**
+Related to the missing-auth issue — without either, cost exposure is unbounded.",High,Backlog,Behrooz,"FastAPI middleware / Redis, Moderate",
+Fix get_peer_comparison auto-peer inference,"**Module/Path:** tools/financial_tools/yahoo_finance.py
+**Complexity:** Moderate
+
+**Function Purpose**
+The function fetches yfinance recommendations to auto-infer peer tickers but then discards the result and falls through to a static _INDUSTRY_PEERS map — the intended dynamic behavior never runs.
+
+**Dependencies:** yfinance
+
+**Notes/Debt**
+Static peer map is an acceptable interim workaround; real fix needs a validated recommendations parse.",Medium,In Progress,Behrooz,"yfinance, Moderate",
+Consolidate duplicate SEC EDGAR client implementations,"**Module/Path:** tools/research_tools/sec_edgar.py, tools/financial_tools/sec_edgar.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Research and Financial tools each maintain their own independent SEC EDGAR client with overlapping CIK-resolution and filing-fetch logic — merge into one shared module.
+
+**Dependencies:** SEC EDGAR API
+
+**Notes/Debt**
+Low urgency but growing maintenance cost as both copies drift independently.",Medium,Backlog,Behrooz,"SEC EDGAR API, Moderate",
+Remove committed virtualenv from git history,"**Module/Path:** evaluation/.venv-eval/
+**Complexity:** Easy
+
+**Function Purpose**
+A full virtual environment (thousands of files) is currently tracked in the repository under evaluation/.venv-eval — should be removed and added to .gitignore.
+
+**Dependencies:** git
+
+**Notes/Debt**
+Under review with the team before rewriting history; low risk but bloats clone size significantly.",Low,Review,Behrooz,"git, Easy",
+Fix garbled README.md,"**Module/Path:** README.md
+**Complexity:** Easy
+
+**Function Purpose**
+Root README currently contains a stray BOM and garbled characters and is effectively empty; real documentation lives in SYSTEM_ARCHITECTURE.md and should be linked from a proper README.",Low,Backlog,Behrooz,Easy,
+Rename mistyped test files,"**Module/Path:** tests/
+**Complexity:** Easy
+
+**Function Purpose**
+Several test files have typos in their names (test_finbert_anayzer.py, test_core_eceptions.py, test_hybried.py, test_vectore_store.py, __ini__.py) which hurts discoverability under pytest's default collection.
+
+**Dependencies:** pytest",Low,Backlog,Behrooz,"pytest, Easy",
+Remove unused google-generativeai / vertex AI dependencies,"**Module/Path:** pyproject.toml
+**Complexity:** Easy
+
+**Function Purpose**
+google-generativeai and langchain-google-vertexai are declared as dependencies but are not referenced anywhere in the current source — pure dependency bloat and attack surface.
+
+**Dependencies:** pip/uv",Low,Backlog,Behrooz,"pip/uv, Easy",
+Move progress_bus + short-term memory to a shared broker (Redis),"**Module/Path:** core/progress_bus.py, memory/manager_memory.py
+**Complexity:** Hard
+
+**Function Purpose**
+Both the in-process progress pub/sub and ShortTermMemory are per-process state, which will not survive a multi-worker/horizontally-scaled deployment. Needs a Redis (or similar) backend before scaling out.
+
+**Dependencies:** Redis
+
+**Notes/Debt**
+Documented as a known limitation; not yet started, no target sprint assigned.",Medium,Backlog,Behrooz,"Redis, Hard",
+Add retry/durability for analysis persistence,"**Module/Path:** api/routes/analyze.py
+**Complexity:** Moderate
+
+**Function Purpose**
+_persist_analysis is fire-and-forget and never raises on failure — a failed Supabase insert only logs, silently losing the analysis record. Needs at minimum a retry with backoff, ideally a dead-letter fallback.
+
+**Dependencies:** Supabase
+
+**Notes/Debt**
+PR open for review — adds 3x retry with exponential backoff; dead-letter queue deferred to a follow-up.",Medium,Review,Behrooz,"Supabase, Moderate",
+Improve LLM evaluator failure handling,"**Module/Path:** agents/manager_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+_brain_evaluate currently falls back to passed=True, score=50 when the evaluator LLM call fails, which can let a genuinely low-quality output advance instead of retrying. Needs a safer fallback (e.g. force a bounded retry before defaulting to fail-open).
+
+**Dependencies:** Anthropic Claude
+
+**Notes/Debt**
+Under review — proposal is to fail closed (retry once, then abort-to-human-review) instead of fail-open.",Medium,Review,Behrooz,"Anthropic Claude, Moderate",
+Provision alpha_hybrid_search RPC via checked-in migrations,"**Module/Path:** rag/vector_store.py
+**Complexity:** Moderate
+
+**Function Purpose**
+The Supabase RPC function and its indexes currently exist only in the live database, not as version-controlled migration files — environment setup is not reproducible from the repo alone.
+
+**Dependencies:** Supabase, SQL migrations",Medium,Backlog,Behrooz,"Supabase, Moderate",
+Add retry/backoff for Reddit RSS fetch,"**Module/Path:** rag/loader.py
+**Complexity:** Easy
+
+**Function Purpose**
+Reddit RSS fetches currently fail silently per-feed with no retry; add exponential backoff for transient network errors before giving up on a feed.
+
+**Dependencies:** feedparser",Low,Backlog,Behrooz,"feedparser, Easy",
+Add response/idempotency cache for repeated analyze requests,"**Module/Path:** api/routes/analyze.py, agents/manager_agent.py
+**Complexity:** Moderate
+
+**Function Purpose**
+Identical (query, ticker, day) requests currently re-run the full multi-agent pipeline every time; a short-lived cache keyed on that tuple would cut cost and latency on repeat requests.
+
+**Dependencies:** Redis / Supabase
+
+**Notes/Debt**
+Nice-to-have, not blocking — deprioritized behind auth and persistence-durability work.",Low,Backlog,Behrooz,"Redis / Supabase, Moderate",
+Clarify/replace root main.py scaffold stub,"**Module/Path:** main.py
+**Complexity:** Easy
+
+**Function Purpose**
+Root main.py still prints a placeholder 'Hello from agenticalpha!' and is not the real entry point (uvicorn api.main:app is) — either remove it or repurpose it as a documented CLI helper to avoid confusing new contributors.",Low,Backlog,Behrooz,Easy,

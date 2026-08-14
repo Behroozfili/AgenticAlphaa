@@ -196,6 +196,12 @@ def get_financial_ratios(ticker: str) -> dict:
         - "52w_high"            (float | None)
         - "52w_low"             (float | None)
         - "current_price"       (float | None)
+        - "total_debt"          (float | None)  : Short+long-term debt, USD.
+        - "total_cash"          (float | None)  : Cash & equivalents, USD.
+        - "ebitda"              (float | None)  : USD (TTM).
+        - "free_cash_flow"      (float | None)  : Operating CF − capex, USD (TTM).
+        - "operating_cash_flow" (float | None)  : USD (TTM).
+        - "diluted_shares"       (float | None)  : Best available current diluted-share proxy.
         - "error"               (str | None)
 
     Examples
@@ -232,7 +238,141 @@ def get_financial_ratios(ticker: str) -> dict:
             "52w_high":         _safe_get(info, "fiftyTwoWeekHigh"),
             "52w_low":          _safe_get(info, "fiftyTwoWeekLow"),
             "current_price":    _safe_get(info, "currentPrice"),
+            # Added for net_debt_to_ebitda / fcf_margin / fcf_yield /
+            # operating_cash_flow_ratio (financial_ratio_calculator.py) --
+            # all already present in yfinance's .info, just weren't being
+            # extracted before these ratios existed.
+            "total_debt":            _safe_get(info, "totalDebt"),
+            "total_cash":            _safe_get(info, "totalCash"),
+            "ebitda":                _safe_get(info, "ebitda"),
+            "free_cash_flow":        _safe_get(info, "freeCashflow"),
+            "operating_cash_flow":   _safe_get(info, "operatingCashflow"),
+            "diluted_shares":        _safe_get(info, "sharesOutstanding"),
+            "lease_liabilities":     _safe_get(info, "capitalLeaseObligations"),
+            "minority_interest":     _safe_get(info, "minorityInterest"),
+            "interest_expense":      _safe_get(info, "interestExpense"),
+            "effective_tax_rate":    _safe_get(info, "effectiveTaxRate"),
             "error":            None,
+        }
+
+    except Exception as exc:
+        return {"ticker": ticker, "error": str(exc)}
+
+
+def _first_available_row(df, candidates: list[str]) -> float | None:
+    """
+    Try each row-label candidate in order against a yfinance financial-
+    statement dataframe (balance_sheet / financials / cashflow) and return
+    the most recent column's value for the first one that exists.
+
+    Why candidates, not one fixed name: yfinance has renamed several
+    standard row labels across versions (e.g. "Total Liab" ->
+    "Total Liabilities Net Minority Interest"), and which exact label a
+    given ticker's data uses can still vary. Trying several known aliases
+    in priority order is far more robust than hard-coding one string that
+    silently returns nothing the moment yfinance's naming shifts again.
+    """
+    if df is None or df.empty:
+        return None
+    most_recent_col = df.columns[0]  # yfinance orders newest-first
+    for name in candidates:
+        if name in df.index:
+            return _safe_float(df.loc[name, most_recent_col])
+    return None
+
+
+def get_balance_sheet_snapshot(ticker: str) -> dict:
+    """
+    Retrieve a single most-recent-period snapshot of balance-sheet and
+    EBIT figures needed for the "Phase 2" ratios in
+    financial_ratio_calculator.py: return_on_invested_capital,
+    return_on_capital_employed, debt_ratio, equity_ratio, altman_z_score.
+
+    Unlike get_financial_ratios() (which reads yfinance's flat `.info`
+    dict), this reads the structured `.balance_sheet` / `.financials`
+    dataframes, because total_assets / total_liabilities / total_equity /
+    current_assets / current_liabilities / retained_earnings / EBIT are
+    NOT present in `.info` at all -- they only exist in the full
+    financial-statement tables.
+
+    Parameters
+    ----------
+    ticker : str
+        The stock ticker symbol (e.g. "MSFT", "TSLA").
+
+    Returns
+    -------
+    dict
+        - "ticker"               (str)
+        - "period_end"           (str | None) : ISO date of the most
+          recent balance-sheet column used, e.g. "2026-03-31". Always
+          check this is recent enough for your purpose -- yfinance may
+          only have annual data for smaller/less-covered tickers, in
+          which case this could be up to a year stale.
+        - "total_assets"         (float | None)
+        - "total_liabilities"    (float | None)
+        - "total_equity"         (float | None)
+        - "current_assets"       (float | None)
+        - "current_liabilities"  (float | None)
+        - "working_capital"      (float | None) : current_assets − current_liabilities.
+        - "retained_earnings"    (float | None)
+        - "ebit"                 (float | None) : from the income
+          statement (most recent period, may be a different (annual vs.
+          quarterly-summed) period than the balance-sheet snapshot above
+          -- both are yfinance's "most recent available", not guaranteed
+          to be the exact same fiscal period; fine for the ratios this
+          feeds, which mix a flow (EBIT) with a point-in-time balance
+          either way, same as how these ratios are computed everywhere).
+        - "error"                (str | None)
+
+    Examples
+    --------
+    >>> snap = get_balance_sheet_snapshot("MSFT")
+    >>> snap["total_assets"]
+    620000000000.0
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        bs = stock.balance_sheet
+        fin = stock.financials
+
+        period_end = None
+        if bs is not None and not bs.empty:
+            col = bs.columns[0]
+            period_end = col.date().isoformat() if hasattr(col, "date") else str(col)
+
+        total_assets = _first_available_row(bs, ["Total Assets"])
+        total_liabilities = _first_available_row(
+            bs, ["Total Liabilities Net Minority Interest", "Total Liab", "Total Liabilities"]
+        )
+        total_equity = _first_available_row(
+            bs, ["Total Equity Gross Minority Interest", "Stockholders Equity",
+                 "Total Stockholder Equity", "Common Stock Equity"]
+        )
+        current_assets = _first_available_row(bs, ["Current Assets"])
+        current_liabilities = _first_available_row(bs, ["Current Liabilities"])
+        retained_earnings = _first_available_row(bs, ["Retained Earnings"])
+
+        ebit = _first_available_row(fin, ["EBIT", "Operating Income"])
+
+        working_capital = (
+            current_assets - current_liabilities
+            if current_assets is not None and current_liabilities is not None
+            else None
+        )
+
+        return {
+            "ticker":              ticker.upper(),
+            "period_end":          period_end,
+            "total_assets":        total_assets,
+            "total_liabilities":   total_liabilities,
+            "total_equity":        total_equity,
+            "current_assets":      current_assets,
+            "current_liabilities": current_liabilities,
+            "working_capital":     working_capital,
+            "retained_earnings":   retained_earnings,
+            "ebit":                ebit,
+            "error":               None,
         }
 
     except Exception as exc:

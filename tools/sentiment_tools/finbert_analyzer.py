@@ -120,13 +120,15 @@ class FinBertResult:
         total_chunks  : Number of chunks successfully analyzed.
         skipped_chunks: Number of empty / invalid chunks that were skipped.
     """
-    bullish_prob:   float
-    bearish_prob:   float
-    neutral_prob:   float
-    label:          str
+    bullish_prob:   float | None
+    bearish_prob:   float | None
+    neutral_prob:   float | None
+    label:          str | None
     chunk_scores:   list[ChunkSentiment] = field(default_factory=list)
     total_chunks:   int                  = 0
     skipped_chunks: int                  = 0
+    status:         str                  = "VALID"
+    polarity:       str | None           = None
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +282,8 @@ class FinBertSentimentAnalyzer:
             chunk_scores   = chunk_scores,
             total_chunks   = n,
             skipped_chunks = skipped,
+            status         = "VALID",
+            polarity       = corpus_label.upper(),
         )
         logger.info(
             "FinBERT analysis complete: %d chunks | %s (bull=%.3f bear=%.3f neu=%.3f)",
@@ -422,14 +426,16 @@ class FinBertSentimentAnalyzer:
         Returns
         -------
         FinBertResult
-            All probabilities set to 0.0, label "Neutral".
+            Scores and polarity are null with status NO_DATA.
         """
         return FinBertResult(
-            bullish_prob   = 0.0,
-            bearish_prob   = 0.0,
-            neutral_prob   = 0.0,
-            label          = "Neutral",
+            bullish_prob   = None,
+            bearish_prob   = None,
+            neutral_prob   = None,
+            label          = None,
             chunk_scores   = [],
             total_chunks   = 0,
             skipped_chunks = skipped,
+            status         = "NO_DATA",
+            polarity       = None,
         )

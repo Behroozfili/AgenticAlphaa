@@ -38,6 +38,7 @@ from __future__ import annotations
 import os
 import re
 import time
+from datetime import date
 import html as _html
 import logging
 from typing import Any
@@ -405,6 +406,11 @@ _REVENUE_TAGS = [
     "RevenueFromContractWithCustomerIncludingAssessedTax",
 ]
 _NET_INCOME_TAGS = ["NetIncomeLoss", "ProfitLoss"]
+_OPERATING_INCOME_TAGS = ["OperatingIncomeLoss"]
+_PRETAX_INCOME_TAGS = ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments", "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"]
+_INCOME_TAX_TAGS = ["IncomeTaxExpenseBenefit"]
+_OTHER_INCOME_TAGS = ["NonoperatingIncomeExpense", "OtherNonoperatingIncomeExpense", "InterestAndOtherNet"]
+_UNUSUAL_ITEMS_TAGS = ["RestructuringCharges", "ImpairmentOfLongLivedAssetsHeldForUse", "GainLossOnSaleOfPropertyPlantEquipment", "LitigationSettlementAmountAwardedToOtherParty"]
 _ASSETS_TAGS = ["Assets"]
 _LIABILITIES_TAGS = ["Liabilities"]
 
@@ -472,10 +478,27 @@ def _extract_annual(facts: dict, tags: list[str]) -> list[dict]:
                 continue
 
             # Last write wins → favour the most recently filed restatement.
+            start = row.get("start")
+            duration_months = None
+            if start:
+                try:
+                    duration_months = round((date.fromisoformat(end) - date.fromisoformat(start)).days / 30.4375)
+                except ValueError:
+                    duration_months = None
             by_period[end] = {
                 "period_end": end,
+                "period_start": start,
+                "duration_months": duration_months,
                 "value":      float(val),
                 "unit":       unit_key,
+                "fiscal_year": row.get("fy"),
+                "fiscal_quarter": row.get("fp"),
+                "filing_type": form,
+                "accession_number": row.get("accn"),
+                "filed_at": row.get("filed"),
+                "metric_scope": "duration" if start else "instant",
+                "gaap_status": "GAAP",
+                "xbrl_concept": tag,
             }
 
         if by_period:
@@ -523,6 +546,8 @@ def get_xbrl_financials(ticker: str) -> dict:
 
     empty_series = {
         "revenue_annual": [], "net_income_annual": [],
+        "operating_income_annual": [], "pretax_income_annual": [],
+        "income_tax_annual": [], "other_income_annual": [], "unusual_items_annual": [],
         "total_assets": [], "total_liabilities": [],
         "operating_cash_flow_annual": [], "capex_annual": [],
         "dividends_paid_annual": [], "buybacks_annual": [],
@@ -544,6 +569,11 @@ def get_xbrl_financials(ticker: str) -> dict:
             "cik":                        cik,
             "revenue_annual":             _extract_annual(facts, _REVENUE_TAGS),
             "net_income_annual":          _extract_annual(facts, _NET_INCOME_TAGS),
+            "operating_income_annual":    _extract_annual(facts, _OPERATING_INCOME_TAGS),
+            "pretax_income_annual":       _extract_annual(facts, _PRETAX_INCOME_TAGS),
+            "income_tax_annual":          _extract_annual(facts, _INCOME_TAX_TAGS),
+            "other_income_annual":        _extract_annual(facts, _OTHER_INCOME_TAGS),
+            "unusual_items_annual":       _extract_annual(facts, _UNUSUAL_ITEMS_TAGS),
             "total_assets":               _extract_annual(facts, _ASSETS_TAGS),
             "total_liabilities":          _extract_annual(facts, _LIABILITIES_TAGS),
             "operating_cash_flow_annual": _extract_annual(facts, _OPERATING_CASH_FLOW_TAGS),

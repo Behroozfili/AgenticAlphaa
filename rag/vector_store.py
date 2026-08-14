@@ -20,6 +20,15 @@ create table if not exists alpha_documents (
     chunk_index   int         not null default 0,
     url           text,
     title         text,
+    fiscal_year   int,
+    fiscal_quarter text,
+    period_start  date,
+    period_end    date,
+    duration_months int,
+    filing_type   text,
+    accession_number text,
+    metric_scope  text,
+    gaap_status   text,
     text          text        not null,
     embedding     vector(384),
     fts           tsvector generated always as (to_tsvector('english', text)) stored,
@@ -49,6 +58,10 @@ create or replace function alpha_hybrid_search(
     top_k           int     default 50,
     rrf_k           int     default 60,
     page_offset     int     default 0
+    ,filter_fiscal_year int default null
+    ,filter_fiscal_quarter text default null
+    ,filter_period_end date default null
+    ,filter_metric_scope text default null
 )
 returns table (
     id           bigint,
@@ -59,6 +72,15 @@ returns table (
     url          text,
     title        text,
     chunk_index  int,
+    fiscal_year int,
+    fiscal_quarter text,
+    period_start date,
+    period_end date,
+    duration_months int,
+    filing_type text,
+    accession_number text,
+    metric_scope text,
+    gaap_status text,
     rrf_score    float
 )
 language sql stable as $$
@@ -71,6 +93,10 @@ vector_ranked as (
     where
         (filter_ticker is null or ticker = filter_ticker)
         and (days_back   is null or published_at > now() - (days_back || ' days')::interval)
+        and (filter_fiscal_year is null or fiscal_year = filter_fiscal_year)
+        and (filter_fiscal_quarter is null or fiscal_quarter = filter_fiscal_quarter)
+        and (filter_period_end is null or period_end = filter_period_end)
+        and (filter_metric_scope is null or metric_scope = filter_metric_scope)
     order by embedding <=> query_embedding
     limit top_k * 2
 ),
@@ -83,6 +109,10 @@ fts_ranked as (
         fts @@ plainto_tsquery('english', query_text)
         and (filter_ticker is null or ticker = filter_ticker)
         and (days_back   is null or published_at > now() - (days_back || ' days')::interval)
+        and (filter_fiscal_year is null or fiscal_year = filter_fiscal_year)
+        and (filter_fiscal_quarter is null or fiscal_quarter = filter_fiscal_quarter)
+        and (filter_period_end is null or period_end = filter_period_end)
+        and (filter_metric_scope is null or metric_scope = filter_metric_scope)
     limit top_k * 2
 ),
 rrf as (
@@ -104,6 +134,15 @@ select
     d.url,
     d.title,
     d.chunk_index,
+    d.fiscal_year,
+    d.fiscal_quarter,
+    d.period_start,
+    d.period_end,
+    d.duration_months,
+    d.filing_type,
+    d.accession_number,
+    d.metric_scope,
+    d.gaap_status,
     r.rrf_score
 from rrf r
 join alpha_documents d on d.id = r.id
@@ -199,6 +238,10 @@ class AlphaVectorStore:
         score_threshold: float = 0.0,
         limit: int = 10,
         offset: int = 0,
+        fiscal_year: Optional[int] = None,
+        fiscal_quarter: Optional[str] = None,
+        period_end: Optional[str] = None,
+        metric_scope: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         """
         Call the Postgres RRF function and apply client-side score filtering.
@@ -229,6 +272,16 @@ class AlphaVectorStore:
             params["filter_ticker"] = ticker
         if days_back is not None:
             params["days_back"] = days_back
+        # The RPC applies exact period/scope predicates before vector/FTS
+        # ranking. Database migrations should add these optional arguments.
+        if fiscal_year is not None:
+            params["filter_fiscal_year"] = fiscal_year
+        if fiscal_quarter:
+            params["filter_fiscal_quarter"] = fiscal_quarter
+        if period_end:
+            params["filter_period_end"] = period_end
+        if metric_scope:
+            params["filter_metric_scope"] = metric_scope
 
         response = self.client.rpc(self.RPC, params).execute()
         rows: list[dict] = response.data or []
@@ -255,6 +308,15 @@ class AlphaVectorStore:
             "chunk_index":  meta.get("chunk_index", 0),
             "url":          meta.get("url"),
             "title":        meta.get("title"),
+            "fiscal_year":  meta.get("fiscal_year"),
+            "fiscal_quarter": meta.get("fiscal_quarter"),
+            "period_start": meta.get("period_start"),
+            "period_end": meta.get("period_end"),
+            "duration_months": meta.get("duration_months"),
+            "filing_type": meta.get("filing_type"),
+            "accession_number": meta.get("accession_number"),
+            "metric_scope": meta.get("metric_scope"),
+            "gaap_status": meta.get("gaap_status"),
             "text":         record.get("text", ""),
             "embedding":    record.get("embedding"),
         }

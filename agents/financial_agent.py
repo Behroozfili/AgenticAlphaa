@@ -52,7 +52,14 @@ from typing import Any
 import anthropic
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
+from langgraph.graph import END, StateGraph
 import os
+from agents.prompts.promt_finance_checker import CHECKER_SYSTEM_PROMPT
+from evaluation.financial_sanity import evaluate_financial_sanity, build_valuation_input_assessments
+from evaluation.earnings_quality import normalize_earnings_quality
+from evaluation.claim_contract import typed_financial_claim
+from agents.executor_helpers.finance_executor_helper import (infer_peers, extract_ticker, confidence_for, annotate_confidence, pct_change,
+                                                      direction, build_consistency_checks, build_data_quality_score, sanitize_nans)
 
 # ---------------------------------------------------------------------------
 # State contract imports
@@ -63,7 +70,7 @@ import os
 from agents.state import FinancialAgentState, SharedManagerState
 from langsmith import traceable
 from core.observability import sentry_enabled
-from core.progress_bus import publish as _publish_progress, session_from_shared
+from core.progress_bus import publish as _publish_progress, session_from_directives
 
 # ---------------------------------------------------------------------------
 # Logging — stderr only; stdout is reserved for MCP JSON-RPC
@@ -71,7 +78,11 @@ from core.progress_bus import publish as _publish_progress, session_from_shared
 # Configuration belongs exclusively in entry points (api/main.py or __main__).
 # ---------------------------------------------------------------------------
 log = logging.getLogger("financial-analyst-agent")
-
+_MCP_SERVER_PARAMS = StdioServerParameters(
+    command="python",
+    args=[os.path.join(os.path.dirname(__file__), "..","tools","financial_tools" ,"financial_server.py")],
+    env=None,   # inherits current environment (API keys etc.)
+)
 
 # ---------------------------------------------------------------------------
 # Peer map for relative valuation (tool_get_peer_comparison)
@@ -86,140 +97,7 @@ log = logging.getLogger("financial-analyst-agent")
 # public-market peers is used instead — good enough for a relative-
 # valuation sanity check, not meant to be exhaustive. Falls back to no
 # peer comparison (rather than guessing) for industries not listed here.
-_INDUSTRY_PEERS: dict[str, list[str]] = {
-    "Semiconductors":                       ["NVDA", "INTC", "QCOM", "AVGO"],
-    "Consumer Electronics":                 ["MSFT", "GOOGL", "SSNLF"],
-    "Software—Infrastructure":              ["MSFT", "ORCL", "CRM"],
-    "Software—Application":                 ["CRM", "ADBE", "INTU"],
-    "Internet Content & Information":       ["GOOGL", "META", "MSFT"],
-    "Internet Retail":                      ["WMT", "TGT", "EBAY"],
-    "Auto Manufacturers":                   ["GM", "F", "TM"],
-    "Banks—Diversified":                    ["BAC", "WFC", "C"],
-    "Aerospace & Defense":                  ["LMT", "NOC", "RTX"],
-    "Beverages—Non-Alcoholic":              ["PEP", "KDP"],
-    "Discount Stores":                      ["WMT", "COST", "TGT"],
-    "Telecom Services":                     ["VZ", "TMUS"],
-}
 
-
-def _infer_peers(sector: str, industry: str, ticker: str) -> list[str]:
-    """Look up static peers by industry, excluding the ticker itself."""
-    peers = _INDUSTRY_PEERS.get(industry, [])
-    return [p for p in peers if p.upper() != ticker.upper()][:5]
-
-
-_MCP_SERVER_PARAMS = StdioServerParameters(
-    command="python",
-    args=[os.path.join(os.path.dirname(__file__), "..","tools","financial_tools" ,"financial_server.py")],
-    env=None,   # inherits current environment (API keys etc.)
-)
-
-
-# ---------------------------------------------------------------------------
-# Checker system prompt — Claude-powered financial data critic
-# ---------------------------------------------------------------------------
-_CHECKER_SYSTEM_PROMPT = """You are the Financial Data Critic for the Alpha-Agent Node platform.
-
-Your role: Perform a rigorous audit of the extracted financial data and \
-computed ratios to decide whether the dataset is complete, consistent, and \
-sufficient for the Manager Agent to make high-quality investment decisions.
-
-You will receive:
-  - TASK QUERY       : The original research objective.
-  - RAW DATA SUMMARY : Key fields extracted from Yahoo Finance and SEC EDGAR.
-  - CALCULATED RATIOS: Computed metrics (P/E, ROE, Net Margin, D/E, CAGR, Score).
-
-Audit criteria (ALL must pass for is_complete = true):
-  1. DATA PRESENCE      : Yahoo Finance ratios payload is non-empty and error-free.
-  2. REVENUE HISTORY    : At least 2 years of annual revenue data exist for CAGR.
-  3. CORE RATIO COVERAGE: No more than 1 of the 5 core ratios (pe, roe,
-                          net_margin, de_ratio, cagr) may be null or missing.
-  4. VALUATION SANITY   : P/E ratio is present and numerically plausible
-                          (positive, below 1000) for the company's sector.
-  5. COMPOSITE SCORE    : Weighted composite health score (0-100) is computable
-                          and not None.
-  6. INTERNAL CONSISTENCY: Each ratio's own inputs are mathematically
-                          consistent (e.g. net_margin_pct actually equals
-                          net_income / revenue × 100 for the SAME period;
-                          CAGR direction matches the revenue trend it was
-                          computed from).
-
-                          IMPORTANT — different ratios are EXPECTED to use
-                          different reporting periods, and this is NOT an
-                          inconsistency. Each ratio dict carries an explicit
-                          "_period" tag (e.g. "quarterly:2026-Q1",
-                          "annual:2025", "ttm", "mrq", "mixed") stating
-                          which period its own inputs came from — trust
-                          this tag. Do NOT fail a ratio, or flag the
-                          dataset, merely because net_margin's "_period"
-                          differs from roe's or cagr's "_period" (e.g.
-                          net_margin="quarterly:2026-Q1" alongside
-                          roe="annual:2025" is CORRECT, not an error — the
-                          pipeline has no quarterly balance-sheet source,
-                          so ROE is necessarily annual, while net_margin
-                          uses the most recent matching quarter when
-                          available). Only flag INTERNAL CONSISTENCY when:
-                            (a) a ratio's own "_period" tag is missing
-                                entirely (e.g. null/absent) where one
-                                should be derivable,
-                            (b) a "_period" tag reads "MIXED(...)" —
-                                meaning the ratio's OWN numerator and
-                                denominator disagree on period, which IS a
-                                real bug, or
-                            (c) the ratio's numeric output does not
-                                actually equal its own stated formula
-                                applied to its own "_inputs".
-                          Cross-ratio period differences that are each
-                          individually tagged and internally self-consistent
-                          are a NORMAL, INTENDED feature of this pipeline —
-                          not a defect to report.
-  7. MANAGER READINESS  : The dataset as a whole is rich enough for the Manager
-                          Agent to draw actionable conclusions about the company's
-                          financial health, valuation, and growth trajectory.
-
-Output format (strict JSON — no markdown fences, no preamble):
-{
-  "is_complete"  : true | false,
-  "score"        : <int 0-100, overall data quality score>,
-  "passed"       : ["<criterion name>", ...],
-  "failed"       : ["<criterion name>", ...],
-  "issues"       : ["<specific problem description>", ...],
-  "feedback"     : "<actionable re-extraction instructions for the Brain, or empty string if is_complete is true>"
-}
-
-Rules:
-- Output ONLY valid JSON. No explanation outside the JSON object.
-- Be strict: partial or inconsistent data must NOT pass.
-- If is_complete is true, feedback MUST be an empty string "".
-- feedback must be specific and actionable — name the exact tools to re-call
-  and what data is missing, so the Brain can plan the next iteration precisely.
-"""
-
-
-def _sanitize_nans(value: Any) -> Any:
-    """
-    Recursively replace any float NaN/Infinity in a nested dict/list
-    structure with None, so the result is always strict-JSON-safe
-    (RFC 8259 has no NaN/Infinity token; Python's json module allows it
-    by default, but downstream persistence clients — e.g. Supabase's
-    postgrest client — reject it with
-    "Out of range float values are not JSON compliant: nan").
-
-    This is a defensive last resort, not a substitute for fixing NaN at
-    its source (see _safe_float() in yahoo_finance.py and the
-    _is_valid_number() guard in the CAGR block above) — but it guarantees
-    financial_metrics_summary can never crash persistence regardless of
-    which upstream data source introduces a stray NaN in the future.
-    """
-    if isinstance(value, float) and math.isnan(value):
-        return None
-    if isinstance(value, float) and math.isinf(value):
-        return None
-    if isinstance(value, dict):
-        return {k: _sanitize_nans(v) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_sanitize_nans(v) for v in value]
-    return value
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -277,6 +155,15 @@ class FinancialAnalystAgent:
         self._model  = model
         self._default_max_loops = max_loops
         self._server_params = mcp_server_params or _MCP_SERVER_PARAMS
+
+        # MCP session is opened once per run() (see run()) and shared across
+        # all graph nodes via this slot. Nodes receive only `state`, so they
+        # read the live session from here rather than as a parameter.
+        self._session: ClientSession | None = None
+
+        # Compile the internal LangGraph state machine once at construction.
+        self._graph = self._build_graph()
+
         log.info(
             "FinancialAnalystAgent initialised — model=%s, server_script=%s",
             model,
@@ -287,42 +174,7 @@ class FinancialAnalystAgent:
     # INTERNAL UTILITY — ticker extraction
     # =========================================================================
 
-    def _extract_ticker(self, task_query: str, directives: dict[str, Any]) -> str | None:
-        """
-        Extract the target ticker symbol from manager directives or task query.
-
-        Resolution order:
-            1. ``manager_directives["ticker"]`` (explicit override, highest priority).
-            2. Regex scan of ``task_query`` for 1-5 uppercase letter tokens.
-            3. Returns ``None`` if no ticker can be inferred.
-
-        Parameters
-        ----------
-        task_query : str
-            Natural-language research question from the Manager Agent.
-        directives : dict[str, Any]
-            Manager directives dictionary (may be empty).
-
-        Returns
-        -------
-        str | None
-            Uppercase ticker symbol, or ``None`` if extraction fails.
-        """
-        if directives.get("ticker"):
-            return str(directives["ticker"]).upper()
-
-        # Heuristic: match isolated uppercase tokens of 1–5 chars
-        candidates = re.findall(r"\b([A-Z]{1,5})\b", task_query)
-        # Filter out common English stop-words that look like tickers
-        stop_words = {"A", "I", "THE", "AND", "OR", "IN", "OF", "FOR", "AI", "Q1",
-                      "Q2", "Q3", "Q4", "US", "SEC", "PE", "YOY", "TTM", "EPS"}
-        for candidate in candidates:
-            if candidate not in stop_words:
-                log.info("Inferred ticker from task_query: %s", candidate)
-                return candidate
-
-        log.warning("Could not infer ticker from task_query: '%s'", task_query)
-        return None
+    # =========================================================================
 
     # =========================================================================
     # LAYER 1 — EXECUTORS (MCP Protocol Interface)
@@ -346,6 +198,9 @@ class FinancialAnalystAgent:
         - ``tool_get_financial_ratios``  → P/E, P/B, EPS, market cap, beta, etc.
         - ``tool_get_revenue_growth``    → Annual/quarterly revenue & net income trends.
         - ``tool_get_xbrl_financials``   → SEC EDGAR XBRL structured balance-sheet data.
+        - ``tool_get_balance_sheet_snapshot`` → EBIT, current assets/liabilities,
+          retained earnings (yfinance) -- feeds ROIC/ROCE/debt_ratio/
+          equity_ratio/altman_z_score in _execute_ratio_computation.
 
         Parameters
         ----------
@@ -356,6 +211,7 @@ class FinancialAnalystAgent:
             ``state["raw_numerical_data"]["yahoo_ratios"]``
             ``state["raw_numerical_data"]["revenue_growth"]``
             ``state["raw_numerical_data"]["xbrl_financials"]``
+            ``state["raw_numerical_data"]["balance_sheet_snapshot"]``
 
         Returns
         -------
@@ -363,9 +219,9 @@ class FinancialAnalystAgent:
             Results are written directly into ``state``. Errors are recorded
             under ``state["raw_numerical_data"]["extraction_errors"]``.
         """
-        directives = state["shared_manager_ref"].get("manager_directives", {})
-        task_query = state["shared_manager_ref"].get("task_query", "")
-        ticker     = self._extract_ticker(task_query, directives)
+        directives = state["manager_directives"]
+        task_query = state["task_query"]
+        ticker     = extract_ticker(task_query, directives)
 
         if not ticker:
             state["raw_numerical_data"]["extraction_errors"] = (
@@ -376,7 +232,7 @@ class FinancialAnalystAgent:
 
         state["raw_numerical_data"]["ticker"] = ticker
         errors: list[str] = []
-        session_id = session_from_shared(state["shared_manager_ref"])
+        session_id = session_from_directives(state["manager_directives"])
         _publish_progress(
             session_id, "agent_brain", agent="financial",
             message=f"Financial Agent: starting raw data extraction for {ticker}",
@@ -426,7 +282,7 @@ class FinancialAnalystAgent:
         # industry isn't in the map, peers=[] and this call is skipped.
         industry = state["raw_numerical_data"].get("yahoo_ratios", {}).get("industry", "")
         sector   = state["raw_numerical_data"].get("yahoo_ratios", {}).get("sector", "")
-        peers    = _infer_peers(sector, industry, ticker)
+        peers    = infer_peers(sector, industry, ticker)
 
         if peers:
             log.info("Executor: calling tool_get_peer_comparison for %s vs %s", ticker, peers)
@@ -543,6 +399,49 @@ class FinancialAnalystAgent:
                     scope.set_tag("component", "mcp.financial")
                     sentry_sdk.capture_exception(exc)
 
+        # -- Yahoo Finance: balance-sheet snapshot (EBIT, current assets/
+        #    liabilities, retained earnings -- not in tool_get_financial_ratios'
+        #    flat .info-based output, needed for ROIC/ROCE/debt_ratio/
+        #    equity_ratio/altman_z_score in _execute_ratio_computation) -------
+        _publish_progress(
+            session_id, "agent_tool_result", agent="financial",
+            message="Financial Agent: 'tool_get_xbrl_financials' completed",
+            detail={"tool": "tool_get_xbrl_financials"},
+        )
+        log.info("Executor: calling tool_get_balance_sheet_snapshot for %s", ticker)
+        _publish_progress(
+            session_id, "agent_tool_call", agent="financial",
+            message="Financial Agent: calling tool 'tool_get_balance_sheet_snapshot'...",
+            detail={"tool": "tool_get_balance_sheet_snapshot"},
+        )
+        try:
+            if sentry_enabled():
+                import sentry_sdk
+                sentry_sdk.add_breadcrumb(
+                    category="mcp.financial",
+                    message="Calling tool_get_balance_sheet_snapshot",
+                    data={"tool": "tool_get_balance_sheet_snapshot", "ticker": ticker},
+                    level="info",
+                )
+            bs_result = await session.call_tool(
+                "tool_get_balance_sheet_snapshot",
+                arguments={"ticker": ticker},
+            )
+            bs_data = json.loads(bs_result.content[0].text)
+            if bs_data.get("error"):
+                errors.append(f"tool_get_balance_sheet_snapshot error: {bs_data['error']}")
+            state["raw_numerical_data"]["balance_sheet_snapshot"] = bs_data
+        except Exception as exc:
+            errors.append(f"tool_get_balance_sheet_snapshot exception: {exc}")
+            state["raw_numerical_data"]["balance_sheet_snapshot"] = {}
+            log.exception("Executor: tool_get_balance_sheet_snapshot failed")
+            if sentry_enabled():
+                import sentry_sdk
+                with sentry_sdk.push_scope() as scope:
+                    scope.set_tag("tool", "tool_get_balance_sheet_snapshot")
+                    scope.set_tag("component", "mcp.financial")
+                    sentry_sdk.capture_exception(exc)
+
         if errors:
             state["raw_numerical_data"]["extraction_errors"] = errors
         log.info(
@@ -550,8 +449,8 @@ class FinancialAnalystAgent:
         )
         _publish_progress(
             session_id, "agent_tool_result", agent="financial",
-            message="Financial Agent: 'tool_get_xbrl_financials' completed — data extraction done",
-            detail={"tool": "tool_get_xbrl_financials", "errors": len(errors)},
+            message="Financial Agent: 'tool_get_balance_sheet_snapshot' completed — data extraction done",
+            detail={"tool": "tool_get_balance_sheet_snapshot", "errors": len(errors)},
         )
 
     @traceable(name="financial.compute", run_type="tool")
@@ -595,7 +494,7 @@ class FinancialAnalystAgent:
         ratios_src = raw.get("yahoo_ratios", {})
         growth_src = raw.get("revenue_growth", {})
         xbrl_src   = raw.get("xbrl_financials", {})
-        session_id = session_from_shared(state["shared_manager_ref"])
+        session_id = session_from_directives(state["manager_directives"])
 
         # -- Helper: safe MCP tool call ---------------------------------------
         #
@@ -652,6 +551,10 @@ class FinancialAnalystAgent:
                         scope.set_tag("component", "mcp.financial")
                         sentry_sdk.capture_exception(exc)
                 return {"error": str(exc), "_inputs": dict(args), "_period": period}
+
+        # Phase 6/P1.1: same-period SEC earnings-quality normalization. This
+        # remains deterministic and never invents missing tax or operating data.
+        state["calculated_ratios"]["earnings_quality"] = normalize_earnings_quality(xbrl_src)
 
         # -- P/E Ratio --------------------------------------------------------
         price = ratios_src.get("current_price")
@@ -874,9 +777,38 @@ class FinancialAnalystAgent:
         beta                 = ratios_src.get("beta")
         market_cap           = ratios_src.get("market_cap")
         current_price        = ratios_src.get("current_price")
-        shares_outstanding   = (
+        observed_diluted_shares = ratios_src.get("diluted_shares")
+        shares_outstanding   = observed_diluted_shares or (
             market_cap / current_price
             if market_cap and current_price else None
+        )
+        total_debt_ttm = ratios_src.get("total_debt")
+        total_cash_ttm = ratios_src.get("total_cash")
+        lease_liabilities_ttm = ratios_src.get("lease_liabilities")
+        minority_interest_ttm = ratios_src.get("minority_interest")
+        interest_expense_ttm = ratios_src.get("interest_expense")
+        tax_rate_raw = ratios_src.get("effective_tax_rate")
+        tax_rate_observed = tax_rate_raw is not None
+        effective_tax_rate_pct = (
+            float(tax_rate_raw) * 100 if tax_rate_raw is not None and abs(float(tax_rate_raw)) <= 1
+            else float(tax_rate_raw) if tax_rate_raw is not None else 21.0
+        )
+        cost_of_debt_observed = interest_expense_ttm is not None and bool(total_debt_ttm and total_debt_ttm > 0)
+        pre_tax_cost_of_debt_pct = (
+            abs(float(interest_expense_ttm)) / total_debt_ttm * 100
+            if interest_expense_ttm is not None and total_debt_ttm and total_debt_ttm > 0
+            else 5.0
+        )
+        valuation_input_assessments = build_valuation_input_assessments(
+            market_cap=market_cap, total_debt=total_debt_ttm, cash=total_cash_ttm,
+            marketable_securities=None, lease_liabilities=lease_liabilities_ttm,
+            minority_interest=minority_interest_ttm, diluted_shares=shares_outstanding,
+            diluted_shares_observed=observed_diluted_shares is not None,
+            cost_of_debt_observed=cost_of_debt_observed,
+            tax_rate_observed=tax_rate_observed,
+            pre_tax_cost_of_debt_pct=pre_tax_cost_of_debt_pct,
+            effective_tax_rate_pct=effective_tax_rate_pct,
+            sector=ratios_src.get("sector"),
         )
 
         fcf_base = None
@@ -890,7 +822,8 @@ class FinancialAnalystAgent:
             except (KeyError, TypeError, IndexError):
                 fcf_base = None
 
-        if fcf_base is not None and beta is not None:
+        revenue_base = valid_rev[-1]["revenue"] if valid_rev else None
+        if fcf_base is not None and beta is not None and revenue_base:
             # Ground the base-case FCF growth assumption in the company's
             # own revenue CAGR (already computed above) — bear/bull default
             # to ~0.5x/~1.75x of this inside dcf_scenario_range unless
@@ -900,8 +833,8 @@ class FinancialAnalystAgent:
             # high-growth stock, which reads as "the model is broken"
             # unless the growth-rate sensitivity is shown explicitly.
             cagr_result = state["calculated_ratios"].get("cagr", {})
-            fcf_growth_pct = cagr_result.get("cagr_pct")
-            if fcf_growth_pct is None:
+            historical_cagr_pct = cagr_result.get("cagr_pct")
+            if historical_cagr_pct is None:
                 # No CAGR available to ground the assumption — skip rather
                 # than guessing a base growth rate out of thin air.
                 state["calculated_ratios"]["dcf"] = {
@@ -909,8 +842,29 @@ class FinancialAnalystAgent:
                     "error": "No revenue_cagr available to anchor the base-case FCF growth assumption.",
                 }
             else:
-                log.info("Computing DCF scenarios: fcf_base=%.0f beta=%.3f base_growth=%.2f%%",
-                          fcf_base, beta, fcf_growth_pct)
+                trajectory_raw = growth_src.get("revenue_growth_ttm")
+                if trajectory_raw is None and len(valid_rev) >= 2:
+                    trajectory_raw = valid_rev[-1]["revenue"] / valid_rev[-2]["revenue"] - 1.0
+                current_growth_pct = (
+                    float(trajectory_raw) * 100.0
+                    if trajectory_raw is not None and abs(float(trajectory_raw)) <= 2.0
+                    else float(trajectory_raw) if trajectory_raw is not None else None
+                )
+                capex_pct_revenue = capex_annual[0]["value"] / revenue_base * 100.0 if capex_annual else None
+                forecast = await _call(
+                    "tool_build_forecast",
+                    {
+                        "revenue_base": revenue_base,
+                        "fcf_base": fcf_base,
+                        "historical_revenue_cagr_pct": historical_cagr_pct,
+                        "current_revenue_growth_pct": current_growth_pct,
+                        "capex_pct_revenue": capex_pct_revenue,
+                        "projection_years": 5,
+                        "source_period": f"annual:{valid_rev[-1]['year']}",
+                    },
+                    period="derived:annual_projection",
+                )
+                state["calculated_ratios"]["forecast"] = forecast
                 # Derived/projected — built from the most recent ANNUAL
                 # operating cash flow & capex (both XBRL 10-K, same
                 # source/period family as net_margin/roe above), grounded on
@@ -922,7 +876,20 @@ class FinancialAnalystAgent:
                         "fcf_base": fcf_base,
                         "beta": beta,
                         "shares_outstanding": shares_outstanding,
-                        "base_growth_rate_pct": fcf_growth_pct,
+                        "diluted_shares": shares_outstanding,
+                        "market_cap": market_cap,
+                        "total_debt": total_debt_ttm,
+                        "cash": total_cash_ttm,
+                        # Kept None rather than silently converted to zero. The
+                        # assessment marks it NOT_APPLICABLE because Yahoo totalCash
+                        # is the combined cash/short-term-investment bucket.
+                        "marketable_securities": None,
+                        "lease_liabilities": lease_liabilities_ttm,
+                        "minority_interest": minority_interest_ttm,
+                        "pre_tax_cost_of_debt_pct": pre_tax_cost_of_debt_pct,
+                        "effective_tax_rate_pct": effective_tax_rate_pct,
+                        "input_assessments": valuation_input_assessments,
+                        "forecast_scenarios": forecast.get("scenarios", {}),
                     },
                     period="derived:annual_projection",
                 )
@@ -932,18 +899,29 @@ class FinancialAnalystAgent:
                 # picture of valuation uncertainty rather than three
                 # discrete points. Both are kept since they serve
                 # different reading purposes in the final report.
-                log.info("Computing DCF Monte Carlo: fcf_base=%.0f beta=%.3f base_growth=%.2f%%",
-                          fcf_base, beta, fcf_growth_pct)
-                state["calculated_ratios"]["dcf_monte_carlo"] = await _call(
-                    "tool_calc_dcf_monte_carlo",
-                    {
-                        "fcf_base": fcf_base,
-                        "beta": beta,
-                        "shares_outstanding": shares_outstanding,
-                        "base_growth_rate_pct": fcf_growth_pct,
-                    },
-                    period="derived:annual_projection",
-                )
+                base_dcf = state["calculated_ratios"]["dcf"].get("base", {})
+                base_forecast = forecast.get("scenarios", {}).get("base", {})
+                if base_dcf.get("error") is None and base_forecast.get("fcf_by_year"):
+                    state["calculated_ratios"]["dcf_monte_carlo"] = await _call(
+                        "tool_calc_dcf_multi_factor_monte_carlo",
+                        {
+                            "fcf_by_year": base_forecast["fcf_by_year"],
+                            "wacc_pct": base_dcf.get("wacc_pct"),
+                            "terminal_growth_rate_pct": base_dcf.get("assumptions", {}).get("terminal_growth_rate_pct", 2.5),
+                            "cash": total_cash_ttm or 0.0,
+                            "total_debt": total_debt_ttm or 0.0,
+                            "lease_liabilities": lease_liabilities_ttm or 0.0,
+                            "minority_interest": minority_interest_ttm or 0.0,
+                            "diluted_shares": shares_outstanding,
+                            "n_simulations": 2000,
+                        },
+                        period="derived:annual_projection",
+                    )
+                else:
+                    state["calculated_ratios"]["dcf_monte_carlo"] = {
+                        "interpretation": "unavailable", "model_classification": "MULTI_FACTOR",
+                        "error": "A valid explicit base forecast and WACC are required.",
+                    }
         else:
             state["calculated_ratios"]["dcf"] = {
                 "enterprise_value": None,
@@ -953,6 +931,174 @@ class FinancialAnalystAgent:
                     "XBRL (fcf_base) or beta from Yahoo ratios — cannot run DCF."
                 ),
             }
+
+        # -- Phase 1: Cash Flow Ratios & Reverse DCF ---------------------------
+        # total_debt/total_cash/ebitda are TTM (Yahoo .info, added to
+        # yahoo_finance.get_financial_ratios for exactly these ratios).
+        ebitda_ttm     = ratios_src.get("ebitda")
+
+        if total_debt_ttm is not None and total_cash_ttm is not None and ebitda_ttm:
+            log.info("Computing Net Debt/EBITDA: debt=%.0f cash=%.0f ebitda=%.0f",
+                      total_debt_ttm, total_cash_ttm, ebitda_ttm)
+            state["calculated_ratios"]["net_debt_to_ebitda"] = await _call(
+                "tool_calc_net_debt_to_ebitda",
+                {"total_debt": total_debt_ttm, "total_cash": total_cash_ttm, "ebitda": ebitda_ttm},
+                period="ttm",
+            )
+        else:
+            state["calculated_ratios"]["net_debt_to_ebitda"] = {"net_debt_to_ebitda": None, "interpretation": "unavailable"}
+
+        # fcf_base is annual (XBRL, computed above for DCF); revenue here
+        # uses the most recent ANNUAL figure to stay in the same source
+        # family, but the two annual series (XBRL cash flow vs. yfinance
+        # income statement) aren't guaranteed to be the exact same fiscal
+        # year — tag MIXED rather than assume alignment, same convention
+        # as net_margin's fallback path above.
+        fcf_margin_revenue = annual_rev[0]["revenue"] if annual_rev else None
+        if fcf_base is not None and fcf_margin_revenue:
+            log.info("Computing FCF Margin: fcf=%.0f revenue=%.0f", fcf_base, fcf_margin_revenue)
+            state["calculated_ratios"]["fcf_margin"] = await _call(
+                "tool_calc_fcf_margin",
+                {"free_cash_flow": fcf_base, "revenue": fcf_margin_revenue},
+                period=f"MIXED(fcf=annual_derived, revenue=annual:{revenue_year})",
+            )
+        else:
+            state["calculated_ratios"]["fcf_margin"] = {"fcf_margin_pct": None, "interpretation": "unavailable"}
+
+        if fcf_base is not None and market_cap:
+            log.info("Computing FCF Yield: fcf=%.0f market_cap=%.0f", fcf_base, market_cap)
+            state["calculated_ratios"]["fcf_yield"] = await _call(
+                "tool_calc_fcf_yield",
+                {"free_cash_flow": fcf_base, "market_cap": market_cap},
+                period="MIXED(fcf=annual_derived, market_cap=ttm)",
+            )
+        else:
+            state["calculated_ratios"]["fcf_yield"] = {"fcf_yield_pct": None, "interpretation": "unavailable"}
+
+        bs_snapshot = raw.get("balance_sheet_snapshot", {})
+        current_liabilities_snap = bs_snapshot.get("current_liabilities")
+
+        if operating_cf_annual and current_liabilities_snap:
+            ocf_annual = operating_cf_annual[0]["value"]
+            log.info("Computing OCF Ratio: ocf=%.0f current_liab=%.0f", ocf_annual, current_liabilities_snap)
+            state["calculated_ratios"]["ocf_ratio"] = await _call(
+                "tool_calc_ocf_ratio",
+                {"operating_cash_flow": ocf_annual, "current_liabilities": current_liabilities_snap},
+                period=f"MIXED(ocf=annual, current_liabilities={bs_snapshot.get('period_end', 'unknown')})",
+            )
+        else:
+            state["calculated_ratios"]["ocf_ratio"] = {"ocf_ratio": None, "interpretation": "unavailable"}
+
+        # Reverse DCF: target enterprise value ≈ market_cap + total_debt −
+        # total_cash (all TTM) -- see reverse_dcf's own docstring for why
+        # raw market_cap alone would bias the result.
+        target_ev = None
+        if market_cap is not None and total_debt_ttm is not None and total_cash_ttm is not None:
+            target_ev = market_cap + total_debt_ttm - total_cash_ttm
+
+        if fcf_base is not None and beta is not None and target_ev is not None and target_ev > 0:
+            log.info("Computing Reverse DCF: fcf_base=%.0f beta=%.3f target_ev=%.0f",
+                      fcf_base, beta, target_ev)
+            state["calculated_ratios"]["reverse_dcf"] = await _call(
+                "tool_calc_reverse_dcf",
+                {
+                    "fcf_base": fcf_base, "beta": beta,
+                    "target_enterprise_value": target_ev,
+                    "market_cap": market_cap, "total_debt": total_debt_ttm,
+                    "pre_tax_cost_of_debt_pct": pre_tax_cost_of_debt_pct,
+                    "effective_tax_rate_pct": effective_tax_rate_pct,
+                },
+                period="MIXED(fcf=annual_derived, market_cap/debt/cash=ttm)",
+            )
+        else:
+            state["calculated_ratios"]["reverse_dcf"] = {
+                "implied_growth_rate_pct": None, "interpretation": "unavailable",
+                "error": "Missing fcf_base, beta, or a valid target enterprise value (market_cap + total_debt − total_cash).",
+            }
+
+        # -- Phase 2: Advanced Profitability, Leverage & Bankruptcy Risk ------
+        total_assets_val      = xbrl_assets[0]["value"] if xbrl_assets else None
+        total_liabilities_val_p2 = xbrl_liabilities[0]["value"] if xbrl_liabilities else None
+        ebit_snap    = bs_snapshot.get("ebit")
+        retained_earnings_snap = bs_snapshot.get("retained_earnings")
+        working_capital_snap   = bs_snapshot.get("working_capital")
+
+        # ROIC needs an effective tax rate this pipeline doesn't have a
+        # direct source for (no pretax-income/tax-provision series
+        # available here) — use the US federal statutory rate (21%) as a
+        # documented placeholder, NOT the company's real effective rate.
+        # Flagged explicitly in the result, same "is_approximation" pattern
+        # used for the D/E-from-XBRL approximation above.
+        _STATUTORY_TAX_RATE_PCT = 21.0
+        if ebit_snap is not None and total_debt_ttm is not None and shareholders_equity and total_cash_ttm is not None:
+            log.info("Computing ROIC: ebit=%.0f equity=%.0f", ebit_snap, shareholders_equity)
+            roic_result = await _call(
+                "tool_calc_roic",
+                {
+                    "ebit": ebit_snap, "tax_rate_pct": _STATUTORY_TAX_RATE_PCT,
+                    "total_debt": total_debt_ttm, "total_equity": shareholders_equity,
+                    "cash": total_cash_ttm,
+                },
+                period=f"MIXED(ebit={bs_snapshot.get('period_end','unknown')}, equity=annual:{equity_period_end}, debt/cash=ttm)",
+            )
+            roic_result["is_approximation"] = True
+            roic_result["note"] = (
+                f"tax_rate_pct used the US statutory rate ({_STATUTORY_TAX_RATE_PCT}%) as a "
+                "placeholder, not this company's actual effective tax rate (no pretax-income/"
+                "tax-provision series available in this pipeline) -- NOPAT here is an approximation."
+            )
+            state["calculated_ratios"]["roic"] = roic_result
+        else:
+            state["calculated_ratios"]["roic"] = {"roic_pct": None, "interpretation": "unavailable"}
+
+        if ebit_snap is not None and total_assets_val and current_liabilities_snap is not None:
+            log.info("Computing ROCE: ebit=%.0f total_assets=%.0f", ebit_snap, total_assets_val)
+            state["calculated_ratios"]["roce"] = await _call(
+                "tool_calc_roce",
+                {"ebit": ebit_snap, "total_assets": total_assets_val, "current_liabilities": current_liabilities_snap},
+                period=f"MIXED(ebit={bs_snapshot.get('period_end','unknown')}, total_assets=annual:{equity_period_end})",
+            )
+        else:
+            state["calculated_ratios"]["roce"] = {"roce_pct": None, "interpretation": "unavailable"}
+
+        # debt_ratio / equity_ratio: total_liabilities and total_assets are
+        # BOTH from the same XBRL annual snapshot (index [0] of each series,
+        # same source/period family as ROE/D-E above) -- clean annual tag,
+        # not mixed.
+        if total_liabilities_val_p2 is not None and total_assets_val:
+            state["calculated_ratios"]["debt_ratio"] = await _call(
+                "tool_calc_debt_ratio",
+                {"total_liabilities": total_liabilities_val_p2, "total_assets": total_assets_val},
+                period=f"annual:{equity_period_end}" if equity_period_end else "annual",
+            )
+        else:
+            state["calculated_ratios"]["debt_ratio"] = {"debt_ratio": None, "interpretation": "unavailable"}
+
+        if shareholders_equity and total_assets_val:
+            state["calculated_ratios"]["equity_ratio"] = await _call(
+                "tool_calc_equity_ratio",
+                {"total_equity": shareholders_equity, "total_assets": total_assets_val},
+                period=f"annual:{equity_period_end}" if equity_period_end else "annual",
+            )
+        else:
+            state["calculated_ratios"]["equity_ratio"] = {"equity_ratio": None, "interpretation": "unavailable"}
+
+        altman_revenue = annual_rev[0]["revenue"] if annual_rev else None
+        if (working_capital_snap is not None and retained_earnings_snap is not None
+                and ebit_snap is not None and total_assets_val and market_cap is not None
+                and total_liabilities_val_p2 is not None and altman_revenue is not None):
+            log.info("Computing Altman Z-Score")
+            state["calculated_ratios"]["altman_z_score"] = await _call(
+                "tool_calc_altman_z_score",
+                {
+                    "working_capital": working_capital_snap, "retained_earnings": retained_earnings_snap,
+                    "ebit": ebit_snap, "total_assets": total_assets_val, "market_cap": market_cap,
+                    "total_liabilities": total_liabilities_val_p2, "revenue": altman_revenue,
+                },
+                period="mixed",
+            )
+        else:
+            state["calculated_ratios"]["altman_z_score"] = {"z_score": None, "interpretation": "unavailable"}
 
         # -- Composite Financial Score ----------------------------------------
         log.info("Computing composite financial score")
@@ -1026,7 +1172,7 @@ class FinancialAnalystAgent:
             Current agent-local state. Read fields:
             - ``state["raw_numerical_data"]``  : Yahoo + SEC EDGAR extractions.
             - ``state["calculated_ratios"]``   : MCP-computed ratio results.
-            - ``state["shared_manager_ref"]``  : For task_query context.
+            - ``state["task_query"]``  : For task_query context.
             - ``state["loop_counter"]``        : For audit context logging.
 
         Returns
@@ -1044,7 +1190,7 @@ class FinancialAnalystAgent:
         raw  = state["raw_numerical_data"]
         calc = state["calculated_ratios"]
         loop = state["loop_counter"]
-        task_query = state["shared_manager_ref"].get("task_query", "")
+        task_query = state["task_query"]
 
         log.info("[Checker] Auditing iteration %d data with Claude...", loop)
 
@@ -1094,16 +1240,42 @@ class FinancialAnalystAgent:
             "pe":             calc.get("pe", {}),
             "roe":            calc.get("roe", {}),
             "net_margin":     calc.get("net_margin", {}),
+            "earnings_quality": calc.get("earnings_quality", {}),
             "de_ratio":       calc.get("de_ratio", {}),
             "cagr":           calc.get("cagr", {}),
             "composite_score": calc.get("composite_score", {}),
+            "forecast": calc.get("forecast", {}),
+            "dcf_valuation": calc.get("dcf", {}),
+            "valuation_input_assessments": (
+                calc.get("dcf", {}).get("base", {}).get("input_assessments", {})
+            ),
+            "reverse_dcf": calc.get("reverse_dcf", {}),
         }
+
+        deterministic_validation = evaluate_financial_sanity({
+            "forecast": calc.get("forecast", {}),
+            "dcf_valuation": calc.get("dcf", {}),
+            "reverse_dcf": calc.get("reverse_dcf", {}),
+            "earnings_quality": calc.get("earnings_quality", {}),
+        })
+        if not deterministic_validation["passed"]:
+            issues = [item["message"] for item in deterministic_validation["critical_failures"]]
+            return {
+                "is_complete": False,
+                "score": deterministic_validation["score"],
+                "passed": [],
+                "failed": [item["rule"] for item in deterministic_validation["critical_failures"]],
+                "issues": issues,
+                "feedback": "Correct the deterministic financial-model failures before rerunning valuation.",
+                "deterministic_validation": deterministic_validation,
+            }
 
         user_content = (
             f"TASK QUERY:\n{task_query}\n\n"
             f"LOOP ITERATION: {loop}\n\n"
             f"RAW DATA SUMMARY:\n{json.dumps(raw_summary, indent=2)}\n\n"
             f"CALCULATED RATIOS:\n{json.dumps(ratio_summary, indent=2)}\n\n"
+            f"DETERMINISTIC FINANCIAL VALIDATION:\n{json.dumps(deterministic_validation, indent=2)}\n\n"
             "Audit the above and return your JSON verdict."
         )
 
@@ -1113,7 +1285,7 @@ class FinancialAnalystAgent:
                 self._llm.messages.create,
                 model=self._model,
                 max_tokens=768,
-                system=_CHECKER_SYSTEM_PROMPT,
+                system=CHECKER_SYSTEM_PROMPT,
                 temperature=0.0,
                 messages=[{"role": "user", "content": user_content}],
             )
@@ -1171,7 +1343,7 @@ class FinancialAnalystAgent:
             )
 
         _publish_progress(
-            session_from_shared(state["shared_manager_ref"]), "agent_checker", agent="financial",
+            session_from_directives(state["manager_directives"]), "agent_checker", agent="financial",
             message=(
                 f"Financial Agent: checking data quality — "
                 f"{'sufficient ✓' if is_complete else 'needs more data'} (score={score})"
@@ -1186,6 +1358,7 @@ class FinancialAnalystAgent:
             "failed":      failed,
             "issues":      issues,
             "feedback":    feedback,
+            "deterministic_validation": deterministic_validation,
         }
 
     # =========================================================================
@@ -1212,7 +1385,7 @@ class FinancialAnalystAgent:
             - ``state["messages"]``           : Full conversation history.
             - ``state["loop_counter"]``        : Current iteration index.
             - ``state["validation_feedback"]`` : Last Checker critique (may be "").
-            - ``state["shared_manager_ref"]``  : Original Manager task.
+            - ``state["task_query"]`` / ``state["manager_directives"]``  : Original Manager task.
 
         Returns
         -------
@@ -1224,8 +1397,8 @@ class FinancialAnalystAgent:
         """
         iteration   = state["loop_counter"]
         feedback    = state["validation_feedback"]
-        task_query  = state["shared_manager_ref"].get("task_query", "")
-        directives  = state["shared_manager_ref"].get("manager_directives", {})
+        task_query  = state["task_query"]
+        directives  = state["manager_directives"]
 
         system_prompt = (
             "You are the Brain of a FinancialAnalystAgent. "
@@ -1262,7 +1435,8 @@ class FinancialAnalystAgent:
 
             # Attempt to parse as JSON; fall back gracefully
             try:
-                parsed = json.loads(raw_plan)
+                clean = raw_plan.replace("```json", "").replace("```", "").strip()
+                parsed = json.loads(clean)
                 plan           = parsed.get("plan", "Execute standard extraction.")
                 priority_tools = parsed.get("priority_tools", [])
             except json.JSONDecodeError:
@@ -1296,6 +1470,92 @@ class FinancialAnalystAgent:
                 ],
                 "raw_plan": default_plan,
             }
+
+    # =========================================================================
+    # LANGGRAPH NODES — thin wrappers over the layer methods above
+    # =========================================================================
+    # Each node returns a partial-state dict (LangGraph merges it). The heavy
+    # logic stays in _brain / _execute_data_extraction / _execute_ratio_
+    # computation / _check_data_quality — unchanged. The MCP session is read
+    # from self._session, set once per run() before the graph is invoked.
+
+    async def _node_brain(self, state: FinancialAgentState) -> dict[str, Any]:
+        # loop_counter is incremented here, once per cycle, exactly as the
+        # old while-loop did at the top of each iteration.
+        new_counter = state["loop_counter"] + 1
+        log.info("--- Loop iteration %d ---", new_counter)
+        brain_output = await self._brain(state)
+        log.info("Brain plan: %s", brain_output.get("plan"))
+        return {"loop_counter": new_counter}
+
+    async def _node_extract(self, state: FinancialAgentState) -> dict[str, Any]:
+        await self._execute_data_extraction(self._session, state)
+        # _execute_data_extraction mutates state["raw_numerical_data"] in place;
+        # return it so the graph state reflects the update explicitly.
+        return {"raw_numerical_data": state["raw_numerical_data"]}
+
+    async def _node_compute(self, state: FinancialAgentState) -> dict[str, Any]:
+        await self._execute_ratio_computation(self._session, state)
+        return {"calculated_ratios": state["calculated_ratios"]}
+
+    async def _node_checker(self, state: FinancialAgentState) -> dict[str, Any]:
+        check_result = await self._check_data_quality(state)
+        is_complete = check_result["is_complete"]
+        if is_complete:
+            log.info("[Checker] PASSED (score=%s) after %d iteration(s).",
+                     check_result.get("score"), state["loop_counter"])
+        else:
+            log.warning("[Checker] FAILED iteration %d (score=%s). Feedback: %s",
+                        state["loop_counter"], check_result.get("score"),
+                        str(check_result.get("feedback", ""))[:120])
+        return {
+            "is_complete":         is_complete,
+            "validation_feedback": check_result["feedback"],
+        }
+
+    def _should_continue(self, state: FinancialAgentState):
+        """
+        Conditional edge after the Checker. Mirrors the old while-loop exit
+        conditions exactly:
+          - loop_counter >= max_loops  → END (safety guardrail)
+          - is_complete == True        → END (normal completion)
+          - otherwise                  → back to brain (another cycle)
+        """
+        directives = state["manager_directives"]
+        max_loops  = int(directives.get("max_loops", self._default_max_loops))
+
+        if state["loop_counter"] >= max_loops:
+            log.warning("[Router] loop_counter=%d >= max_loops=%d → END.",
+                        state["loop_counter"], max_loops)
+            return "__end__"
+        if state["is_complete"]:
+            return "__end__"
+        return "brain"
+
+    def _build_graph(self):
+        """
+        Compile the internal state machine:
+            START → brain → extract → compute → checker
+                  → (conditional) → brain | END
+        """
+        builder = StateGraph(FinancialAgentState)
+
+        builder.add_node("brain",    self._node_brain)
+        builder.add_node("extract",  self._node_extract)
+        builder.add_node("compute",  self._node_compute)
+        builder.add_node("checker",  self._node_checker)
+
+        builder.set_entry_point("brain")
+        builder.add_edge("brain",   "extract")
+        builder.add_edge("extract", "compute")
+        builder.add_edge("compute", "checker")
+        builder.add_conditional_edges(
+            "checker",
+            self._should_continue,
+            {"brain": "brain", "__end__": END},
+        )
+
+        return builder.compile()
 
     # =========================================================================
     # ENTRY GATEWAY — run()
@@ -1362,7 +1622,8 @@ class FinancialAnalystAgent:
             "loop_counter":        0,
             "validation_feedback": "",
             "is_complete":         False,
-            "shared_manager_ref":  shared_state,
+            "task_query":          shared_state["task_query"],
+            "manager_directives":  dict(shared_state.get("manager_directives", {})),
         }
 
         # -- Open MCP client session ------------------------------------------
@@ -1373,46 +1634,21 @@ class FinancialAnalystAgent:
                 await session.initialize()
                 log.info("MCP session initialised successfully.")
 
-                # -- Main lifecycle loop --------------------------------------
-                while state["loop_counter"] < max_loops:
-                    state["loop_counter"] += 1
-                    log.info(
-                        "--- Loop iteration %d / %d ---",
-                        state["loop_counter"],
-                        max_loops,
+                # Expose the live session to graph nodes (see __init__).
+                self._session = session
+
+                # -- Drive the compiled graph ---------------------------------
+                # Topology: brain → extract → compute → checker →
+                #           (conditional) → brain | END
+                # recursion_limit mirrors the old while-loop guardrail: each
+                # loop is 4 nodes, +1 slack, same effective cap as max_loops.
+                try:
+                    state = await self._graph.ainvoke(
+                        state,
+                        config={"recursion_limit": (max_loops + 1) * 4},
                     )
-
-                    # Layer 3: Brain plans this iteration
-                    brain_output = await self._brain(state)
-                    log.info("Brain plan: %s", brain_output["plan"])
-
-                    # Layer 1a: Extract raw market and SEC data
-                    await self._execute_data_extraction(session, state)
-
-                    # Layer 1b: Compute financial ratios
-                    await self._execute_ratio_computation(session, state)
-
-                    # Layer 2: Claude-powered Checker audits the extracted data
-                    check_result = await self._check_data_quality(state)
-                    state["is_complete"]         = check_result["is_complete"]
-                    state["validation_feedback"] = check_result["feedback"]
-
-                    if state["is_complete"]:
-                        log.info(
-                            "[Loop] Checker PASSED (score=%s) — exiting after %d iteration(s).",
-                            check_result.get("score"),
-                            state["loop_counter"],
-                        )
-                        break
-                    else:
-                        log.warning(
-                            "[Loop] Checker FAILED on iteration %d "
-                            "(score=%s, failed=%s). Feedback: %s",
-                            state["loop_counter"],
-                            check_result.get("score"),
-                            check_result.get("failed", []),
-                            state["validation_feedback"][:120],
-                        )
+                finally:
+                    self._session = None
 
                 if not state["is_complete"]:
                     log.warning(
@@ -1423,6 +1659,47 @@ class FinancialAnalystAgent:
         # -- Assemble financial_metrics_summary --------------------------------
         raw  = state["raw_numerical_data"]
         calc = state["calculated_ratios"]
+
+        # Deterministic, rule-based analysis layer -- NO LLM. See module
+        # docstring (_annotate_confidence / _build_consistency_checks /
+        # _build_data_quality_score) for why this stays rule-based: any
+        # interpretive judgment ("what does this mean for the business")
+        # belongs to the Manager Agent's finalizer LLM, which is the ONLY
+        # place in this pipeline meant to narrate numbers -- keeping this
+        # agent's own layer mechanical is what makes its output safely
+        # re-usable/re-auditable rather than one more place a number could
+        # get silently reinterpreted.
+        annotate_confidence(calc)
+        consistency_checks = build_consistency_checks(raw, calc)
+        data_quality = build_data_quality_score(raw, calc)
+        financial_sanity = evaluate_financial_sanity({
+            "forecast": calc.get("forecast", {}),
+            "dcf_valuation": calc.get("dcf", {}),
+            "reverse_dcf": calc.get("reverse_dcf", {}),
+            "earnings_quality": calc.get("earnings_quality", {}),
+        })
+        financial_facts = []
+        for series_name, entries in raw.get("xbrl_financials", {}).items():
+            if not isinstance(entries, list):
+                continue
+            metric = series_name.removesuffix("_annual")
+            for entry in entries:
+                if not isinstance(entry, dict) or "value" not in entry:
+                    continue
+                financial_facts.append(typed_financial_claim({
+                    "metric": metric, "value": entry.get("value"), "unit": entry.get("unit"),
+                    "ticker": raw.get("ticker"), "fiscal_year": entry.get("fiscal_year"),
+                    "fiscal_quarter": entry.get("fiscal_quarter"),
+                    "period_start": entry.get("period_start"), "period_end": entry.get("period_end"),
+                    "duration_months": entry.get("duration_months"),
+                    "filing_type": entry.get("filing_type"),
+                    "accession_number": entry.get("accession_number"),
+                    "metric_scope": entry.get("metric_scope"),
+                    "gaap_status": entry.get("gaap_status"),
+                    "provenance_status": "COMPLETE" if entry.get("accession_number") else "INCOMPLETE",
+                    # Distinct historical facts are retained, not merged into one claim.
+                    "comparison": True,
+                }))
 
         financial_metrics_summary: dict[str, Any] = {
             # Identification
@@ -1446,10 +1723,32 @@ class FinancialAnalystAgent:
             "net_margin":    calc.get("net_margin", {}),
             "de_ratio":      calc.get("de_ratio", {}),
             "revenue_cagr":  calc.get("cagr", {}),
+            "forecast":      calc.get("forecast", {}),
             "dcf_valuation": calc.get("dcf", {}),
+            "valuation_input_assessments": (
+                calc.get("dcf", {}).get("base", {}).get("input_assessments", {})
+            ),
             "dcf_monte_carlo": calc.get("dcf_monte_carlo", {}),
             "current_ratio": raw.get("yahoo_ratios", {}).get("current_ratio"),
             "composite_score": calc.get("composite_score", {}),
+
+            # Phase 1/2 ratios (net_debt_to_ebitda, fcf_margin, fcf_yield,
+            # ocf_ratio, reverse_dcf, roic, roce, debt_ratio, equity_ratio,
+            # altman_z_score) -- same pass-through pattern as roe/net_margin/
+            # de_ratio above: the full dict (value + interpretation +
+            # formula + _inputs + _period), not just the bare number, so
+            # manager_agent.py can extract period tags the same way it does
+            # for every other ratio.
+            "net_debt_to_ebitda": calc.get("net_debt_to_ebitda", {}),
+            "fcf_margin":         calc.get("fcf_margin", {}),
+            "fcf_yield":          calc.get("fcf_yield", {}),
+            "ocf_ratio":          calc.get("ocf_ratio", {}),
+            "reverse_dcf":        calc.get("reverse_dcf", {}),
+            "roic":               calc.get("roic", {}),
+            "roce":               calc.get("roce", {}),
+            "debt_ratio":         calc.get("debt_ratio", {}),
+            "equity_ratio":       calc.get("equity_ratio", {}),
+            "altman_z_score":     calc.get("altman_z_score", {}),
 
             # Relative valuation vs. sector peers
             "peer_comparison": raw.get("peer_comparison", {}),
@@ -1486,6 +1785,12 @@ class FinancialAnalystAgent:
                 ),
             },
 
+            # Deterministic analysis layer (rule-based, no LLM -- see note above)
+            "consistency_checks": consistency_checks,
+            "data_quality":       data_quality,
+            "financial_sanity":   financial_sanity,
+            "financial_facts":    financial_facts,
+
             # Execution metadata
             "loop_iterations_used":  state["loop_counter"],
             "validation_passed":     state["is_complete"],
@@ -1506,7 +1811,7 @@ class FinancialAnalystAgent:
         # data source might not), recursively sanitize the whole summary
         # once, here, so this class of crash cannot recur regardless of
         # where a NaN originates.
-        financial_metrics_summary = _sanitize_nans(financial_metrics_summary)
+        financial_metrics_summary = sanitize_nans(financial_metrics_summary)
 
         # Commit to the shared state contract
         shared_state["financial_metrics_summary"] = financial_metrics_summary  # type: ignore[literal-required]

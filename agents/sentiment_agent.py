@@ -60,21 +60,25 @@ import json
 import logging
 import asyncio
 import re
+from urllib.parse import urlparse
 from typing import Any
 
 import anthropic
+from langgraph.graph import END, StateGraph
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-
+from agents.prompts.promt_sentinemt import (BRAIN_PLAN_SYSTEM_PROMPT,BRAIN_ANALYZE_SYSTEM_PROMPT)
+from evaluation.aspect_sentiment import extract_aspect_observations, supported_causal_aspects
 # ---------------------------------------------------------------------------
 # State contract imports
 # ---------------------------------------------------------------------------
 # SharedManagerState and SentimentAgentState are declared in agents/state.py
 # — the single source of truth for all state TypedDicts across the platform.
 from agents.state import SentimentAgentState, SharedManagerState
+from agents.executor_helpers.finance_executor_helper import extract_ticker
 from langsmith import traceable
 from core.observability import sentry_enabled
-from core.progress_bus import publish as _publish_progress, session_from_shared
+from core.progress_bus import publish as _publish_progress, session_from_directives
 
 # ---------------------------------------------------------------------------
 # Logging — stderr only; stdout is reserved for MCP JSON-RPC
@@ -84,77 +88,7 @@ from core.progress_bus import publish as _publish_progress, session_from_shared
 log = logging.getLogger("sentiment-agent")
 
 
-# ---------------------------------------------------------------------------
-# Brain system prompts — module-level constants
-# ---------------------------------------------------------------------------
 
-_BRAIN_PLAN_SYSTEM_PROMPT = """\
-You are the Planning Brain of a SentimentAgent on a financial analysis platform.
-
-Your role: Given a research task and optional financial context, produce a
-concise, structured retrieval plan that tells the Executor exactly how to
-query the social data RAG pipeline.
-
-You will receive:
-  - TASK QUERY             : The original research objective.
-  - TICKER                 : Target stock ticker (may be inferred).
-  - MANAGER DIRECTIVES     : Configuration hints (days_back, etc.).
-  - FINANCIAL CONTEXT      : Optional summary from FinancialAnalystAgent.
-  - RESEARCH CONTEXT SAMPLE: First 800 chars of aggregated research chunks.
-  - LOOP ITERATION         : Current iteration number.
-
-Output format (strict JSON — no markdown fences, no preamble):
-{
-  "retrieval_query" : "<semantic search query string, 5-12 words>",
-  "ticker"          : "<TICKER or null if not applicable>",
-  "days_back"       : <integer, 1-30>,
-  "reasoning"       : "<1-2 sentence explanation of the plan>"
-}
-
-Rules:
-- Output ONLY valid JSON. No explanation outside the JSON object.
-- retrieval_query must be specific and sentiment-focused, e.g.:
-    "NVIDIA AI chip earnings investor sentiment market reaction"
-- days_back: use manager_directives if provided; otherwise default to 7.
-- If ticker is ambiguous, extract it from the task_query using context clues.
-"""
-
-_BRAIN_ANALYZE_SYSTEM_PROMPT = """\
-You are the Analysis Brain of a SentimentAgent on a financial analysis platform.
-
-Your role: Interpret the combined FinBERT + VADER + Fear/Greed sentiment signals
-in the context of the research task, and produce a concise, actionable narrative
-verdict for the Manager Agent.
-
-You will receive:
-  - TASK QUERY        : The original research objective.
-  - TICKER            : Target company ticker.
-  - FEAR/GREED RESULT : Composite score [-1, +1] and five-band label.
-  - FINBERT RESULT    : Deep NLP probabilities (bullish/bearish/neutral).
-  - VADER RESULT      : Rule-based compound score and label.
-  - CHUNK COUNT       : Number of social/news chunks analysed.
-  - FINANCIAL CONTEXT : Optional key metrics from FinancialAnalystAgent.
-
-Your output (strict JSON — no markdown fences, no preamble):
-{
-  "overall_sentiment"  : "Bullish" | "Bearish" | "Neutral" | "Mixed",
-  "conviction_level"   : "High" | "Medium" | "Low",
-  "key_signals"        : ["<signal 1>", "<signal 2>", "<signal 3>"],
-  "model_agreement"    : "Strong" | "Moderate" | "Weak",
-  "narrative"          : "<2-4 sentence actionable interpretation for the Manager Agent>",
-  "risk_flags"         : ["<flag 1>", ...],
-  "data_quality_note"  : "<brief note on data coverage quality, or empty string>"
-}
-
-Rules:
-- Output ONLY valid JSON. No explanation outside the JSON object.
-- narrative must synthesise FinBERT + VADER + Fear/Greed — do not just repeat numbers.
-- Be explicit about model_agreement: Strong = both models align; Weak = diverge > 0.3.
-- risk_flags: list data risks (e.g. too few chunks, high neutrality, recency gap).
-  Return empty list [] if no flags.
-- conviction_level: High if |fear_greed_score| > 0.4 and models agree; Low if < 0.15
-  or models strongly diverge.
-"""
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -212,6 +146,13 @@ class SentimentAgent:
         Fallback loop limit when Manager does not specify one.
     """
 
+    @staticmethod
+    def _extract_ticker(task_query: str, directives: dict[str, Any], financial_summary: dict[str, Any]) -> str | None:
+        """Backward-compatible wrapper around the shared ticker resolver."""
+        return extract_ticker(
+            task_query, directives, financial_summary,
+        )
+
     def __init__(
         self,
         server_script_path: str,
@@ -230,67 +171,20 @@ class SentimentAgent:
             args=[server_script_path],
             env=None,
         )
+
+        # MCP session is opened once per run() and shared with graph nodes via
+        # this slot (nodes receive only `state`, so they read the live session
+        # here). brain_analyze doesn't use it — it's a pure LLM call — but the
+        # slot being set during its node is harmless.
+        self._session: ClientSession | None = None
+
+        # Compile the internal LangGraph state machine once at construction.
+        self._graph = self._build_graph()
+
         log.info(
             "SentimentAgent initialised — model=%s, server=%s",
             model, server_script_path,
         )
-
-    # =========================================================================
-    # INTERNAL UTILITY — ticker extraction
-    # =========================================================================
-
-    def _extract_ticker(
-        self,
-        task_query: str,
-        directives: dict[str, Any],
-        financial_summary: dict[str, Any],
-    ) -> str | None:
-        """
-        Resolve the target ticker symbol from multiple context sources.
-
-        Resolution order (highest priority first):
-            1. ``manager_directives["ticker"]``   — explicit Manager override.
-            2. ``financial_metrics_summary["ticker"]`` — already resolved by
-               FinancialAnalystAgent upstream.
-            3. Regex scan of ``task_query`` for 1-5 uppercase letter tokens,
-               filtering known stop-words.
-
-        Parameters
-        ----------
-        task_query : str
-            Natural-language research question from the Manager Agent.
-        directives : dict[str, Any]
-            Manager directives dictionary (may be empty).
-        financial_summary : dict[str, Any]
-            Financial metrics summary from FinancialAnalystAgent (may be empty).
-
-        Returns
-        -------
-        str | None
-            Uppercase ticker symbol, or ``None`` if extraction fails.
-        """
-        # Priority 1: explicit directive
-        if directives.get("ticker"):
-            return str(directives["ticker"]).upper()
-
-        # Priority 2: already resolved by FinancialAnalystAgent
-        if financial_summary.get("ticker"):
-            return str(financial_summary["ticker"]).upper()
-
-        # Priority 3: heuristic regex scan of task_query
-        stop_words = {
-            "A", "I", "THE", "AND", "OR", "IN", "OF", "FOR", "AI", "Q1",
-            "Q2", "Q3", "Q4", "US", "SEC", "PE", "YOY", "TTM", "EPS",
-            "RAG", "NLP", "ETF", "IPO", "GDP", "CEO", "CFO", "MCP",
-        }
-        candidates = re.findall(r"\b([A-Z]{1,5})\b", task_query)
-        for candidate in candidates:
-            if candidate not in stop_words:
-                log.info("SentimentAgent inferred ticker from task_query: %s", candidate)
-                return candidate
-
-        log.warning("SentimentAgent: could not infer ticker from task_query='%s'", task_query)
-        return None
 
     # =========================================================================
     # LAYER 2 — BRAIN (Cognitive / LLM Interpretation Layer)
@@ -313,7 +207,9 @@ class SentimentAgent:
         state : SentimentAgentState
             Current agent-local state. Read fields:
             - ``state["loop_counter"]``        : Current iteration index.
-            - ``state["shared_manager_ref"]``  : task_query, directives,
+            - ``state["task_query"]`` / ``state["manager_directives"]`` /
+              ``state["financial_metrics_summary"]`` /
+              ``state["aggregated_research_context"]``
                                                   financial_metrics_summary,
                                                   aggregated_research_context.
 
@@ -326,13 +222,13 @@ class SentimentAgent:
             - ``"days_back"``       (int)        : Recency window in days.
             - ``"reasoning"``       (str)        : Claude's brief rationale.
         """
-        shared     = state["shared_manager_ref"]
-        task_query = shared.get("task_query", "")
-        directives = shared.get("manager_directives", {})
-        fin_summary = shared.get("financial_metrics_summary", {})
-        research_ctx = shared.get("aggregated_research_context", [])
+        shared = state.get("shared_manager_ref", {})
+        task_query = state.get("task_query", shared.get("task_query", ""))
+        directives = state.get("manager_directives", shared.get("manager_directives", {}))
+        fin_summary = state.get("financial_metrics_summary", shared.get("financial_metrics_summary", {}))
+        research_ctx = state.get("aggregated_research_context", shared.get("aggregated_research_context", []))
 
-        ticker = self._extract_ticker(task_query, directives, fin_summary)
+        ticker = extract_ticker(task_query, directives, fin_summary)
 
         # Build financial context snippet for Claude
         fin_ctx_snippet = ""
@@ -366,7 +262,7 @@ class SentimentAgent:
                 model=self._model,
                 max_tokens=768,
                 temperature=0,
-                system=_BRAIN_PLAN_SYSTEM_PROMPT,
+                system=BRAIN_PLAN_SYSTEM_PROMPT,
                 messages=state["messages"],
             )
             raw = response.content[0].text.strip()
@@ -378,7 +274,7 @@ class SentimentAgent:
             log.info("[Brain-Plan] Plan: query='%s' ticker=%s days_back=%s",
                      plan.get("retrieval_query"), plan.get("ticker"), plan.get("days_back"))
             _publish_progress(
-                session_from_shared(state["shared_manager_ref"]), "agent_brain", agent="sentiment",
+                session_from_directives(directives), "agent_brain", agent="sentiment",
                 message="Sentiment Agent: planning market sentiment data collection",
                 detail={"query": plan.get("retrieval_query"), "ticker": plan.get("ticker")},
             )
@@ -423,7 +319,7 @@ class SentimentAgent:
             - ``state["finbert_result"]``      : FinBERT probabilities.
             - ``state["vader_result"]``        : VADER compound score.
             - ``state["retrieved_chunks"]``    : For chunk count context.
-            - ``state["shared_manager_ref"]``  : task_query, financial summary.
+            - ``state["task_query"]`` / ``state["financial_metrics_summary"]``
 
         Returns
         -------
@@ -432,12 +328,23 @@ class SentimentAgent:
             ``state["brain_reasoning"]``. The caller parses this into the
             final ``sentiment_analysis_summary``.
         """
-        shared      = state["shared_manager_ref"]
-        task_query  = shared.get("task_query", "")
-        fin_summary = shared.get("financial_metrics_summary", {})
+        shared      = state.get("shared_manager_ref", {})
+        task_query  = state.get("task_query", shared.get("task_query", ""))
+        fin_summary = state.get("financial_metrics_summary", shared.get("financial_metrics_summary", {}))
         fg          = state["fear_greed_result"]
         fb          = state["finbert_result"]
         vd          = state["vader_result"]
+        status      = state.get("sentiment_status", "NO_DATA")
+
+        if status in {"NO_DATA", "ERROR"}:
+            return json.dumps({
+                "status": status, "overall_sentiment": None,
+                "conviction_level": "Low", "key_signals": [],
+                "model_agreement": "Unavailable",
+                "narrative": "Sentiment interpretation unavailable because no valid evidence was selected.",
+                "risk_flags": ["No valid sentiment evidence"],
+                "data_quality_note": "Missing input is not neutral sentiment.",
+            })
 
         # Concise financial context for Claude
         fin_ctx = ""
@@ -458,6 +365,8 @@ class SentimentAgent:
             f"FINBERT RESULT:\n{json.dumps({k: v for k, v in fb.items() if k != 'chunk_scores'}, indent=2)}\n\n"
             f"VADER RESULT:\n{json.dumps({k: v for k, v in vd.items() if k != 'chunk_scores'}, indent=2)}\n\n"
             f"CHUNK COUNT ANALYSED: {len(state['retrieved_chunks'])}\n\n"
+            f"ASPECT OBSERVATIONS:\n{json.dumps(state.get('aspect_observations', []), indent=2)}\n\n"
+            "Only attribute a sentiment cause to an aspect listed above with a non-empty evidence_span.\n\n"
             f"FINANCIAL CONTEXT:\n{fin_ctx or 'Not available'}\n\n"
             "Produce your sentiment interpretation JSON verdict."
         )
@@ -471,7 +380,7 @@ class SentimentAgent:
                 model=self._model,
                 max_tokens=768,
                 temperature=0,
-                system=_BRAIN_ANALYZE_SYSTEM_PROMPT,
+                system=BRAIN_ANALYZE_SYSTEM_PROMPT,
                 messages=state["messages"],
             )
             raw = response.content[0].text.strip()
@@ -479,7 +388,7 @@ class SentimentAgent:
             raw = raw.replace("```json", "").replace("```", "").strip()
             log.info("[Brain-Analyze] Interpretation complete.")
             _publish_progress(
-                session_from_shared(state["shared_manager_ref"]), "agent_checker", agent="sentiment",
+                session_from_directives(state["manager_directives"]), "agent_checker", agent="sentiment",
                 message="Sentiment Agent: final sentiment interpretation ready",
             )
             return raw
@@ -568,8 +477,23 @@ class SentimentAgent:
             All results are written directly into ``state``.
         """
 
+        # Atomically clear per-attempt state. Historical attempts remain
+        # immutable in attempts[] and their errors are reported separately.
+        attempts = state.setdefault("attempts", [])
+        prior_attempt_errors = [
+            error for attempt in attempts for error in attempt.get("errors", [])
+        ]
+        state.update({
+            "retrieved_chunks": [], "sources_metadata": [],
+            "finbert_result": {}, "vader_result": {}, "fear_greed_result": {},
+            "extraction_errors": [], "prior_attempt_errors": prior_attempt_errors,
+            "sentiment_status": "NO_DATA", "sentiment_polarity": None,
+        })
+
         # -- Internal helper: safe MCP call -----------------------------------
-        session_id = session_from_shared(state["shared_manager_ref"])
+        shared = state.get("shared_manager_ref", {})
+        directives_for_attempt = state.get("manager_directives", shared.get("manager_directives", {}))
+        session_id = session_from_directives(directives_for_attempt)
 
         async def _call(tool: str, args: dict) -> dict:
             _publish_progress(
@@ -624,7 +548,7 @@ class SentimentAgent:
         # -- Step 1: retrieve_social_data ------------------------------------
         retrieval_query = plan.get("retrieval_query", "market sentiment")
         ticker          = plan.get("ticker")
-        days_back       = int(plan.get("days_back", 7))
+        days_back       = int(plan.get("days_back", 30))
 
         log.info("[Executor] Step 1 — retrieve_social_data: query='%s' ticker=%s days=%d",
                  retrieval_query, ticker, days_back)
@@ -635,8 +559,11 @@ class SentimentAgent:
 
         social_data = await _call("retrieve_social_data", retrieval_args)
 
+        log.info("[DEBUG] social_data keys=%s chunks=%d",
+                 list(social_data.keys()), len(social_data.get("chunks", [])))
+
         state["retrieved_chunks"] = social_data.get("chunks", [])
-        state["sources_metadata"] = social_data.get("sources", [])
+        state["sources_metadata"] = social_data.get("sources_metadata", social_data.get("sources", []))
         log.info("[Executor] Retrieved %d chunks.", len(state["retrieved_chunks"]))
 
         # -- Step 2: analyze_finbert -----------------------------------------
@@ -650,12 +577,10 @@ class SentimentAgent:
         else:
             log.warning("[Executor] Step 2 — skipping analyze_finbert (no chunks).")
             state["finbert_result"] = {
-                "bullish_prob": 0.0, "bearish_prob": 0.0, "neutral_prob": 0.0,
-                "label": "Neutral", "total_chunks": 0, "skipped_chunks": 0,
+                "bullish_prob": None, "bearish_prob": None, "neutral_prob": None,
+                "label": None, "polarity": None, "status": "NO_DATA",
+                "total_chunks": 0, "skipped_chunks": 0,
             }
-            state["extraction_errors"].append(
-                "analyze_finbert skipped: no social data chunks were retrieved."
-            )
 
         # -- Step 3: score_vader ---------------------------------------------
         if state["retrieved_chunks"]:
@@ -668,12 +593,10 @@ class SentimentAgent:
         else:
             log.warning("[Executor] Step 3 — skipping score_vader (no chunks).")
             state["vader_result"] = {
-                "compound": 0.0, "positive_mean": 0.0, "negative_mean": 0.0,
-                "neutral_mean": 0.0, "label": "Neutral", "total_chunks": 0, "skipped_chunks": 0,
+                "compound": None, "positive_mean": None, "negative_mean": None,
+                "neutral_mean": None, "label": None, "polarity": None,
+                "status": "NO_DATA", "total_chunks": 0, "skipped_chunks": 0,
             }
-            state["extraction_errors"].append(
-                "score_vader skipped: no social data chunks were retrieved."
-            )
 
         # -- Step 4: calculate_fear_greed ------------------------------------
         fb_has_data = state["finbert_result"].get("total_chunks", 0) > 0
@@ -682,7 +605,7 @@ class SentimentAgent:
         if fb_has_data or vd_has_data:
             log.info("[Executor] Step 4 — calculate_fear_greed.")
             # Pass custom weights from directives if provided
-            directives = state["shared_manager_ref"].get("manager_directives", {})
+            directives = directives_for_attempt
             fear_greed_args: dict[str, Any] = {
                 "finbert_result": state["finbert_result"],
                 "vader_result":   state["vader_result"],
@@ -698,21 +621,140 @@ class SentimentAgent:
         else:
             log.warning("[Executor] Step 4 — skipping calculate_fear_greed (no model data).")
             state["fear_greed_result"] = {
-                "score": 0.0, "label": "Neutral", "finbert_score": 0.0,
-                "vader_score": 0.0, "weights": {}, "confidence": 0.0, "diagnostics": {},
+                "score": None, "label": None, "polarity": None, "status": "NO_DATA",
+                "finbert_score": None, "vader_score": None,
+                "weights": {}, "confidence": 0.0, "diagnostics": {},
             }
-            state["extraction_errors"].append(
-                "calculate_fear_greed skipped: both FinBERT and VADER produced no data."
-            )
+
+        urls = [str(item.get("url", "")).strip() for item in state["sources_metadata"] if isinstance(item, dict)]
+        unique_documents = len({url for url in urls if url}) or len({
+            str(chunk).strip() for chunk in state["retrieved_chunks"] if str(chunk).strip()
+        })
+        unique_domains = len({urlparse(url).netloc.lower() for url in urls if urlparse(url).netloc})
+        model_has_data = fb_has_data or vd_has_data
+        if not state["retrieved_chunks"] or not model_has_data:
+            status = "ERROR" if state["extraction_errors"] and not state["retrieved_chunks"] else "NO_DATA"
+        elif unique_documents < 3 or unique_domains < 2:
+            status = "LOW_COVERAGE"
+        else:
+            status = "VALID"
+        score = state["fear_greed_result"].get("score")
+        polarity = state["fear_greed_result"].get("polarity")
+        if polarity is None and score is not None:
+            polarity = "BULLISH" if score > 0.2 else "BEARISH" if score < -0.2 else "NEUTRAL"
+        evidence_factor = min(1.0, unique_documents / 5.0) * min(1.0, unique_domains / 3.0)
+        model_confidence = float(state["fear_greed_result"].get("confidence") or 0.0)
+        state["fear_greed_result"]["confidence"] = round(model_confidence * evidence_factor, 4)
+        state["fear_greed_result"].update({
+            "status": status, "polarity": polarity,
+            "coverage": {"unique_documents": unique_documents, "unique_domains": unique_domains,
+                         "source_independence_factor": round(evidence_factor, 4)},
+        })
+        state["sentiment_status"] = status
+        state["sentiment_polarity"] = polarity
+        attempts.append({
+            "attempt_number": len(attempts) + 1, "plan": dict(plan), "status": status,
+            "retrieval": {"chunks": list(state["retrieved_chunks"]),
+                          "sources_metadata": list(state["sources_metadata"])},
+            "model_outputs": {"finbert": dict(state["finbert_result"]),
+                              "vader": dict(state["vader_result"]),
+                              "fear_greed": dict(state["fear_greed_result"])},
+            "errors": list(state["extraction_errors"]),
+        })
 
         log.info(
             "[Executor] Pipeline complete — chunks=%d finbert=%s vader=%s fg_score=%.4f fg_label=%s",
             len(state["retrieved_chunks"]),
             state["finbert_result"].get("label", "N/A"),
             state["vader_result"].get("label", "N/A"),
-            state["fear_greed_result"].get("score", 0.0),
+            state["fear_greed_result"].get("score") or 0.0,
             state["fear_greed_result"].get("label", "N/A"),
         )
+
+    # =========================================================================
+    # LANGGRAPH NODES — thin wrappers over the layer methods above
+    # =========================================================================
+    # Each node returns a partial-state dict. Heavy logic stays in _brain_plan /
+    # _execute_sentiment_pipeline / _brain_analyze — unchanged. The MCP session
+    # is read from self._session (set once per run() before the graph runs).
+
+    async def _node_brain_plan(self, state: SentimentAgentState) -> dict[str, Any]:
+        # Increment once per cycle, mirroring the old while-loop.
+        new_counter = state["loop_counter"] + 1
+        log.info("[Run] Iteration %d", new_counter)
+        plan = await self._brain_plan(state)
+        return {"loop_counter": new_counter, "current_plan": plan}
+
+    async def _node_execute(self, state: SentimentAgentState) -> dict[str, Any]:
+        await self._execute_sentiment_pipeline(
+            self._session, state, state.get("current_plan", {})
+        )
+        # _execute_sentiment_pipeline mutates several state keys in place;
+        # return them so the merged graph state reflects the update.
+        return {
+            "retrieved_chunks":  state["retrieved_chunks"],
+            "sources_metadata":  state["sources_metadata"],
+            "finbert_result":    state["finbert_result"],
+            "vader_result":      state["vader_result"],
+            "fear_greed_result": state["fear_greed_result"],
+            "extraction_errors": state["extraction_errors"],
+            "prior_attempt_errors": state.get("prior_attempt_errors", []),
+            "attempts":           state.get("attempts", []),
+            "sentiment_status":   state.get("sentiment_status", "NO_DATA"),
+            "sentiment_polarity": state.get("sentiment_polarity"),
+        }
+
+    async def _node_analyze(self, state: SentimentAgentState) -> dict[str, Any]:
+        # Brain Pass 2 — pure LLM interpretation, no MCP tools needed.
+        state["aspect_observations"] = extract_aspect_observations(
+            state["retrieved_chunks"], state["sources_metadata"],
+            state.get("finbert_result", {}).get("chunk_scores", []),
+        )
+        raw_analysis = await self._brain_analyze(state)
+        return {"brain_reasoning": raw_analysis, "aspect_observations": state["aspect_observations"]}
+
+    def _should_continue(self, state: SentimentAgentState):
+        """
+        Conditional edge after the Executor. Mirrors the old while-loop:
+          - retrieved any chunks        → analyze (success, exit loop)
+          - loop_counter >= max_loops   → analyze (guardrail, even with no data)
+          - otherwise                   → brain_plan (retry, broader query)
+        """
+        directives = state["manager_directives"]
+        max_loops  = int(directives.get("max_loops", self._default_max_loops))
+
+        if state["retrieved_chunks"]:
+            log.info("[Run] Executor retrieved %d chunks — exiting loop.",
+                     len(state["retrieved_chunks"]))
+            return "analyze"
+        if state["loop_counter"] >= max_loops:
+            log.warning("[Run] loop_counter=%d >= max_loops=%d — exiting to analyze.",
+                        state["loop_counter"], max_loops)
+            return "analyze"
+        return "brain_plan"
+
+    def _build_graph(self):
+        """
+        Compile the internal state machine:
+            START → brain_plan → execute → (conditional) → brain_plan | analyze
+            analyze → END
+        """
+        builder = StateGraph(SentimentAgentState)
+
+        builder.add_node("brain_plan", self._node_brain_plan)
+        builder.add_node("execute",    self._node_execute)
+        builder.add_node("analyze",    self._node_analyze)
+
+        builder.set_entry_point("brain_plan")
+        builder.add_edge("brain_plan", "execute")
+        builder.add_conditional_edges(
+            "execute",
+            self._should_continue,
+            {"brain_plan": "brain_plan", "analyze": "analyze"},
+        )
+        builder.add_edge("analyze", END)
+
+        return builder.compile()
 
     # =========================================================================
     # ENTRY GATEWAY — run()
@@ -788,46 +830,39 @@ class SentimentAgent:
             "brain_reasoning":    "",
             "loop_counter":       0,
             "extraction_errors":  [],
-            "shared_manager_ref": shared_state,
+            "prior_attempt_errors": [],
+            "attempts":           [],
+            "sentiment_status":   "NO_DATA",
+            "sentiment_polarity": None,
+            "task_query":                  shared_state["task_query"],
+            "manager_directives":          dict(shared_state.get("manager_directives", {})),
+            "financial_metrics_summary":   shared_state.get("financial_metrics_summary", {}),
+            "aggregated_research_context": shared_state.get("aggregated_research_context", []),
+            "current_plan":       {},
         }
 
-        # -- Open MCP client session ------------------------------------------
+        # -- Open MCP client session, then drive the compiled graph -----------
+        # Topology: brain_plan → execute → (conditional) → brain_plan | analyze
+        # The brain_analyze step (node "analyze") is a pure LLM call and does
+        # not touch the session; it simply runs as the graph's terminal node.
         async with stdio_client(self._server_params) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
 
                 await session.initialize()
                 log.info("[Run] MCP session initialised.")
 
-                # -- Main Brain → Executor loop -------------------------------
-                while state["loop_counter"] < max_loops:
-                    state["loop_counter"] += 1
-                    log.info("[Run] Iteration %d / %d", state["loop_counter"], max_loops)
+                self._session = session
+                try:
+                    state = await self._graph.ainvoke(
+                        state,
+                        config={"recursion_limit": (max_loops + 1) * 3},
+                    )
+                finally:
+                    self._session = None
 
-                    # Brain Pass 1: plan the retrieval
-                    plan = await self._brain_plan(state)
-
-                    # Executor: run the four-step sentiment pipeline
-                    await self._execute_sentiment_pipeline(session, state, plan)
-
-                    # Exit if we got data; otherwise retry with a broader query
-                    if state["retrieved_chunks"]:
-                        log.info(
-                            "[Run] Executor retrieved %d chunks — exiting loop.",
-                            len(state["retrieved_chunks"]),
-                        )
-                        break
-                    else:
-                        log.warning(
-                            "[Run] Zero chunks retrieved on iteration %d. "
-                            "%s loop iteration(s) remaining.",
-                            state["loop_counter"],
-                            max_loops - state["loop_counter"],
-                        )
-
-        # -- Brain Pass 2: interpret all signals (outside MCP session) --------
-        # Runs after the MCP session closes; pure LLM call, no tools needed.
-        raw_analysis = await self._brain_analyze(state)
-        state["brain_reasoning"] = raw_analysis
+        # brain_analyze ran inside the graph's terminal node; its raw output is
+        # now in state["brain_reasoning"].
+        raw_analysis = state["brain_reasoning"]
 
         # Parse Brain's analysis JSON (graceful fallback if malformed)
         try:
@@ -850,8 +885,10 @@ class SentimentAgent:
         vd = state["vader_result"]
 
         sentiment_analysis_summary: dict[str, Any] = {
+            "status":               state.get("sentiment_status", "NO_DATA"),
+            "polarity":             state.get("sentiment_polarity"),
             # Core Fear/Greed index
-            "ticker":               self._extract_ticker(
+            "ticker":               extract_ticker(
                                         shared_state.get("task_query", ""),
                                         directives,
                                         shared_state.get("financial_metrics_summary", {}),
@@ -873,6 +910,8 @@ class SentimentAgent:
             # Data coverage
             "total_chunks_analyzed": len(state["retrieved_chunks"]),
             "sources_metadata":      state["sources_metadata"],
+            "aspect_observations":   state.get("aspect_observations", []),
+            "causal_aspects_supported": supported_causal_aspects(state.get("aspect_observations", [])),
 
             # Brain interpretation
             "overall_sentiment":    analysis.get("overall_sentiment"),
@@ -890,7 +929,18 @@ class SentimentAgent:
             # Execution metadata
             "loop_iterations_used": state["loop_counter"],
             "extraction_errors":    state["extraction_errors"],
+            "prior_attempt_errors": state.get("prior_attempt_errors", []),
+            "attempts":             state.get("attempts", []),
         }
+
+        if sentiment_analysis_summary["status"] in {"NO_DATA", "ERROR"}:
+            sentiment_analysis_summary.update({
+                "fear_greed_score": None, "fear_greed_label": None,
+                "fear_greed_confidence": 0.0, "finbert_label": None,
+                "finbert_bullish_prob": None, "finbert_bearish_prob": None,
+                "finbert_neutral_prob": None, "vader_compound": None,
+                "vader_label": None, "overall_sentiment": None,
+            })
 
         # Commit to the shared state contract
         shared_state["sentiment_analysis_summary"] = sentiment_analysis_summary  # type: ignore[literal-required]

@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from typing import Literal
@@ -34,6 +34,7 @@ class RawDocument:
     source_type: SourceType
     ticker: str
     published_at: str  # UTC ISO-8601, e.g. "2024-03-15T14:32:00+00:00"
+    metadata: dict = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

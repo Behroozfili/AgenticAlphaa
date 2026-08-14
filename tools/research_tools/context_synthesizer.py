@@ -36,6 +36,18 @@ Design choices, and why (see also the concerns raised before building this):
    in ResearchAgent's own Brain tool list — the LLM inside ResearchAgent
    never decides whether to call this; ResearchAgent.run() calls it
    unconditionally once, after its internal loop completes.
+
+5. Source priority is SEMANTIC, not a fixed weight. SEC filings are the
+   audited, legally-mandated primary source for financial fundamentals
+   (revenue, risk factors, obligations) — but they're not universally
+   "more true" than news: an 8-K/10-Q can lag a real event by weeks, so
+   for "did X happen recently" questions, news is the right authority.
+   Hard-coding "SEC always wins" would make the synthesizer confidently
+   silent on recent events just because the filing hasn't caught up yet.
+   So: chunks are tagged with a source and grouped by priority (SEC
+   first) as a soft ordering signal, but the actual judgment of which
+   source answers a given question is left to the system prompt's
+   instructions, not to code that reorders/drops chunks.
 """
 import logging
 
@@ -43,10 +55,44 @@ from langsmith import traceable
 
 logger = logging.getLogger(__name__)
 
+# Soft ordering only (see design note 5 above) -- chunks from
+# higher-priority (lower-number) sources are placed earlier in the
+# combined text, which is a real but soft attention signal, not a rule
+# that any source's claims override another's. Unrecognized/untagged
+# sources sit in the middle rather than last, since "we don't know what
+# this is" isn't the same as "this is low-value."
+_SOURCE_PRIORITY = {
+    "sec_edgar_filing":  1,
+    "sec_edgar_search":  1,
+    "company_filing":    1,
+    "regulatory":        2,
+    "rag_vector_search": 3,
+    "rag_graph_traverse": 3,
+    "rag_hybrid_query":  3,
+    "news_search":       4,
+    "tavily_search":     5,
+}
+_DEFAULT_PRIORITY = 3  # untagged chunks: treat as unknown-but-not-lowest
+
 _SYNTHESIS_SYSTEM_PROMPT = (
     "You are a Senior Financial Intelligence Analyst. Summarize the raw "
     "research chunks below (SEC filings, news, search results) into a "
     "dense, factual executive summary for a downstream Manager agent.\n\n"
+    "Source priority -- SEMANTIC, not absolute. Chunks are labeled with "
+    "their source and grouped with higher-priority sources first:\n"
+    "  1. SEC filings (10-K, 10-Q, 8-K) / official company filings\n"
+    "  2. Regulatory sources\n"
+    "  3. RAG / knowledge-base retrieval\n"
+    "  4. News\n"
+    "  5. General web search (Tavily)\n"
+    "This ordering reflects evidentiary weight for FINANCIAL FUNDAMENTALS "
+    "(revenue, margins, debt, legally-disclosed risk factors, litigation) "
+    "-- SEC filings are audited/legally mandated, so they lead there. It "
+    "does NOT mean SEC always overrides other sources: filings lag real "
+    "events by weeks, so for recent events, announcements, leadership "
+    "changes, or new deals/contracts, NEWS is the authoritative source "
+    "even though it's ranked lower above -- a filing's silence on "
+    "something recent means \"not yet filed,\" not \"didn't happen.\"\n\n"
     "Rules:\n"
     "1. Preserve every specific number, date, and named entity you see — "
     "do not round, approximate, or drop a figure to save space. If you "
@@ -54,17 +100,49 @@ _SYNTHESIS_SYSTEM_PROMPT = (
     "than paraphrasing it.\n"
     "2. Group by theme (financial results, risk factors, competitive "
     "position, sentiment/market reaction) rather than by source.\n"
-    "3. Do not add analysis, opinions, or conclusions not present in the "
+    "3. When sources conflict or give different figures for the same "
+    "thing, do not silently pick one — state both and label what kind of "
+    "claim each is (e.g. \"SEC-reported revenue: $220B\" vs \"Analyst "
+    "(news) estimate: $230B\"). A reported/audited figure and a forecast/"
+    "expectation are different kinds of claims, not competing answers to "
+    "the same question — never merge them into one number.\n"
+    "4. Do not add analysis, opinions, or conclusions not present in the "
     "source chunks — this is a compression of what's there, not a new "
     "interpretation.\n"
-    "4. No conversational preamble, no meta-commentary about the task "
+    "5. No conversational preamble, no meta-commentary about the task "
     "itself — output only the summary content."
 )
 
 
+def _normalize_chunk(chunk) -> tuple[str | None, str]:
+    """Accept either a plain string (source unknown -- the original,
+    still-supported input shape) or a {"source": ..., "text": ...} dict.
+    Returns (source_or_None, text)."""
+    if isinstance(chunk, dict):
+        return chunk.get("source"), str(chunk.get("text", ""))
+    return None, str(chunk)
+
+
+def _order_and_label_chunks(chunks: list) -> str:
+    """Sort chunks by source priority (stable -- same-priority chunks keep
+    their original relative order) and render each with a [SOURCE: ...]
+    label when known, so the model can apply the priority rules in the
+    system prompt instead of guessing where each chunk came from."""
+    normalized = [_normalize_chunk(c) for c in chunks]
+    ordered = sorted(
+        enumerate(normalized),
+        key=lambda item: (_SOURCE_PRIORITY.get(item[1][0], _DEFAULT_PRIORITY), item[0]),
+    )
+    parts = []
+    for _, (source, text) in ordered:
+        label = f"[SOURCE: {source}]\n" if source else ""
+        parts.append(f"{label}{text}")
+    return "\n\n---\n\n".join(parts)
+
+
 @traceable(name="research.context_synthesizer", run_type="llm")
 async def synthesize_research_context(
-    chunks: list[str],
+    chunks: list,
     task_query: str,
     llm_client,
     model: str = "claude-haiku-4-5",
@@ -75,10 +153,16 @@ async def synthesize_research_context(
 
     Parameters
     ----------
-    chunks : list[str]
+    chunks : list[str] | list[dict]
         The raw context chunks gathered by ResearchAgent's own loop
         (untouched — this function only READS them, the caller is
         responsible for keeping the originals in aggregated_research_context).
+        Each entry can be either a plain string (source unknown -- fully
+        backward compatible with the original signature) or a dict
+        {"source": "sec_edgar_filing" | "news_search" | "tavily_search" |
+        "rag_vector_search" | ..., "text": "..."} to enable source-priority
+        ordering and labeling (see module docstring point 5). Tagging is
+        optional per-chunk; a mix of tagged and untagged chunks is fine.
     task_query : str
         The original research task, for framing what the summary should
         emphasize.
@@ -99,10 +183,11 @@ async def synthesize_research_context(
     if not chunks:
         return None
 
-    combined_raw_text = "\n\n---\n\n".join(chunks)
+    combined_raw_text = _order_and_label_chunks(chunks)
     user_content = (
         f"ORIGINAL RESEARCH QUERY:\n{task_query}\n\n"
-        f"RAW RETRIEVED CHUNKS:\n{combined_raw_text}\n\n"
+        f"RAW RETRIEVED CHUNKS (ordered by source priority, see system "
+        f"prompt):\n{combined_raw_text}\n\n"
         "Generate the synthesized executive research summary now."
     )
 

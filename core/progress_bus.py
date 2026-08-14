@@ -129,3 +129,9 @@ def session_from_shared(shared_manager_ref: dict[str, Any] | None) -> str | None
 def close_session(session_id: str) -> None:
     """Drop the queue for a finished session so memory doesn't grow unbounded."""
     _QUEUES.pop(session_id, None)
+    
+def session_from_directives(directives: dict[str, Any] | None) -> str | None:
+    """Extract the progress session_id directly from manager_directives."""
+    if not directives:
+        return None
+    return directives.get("_progress_session_id")

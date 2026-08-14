@@ -170,6 +170,15 @@ class AlphaProcessor:
                 "chunk_index":     idx,
                 "url":             doc.url,
                 "title":           doc.title,
+                "fiscal_year":     doc.metadata.get("fiscal_year"),
+                "fiscal_quarter":  doc.metadata.get("fiscal_quarter"),
+                "period_start":    doc.metadata.get("period_start"),
+                "period_end":      doc.metadata.get("period_end"),
+                "duration_months": doc.metadata.get("duration_months"),
+                "filing_type":     doc.metadata.get("filing_type"),
+                "accession_number": doc.metadata.get("accession_number"),
+                "metric_scope":    doc.metadata.get("metric_scope"),
+                "gaap_status":     doc.metadata.get("gaap_status"),
             }
             chunks.append(ProcessedChunk(text=chunk_text, metadata=metadata))
             self.metrics.chunks_created += 1

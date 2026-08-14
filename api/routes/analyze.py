@@ -38,6 +38,7 @@ from pydantic import BaseModel, Field, field_validator
 from memory.manager_memory import ManagerMemory
 from api.dependencies import get_manager_memory
 from api.core.exceptions import AgentError
+from evaluation.publication_policy import assemble_publication
 
 log = logging.getLogger("api.analyze")
 
@@ -128,6 +129,10 @@ class AnalyzeResponse(BaseModel):
 
     # Core report
     final_report: str
+    publication_status: str = "PUBLISHED"
+    publication_warnings: list[Any] = Field(default_factory=list)
+    withheld_sections: list[str] = Field(default_factory=list)
+    section_reliability: list[dict[str, Any]] = Field(default_factory=list)
 
     # Agent outputs (pass-through from SharedManagerState)
     financial_metrics: dict[str, Any]
@@ -289,6 +294,7 @@ async def analyze(
         log.exception("[analyze] ManagerAgent.run() failed: %s", exc)
         status        = "failed"
         error_message = str(exc)
+        result = assemble_publication("", {"passed":False,"critical_findings":[],"warnings":[]}, {})
 
     # ── 4. Timing ─────────────────────────────────────────────────────────────
     duration_s   = round(time.monotonic() - started_at, 2)
@@ -314,12 +320,6 @@ async def analyze(
     )
 
     # ── 6. If the agent failed, raise AgentError (→ Sentry via main.py handler)
-    if status == "failed":
-        raise AgentError(
-            message="Agent pipeline failed",
-            detail=error_message,
-        )
-
     # ── 7. Build and return response ──────────────────────────────────────────
     return AnalyzeResponse(
         analysis_id=analysis_id,
@@ -329,6 +329,10 @@ async def analyze(
         completed_at=completed_at,
         duration_s=duration_s,
         final_report=result.get("final_report", ""),
+        publication_status=result.get("publication_status", "PUBLISHED"),
+        publication_warnings=result.get("publication_warnings", []),
+        withheld_sections=result.get("withheld_sections", []),
+        section_reliability=result.get("section_reliability", []),
         financial_metrics=result.get("financial_metrics_summary", {}),
         sentiment_analysis=result.get("sentiment_analysis_summary", {}),
         research_context_chunks=len(result.get("aggregated_research_context", [])),

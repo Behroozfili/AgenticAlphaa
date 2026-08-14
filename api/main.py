@@ -1,24 +1,9 @@
 """
 api/main.py
 -----------
-FastAPI application entry point for Alpha-Agent Node.
-
-Responsibilities
-----------------
-1. Create the FastAPI app instance
-2. Configure logging
-3. Validate settings at startup
-4. Initialise shared resources (Supabase client, ManagerAgent) once
-5. Register middleware (CORS, exception handler)
-6. Register routers
-
 Run locally
 -----------
-    uvicorn api.main:app --reload --port 8000
-
-Environment
------------
-    See api/config.py — all settings come from .env
+    uvicorn api.main:app --reload --port 3000
 """
 
 from __future__ import annotations
@@ -27,6 +12,7 @@ import logging
 import sys
 import time
 from contextlib import asynccontextmanager
+from neo4j import GraphDatabase
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -68,29 +54,19 @@ log = logging.getLogger("api.main")
 script_path = os.path.join(os.getcwd(), "tools", "sentiment_tools", "sentiment_server.py")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    FastAPI lifespan context manager.
-
-    Everything before `yield` runs at startup.
-    Everything after `yield` runs at shutdown.
-
-    Shared resources are stored on `app.state` so every route
-    can access them via `request.app.state.*` without globals.
-    """
-
-    # ── 1. Validate env vars — exit immediately if missing ───
+    
     try:
         validate_settings()
     except ConfigurationError as exc:
         log.critical("Startup aborted — %s", exc)
         sys.exit(1)
 
-    # ── 1b. Observability — Sentry + LangSmith ───────────────
+    
     app.state.sentry_ok  = init_sentry(app_env=settings.APP_ENV)
     langsmith_ok         = init_langsmith()
     log.info("Sentry enabled: %s, LangSmith enabled: %s", app.state.sentry_ok, langsmith_ok)
 
-    # ── 2. Supabase client (shared across all requests) ──────
+    
     log.info("Connecting to Supabase...")
     try:
         app.state.supabase = create_client(
@@ -101,8 +77,18 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         log.critical("Failed to connect to Supabase: %s", exc)
         sys.exit(1)
+    log.info("Connecting to Neo4j...")
+    try:
+        app.state.neo4j_driver = GraphDatabase.driver(
+            settings.NEO4J_URI,
+            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
+        )
+        log.info("Neo4j driver ready.")
+    except Exception as exc:
+        log.critical("Failed to connect to Neo4j: %s", exc)
+        sys.exit(1)
 
-    # ── 3. Initialise specialist agents ──────────────────────
+    
     log.info("Initialising specialist agents...")
     research_agent  = ResearchAgent()
     financial_agent = FinancialAnalystAgent()

@@ -464,7 +464,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     _retrieve_social_data,
                     query=arguments["query"],
                     ticker=arguments.get("ticker"),
-                    days_back=int(arguments.get("days_back", 7)),
+                    days_back=int(arguments.get("days_back", 30)),
                 )
 
             # ── 2. analyze_finbert ─────────────────────────────────

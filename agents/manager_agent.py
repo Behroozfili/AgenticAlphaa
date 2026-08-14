@@ -44,10 +44,7 @@ State contract
     Input  : task_query (str), manager_directives (dict), user_preferences (dict)
     Output : SharedManagerState with final_report populated
 
-Dependencies
-------------
-    pip install anthropic
-    All specialist agents must be importable from agents/
+
 """
 
 from __future__ import annotations
@@ -58,6 +55,14 @@ import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Union
+from agents.executor_helpers.manager_executor_helper import (
+    format_news_chunk_fairly,
+    extract_chunk_text,
+    render_section_entry,
+    format_filing_chunk_fairly,
+    feedback_to_snapshot,
+    infer_result_keys
+)
 
 import anthropic
 
@@ -73,16 +78,23 @@ from agents.state import (
     SharedManagerState,
 )
 from memory.manager_memory import EvaluationFeedback, ManagerMemory
-from core.observability import sentry_enabled
+from core.error_handler import add_breadcrumb, capture_exception, capture_message
 from core.progress_bus import publish as _publish_progress
-
+from agents.prompts.promt_manager_agent import (ROUTER_SYSTEM_PROMPT ,EVALUATOR_SYSTEM_PROMPT,FINALISER_SYSTEM_PROMPT,VALID_ACTIONS,ACTION_DESCRIPTIONS)
 # QA / validation — checks final_report narration against the period
 # provenance tags financial_agent.py attaches to each calculated ratio
 # (e.g. catches an annual net_margin narrated as if it described the
 # current quarter). Non-blocking: see its usage in _node_finalise below.
 # Adjust this import path to wherever validate_period_consistency.py
 # actually lives in your project layout (e.g. validation/, tools/qa/).
-from evaluation.validate_period_consistency import check_narration_vs_period
+from evaluation.validate_period_consistency import (
+    check_narration_vs_period, detect_material_period_conflicts,
+)
+from evaluation.recommendation_gate import build_recommendation_gate, contains_actionable_recommendation
+from evaluation.canonical_synthesis import build_canonical_synthesis_payload
+from evaluation.publication_policy import assemble_publication
+from evaluation.final_publication import validate_final_publication
+from evaluation.financial_sanity import evaluate_financial_sanity
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -99,385 +111,8 @@ log = logging.getLogger("manager-agent")
 _DEFAULT_MODEL             = "claude-haiku-4-5"
 _DEFAULT_MAX_ROUTING_LOOPS = 8
 
-_VALID_ACTIONS: frozenset[str] = frozenset({
-    "run_research", "run_financial", "run_sentiment",
-    "rerun_research", "rerun_financial", "rerun_sentiment",
-    "finalise", "abort",
-})
-
-# Human-readable descriptions for each action — single source of truth.
-# The prompt is generated from this dict so the list never drifts from
-# the actual frozenset (M-6 fix).
-_ACTION_DESCRIPTIONS: dict[str, str] = {
-    "run_research":    "Dispatch ResearchAgent (first time).",
-    "run_financial":   "Dispatch FinancialAnalystAgent (first time).",
-    "run_sentiment":   "Dispatch SentimentAgent (first time).",
-    "rerun_research":  "Re-dispatch ResearchAgent (quality was insufficient).",
-    "rerun_financial": "Re-dispatch FinancialAnalystAgent (data was incomplete).",
-    "rerun_sentiment": "Re-dispatch SentimentAgent (no chunks retrieved).",
-    "finalise":        "All required agents have run successfully. Synthesise output.",
-    "abort":           "Loop guardrail hit or unrecoverable error. Exit gracefully.",
-}
-
-# Build the actions block dynamically — guaranteed in sync with _VALID_ACTIONS.
-_actions_block: str = """
-""".join(
-    f'  "{action}"{"." * (18 - len(action))} — {desc}'
-    for action, desc in _ACTION_DESCRIPTIONS.items()
-)
-
-# ---------------------------------------------------------------------------
-# Brain system prompts
-# ---------------------------------------------------------------------------
-
-_ROUTER_SYSTEM_PROMPT = f"""\
-You are the Routing Brain of the ManagerAgent on the Alpha-Agent Node platform.
-
-Your role: Analyse the current SharedManagerState and memory context, then decide
-the SINGLE most logical next action to take in the orchestration pipeline.
-
-Available actions:
-{_actions_block}
-
-Typical execution order:
-  run_research → run_financial → run_sentiment → finalise
-
-Routing rules:
-  1. Always start with run_research unless research context already exists.
-  2. run_financial only after research context is non-empty.
-  3. run_sentiment only after financial_metrics_summary exists.
-  4. finalise only when all three agents have completed with "success" or "partial".
-  5. rerun_* only if the last evaluation score < 50 or next_action == "rerun_*".
-  6. abort if loop_counter >= max_routing_loops.
-
-Output format (strict JSON — no markdown, no preamble):
-{{
-  "action"           : "<one of the 8 valid actions>",
-  "reasoning"        : "<1-2 sentences justifying the choice>",
-  "directive_updates": {{}}
-}}
-
-directive_updates: a flat dict of manager_directives keys to update before dispatch.
-  Example: {{"search_depth": "advanced", "days_back": 14}}
-  Return {{}} if no changes needed.
-"""
-
-_EVALUATOR_SYSTEM_PROMPT = """\
-You are the Quality Evaluator Brain of the ManagerAgent on the Alpha-Agent Node platform.
-
-Your role: Critically assess the output produced by a specialist agent and decide
-whether it is sufficient for the Manager to proceed to the next pipeline stage.
-
-You will receive:
-  - AGENT NAME    : The specialist agent that just ran.
-  - STATE SUMMARY : Key output fields from SharedManagerState.
-  - MEMORY CONTEXT: Short-term session history.
-
-Evaluation criteria:
-  ResearchAgent  → aggregated_research_context must have >= 3 chunks, non-empty.
-  FinancialAgent → financial_metrics_summary must have a non-None composite_score
-                   and validation_passed == True.
-  SentimentAgent → sentiment_analysis_summary must have a non-None fear_greed_score
-                   and total_chunks_analyzed >= 1.
-
-Output format (strict JSON — no markdown, no preamble):
-{
-  "passed"      : true | false,
-  "score"       : <int 0-100>,
-  "issues"      : ["<specific issue>", ...],
-  "next_action" : "<recommended routing action from the valid set>",
-  "reasoning"   : "<1-2 sentence explanation>"
-}
-
-Rules:
-- Be strict: partial or empty outputs must NOT pass (passed=false).
-- next_action must be one of the 8 valid routing actions.
-- If passed=true, next_action should advance the pipeline (not rerun).
-"""
-
-_FINALISER_SYSTEM_PROMPT = """\
-You are the Synthesis Brain of the ManagerAgent on the Alpha-Agent Node platform.
-
-Your role: Produce the final, comprehensive investment analysis report by synthesising
-the outputs of all three specialist agents into a single coherent narrative.
-
-You will receive the complete SharedManagerState summary containing:
-  - TASK QUERY             : The original research objective.
-  - RESEARCH CONTEXT       : Key themes from the ResearchAgent.
-  - FINANCIAL METRICS      : Verified ratios from the FinancialAnalystAgent.
-  - SENTIMENT ANALYSIS     : Fear/Greed + narrative from the SentimentAgent.
-  - EXECUTION HISTORY      : Which agents ran and their outcomes.
-
-Your output must be a clean, well-structured investment analysis report in plain text
-(NOT JSON). It should cover:
-
-  1. Executive Summary (2-3 sentences)
-  2. Financial Health (key metrics, grade, interpretation, DCF valuation,
-     capital allocation — see guidance below)
-  3. Market Sentiment (Fear/Greed score, label, narrative)
-  4. Research Highlights (top 3-5 themes from research context)
-  5. Risk Factors (data quality flags, model disagreements, macro risks)
-  6. Scenario Analysis (Bull / Base / Bear) — see guidance below
-  7. Management Commentary Assessment — see guidance below
-  8. Conclusion & Outlook (1-2 sentence directional view)
-
-Write in professional, analytical English. Be concise — target 550-800 words.
-Do NOT include any JSON or code blocks.
-
-SCENARIO ANALYSIS GUIDANCE (section 6): Write three short paragraphs — Bull
-case, Base case, Bear case — each grounded in data you actually have (the
-financial metrics, sentiment signals, peer comparison, and risk flags
-already provided). The Bull case should name the specific positive signals
-that would need to persist or strengthen; the Bear case should name the
-specific risk flags or metrics that would need to worsen; the Base case is
-the most-likely path given the current mix of signals. If dcf_valuation's
-bear/base/bull per-share values are available, cite the matching one in
-each paragraph as a numeric anchor (see DCF guidance below) — this is
-still not a probability, just "here is what this scenario implies for
-value under these growth assumptions."
-
-Do NOT assign a numeric probability (e.g. "60% likely") to any scenario.
-An LLM-generated percentage for a market scenario is not a statistically
-grounded estimate — it would look quantitative without being backed by any
-actual probabilistic model, which is misleading to a reader making
-investment decisions. If you want to convey relative likelihood, use plain
-language ("the base case is the most consistent with current signals")
-rather than a fabricated number.
-
-MANAGEMENT COMMENTARY ASSESSMENT GUIDANCE (section 7): If MD&A (Management's
-Discussion and Analysis) text is present in the research context, write 2-3
-sentences characterizing management's own framing of the period — are they
-emphasizing growth investments, defending margins, flagging headwinds,
-citing specific strategic bets (e.g. AI infrastructure spend, capacity
-expansion)? Quote or closely paraphrase specific language ONLY if it's
-distinctive and material (per the copyright rules already governing this
-system — short paraphrase, not verbatim reproduction beyond a few words).
-
-This is a QUALITATIVE read of tone and stated priorities, not a scored
-metric — do not invent a "management quality score" or letter grade for
-this section; there is no rigorous basis for one from a single filing's
-MD&A alone. If no MD&A text is present in the research context, write one
-sentence noting it wasn't available rather than fabricating an assessment.
-
-DCF & CAPITAL ALLOCATION GUIDANCE (within section 2, Financial Health): If
-"dcf_valuation" data is present and has no error, it contains THREE DCF runs
-— "bear", "base", "bull" — each at a different FCF growth assumption, NOT
-a single point estimate. Report the base-case enterprise_value / per-share
-value as the headline number, but ALSO state the bear-to-bull range, and
-explicitly compare it to the current market price:
-  - If even the bull case is well below market price, say so plainly —
-    this means the market is pricing in growth beyond what even an
-    optimistic multi-year projection here captures (longer runway, lower
-    effective discount rate, or momentum/speculative factors). This is a
-    genuine, useful finding — do not describe it as a modelling failure.
-  - If the base or bear case is close to market price, that's a
-    different, more reassuring signal — say so too.
-Always carry forward the "note" field's caveat (simplified WACC, no
-net-debt adjustment) in your own words. In the Scenario Analysis section
-(section 6), use the matching bear/base/bull DCF per-share values as the
-numeric anchor for each narrative case, so the scenarios aren't purely
-qualitative.
-
-If "dcf_monte_carlo" data is also present and has no error, it gives a
-CONTINUOUS probability range (P10/P50/P90 percentiles from simulating the
-growth-rate assumption) rather than three discrete points — mention this
-range once, briefly, in the Financial Health section as a complement to
-the bear/base/bull scenarios (e.g. "a Monte Carlo simulation over the
-growth-rate assumption puts the P10–P90 range at $X–$Y per share").
-IMPORTANT: this only randomises the growth-rate input (per its own "note"
-field) — do NOT describe it as a fully calibrated probabilistic valuation
-model; carry forward its scope caveat the same way you do for the DCF
-scenarios' caveat.
-
-If "peer_comparison" data is present, cite BOTH the raw multiple comparison
-(primary P/E vs peer avg P/E) AND, if available, the
-"growth_adjusted_comparison" sub-field (primary PEG vs peer-average PEG).
-These two can disagree — a stock can have a much higher P/E than peers
-while still being cheaper on a growth-adjusted (PEG) basis if it's growing
-faster, or vice versa. When they disagree, say so explicitly rather than
-picking one framing; that disagreement is itself informative for the
-reader. If growth_adjusted_comparison's interpretation is
-"insufficient_data", note that the growth-adjusted view wasn't available
-rather than omitting the topic entirely.
-
-If "capital_allocation" data is present, briefly note the balance between
-buybacks, dividends, and capex (e.g. "capital return via buybacks
-significantly exceeds capex, suggesting management sees limited high-return
-reinvestment opportunities at scale" — only if the data actually supports
-that reading). If either dcf_valuation or capital_allocation is missing/
-unavailable, skip it rather than fabricating a value.
-
-IMPORTANT — numeric fidelity: When citing a financial ratio (P/E, ROE, net
-margin, current ratio, D/E, revenue CAGR, etc.), always use the top-level raw
-value provided for that metric (e.g. the "current_ratio" or "de_ratio" key).
-NEVER use the numbers inside "composite_score.sub_scores" as if they were the
-ratio itself — those are normalised 0-10 contributions to the composite
-score, not the actual metric value, even though some share the same name.
-
-IMPORTANT — period fidelity: Several metrics carry a matching "<metric>_period"
-field (e.g. "net_margin_period", "roe_period", "de_ratio_period",
-"revenue_cagr_period") stating which reporting period that metric's OWN
-inputs actually came from — values look like "quarterly:2026-Q1" (a single
-3-month quarter), "annual:2025" (a full fiscal year), "ttm", "mrq", or
-"mixed". These periods are NOT guaranteed to agree with each other, and
-that's fine — e.g. net_margin can legitimately be "quarterly:2026-Q1" while
-roe is "annual:2025" (this pipeline has no quarterly balance-sheet source).
-Follow these rules when writing:
-  1. Never state or imply that a metric describes a different period than
-     its own "<metric>_period" says. If net_margin_period is
-     "quarterly:2026-Q1", say "Q1 FY2026 net margin" (or similar) — do NOT
-     call it the "nine-month" or "full-year" net margin.
-  2. RESEARCH HIGHLIGHTS may contain raw revenue/net-income figures quoted
-     directly from the filing text (e.g. "$241.8 billion in revenue over
-     nine months"). These are a DIFFERENT, independent source from
-     FINANCIAL METRICS SUMMARY and are NOT guaranteed to be the same period
-     as any "<metric>_period" — a 10-Q commonly reports both a 3-month
-     standalone column and a 9-month year-to-date column. Do NOT combine a
-     research-highlight revenue/income figure with a financial-metrics
-     ratio in the same sentence (e.g. "$241.8B in revenue... with a net
-     margin of X%") unless their periods actually match — state each
-     figure's period explicitly instead, in separate sentences if needed,
-     or simply don't restate the ratio in that sentence.
-  3. If you're unsure a research-highlight figure and a metrics-summary
-     ratio share a period, err toward NOT putting them in the same
-     sentence rather than guessing they align.
-"""
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _format_news_chunk_fairly(chunk_text: str, max_articles: int = 5, per_article_budget: int = 220) -> str:
-    """
-    Format a news_search chunk so multiple articles survive, instead of
-    the flat 200-char truncation cutting off partway through the FIRST
-    article's title alone.
-
-    Regression this guards against: news_search's raw JSON puts
-    query/effective_query/total_results BEFORE the "articles" list, and
-    a flat [:200] truncation on the whole serialized blob rarely reaches
-    past the first article's title — meaning a chunk with 8 real,
-    specific, often highly-relevant articles (e.g. "JPMorgan reversed
-    course on Tesla, price target +227%") contributed effectively ZERO
-    information to the finalizer, even though the tool call succeeded and
-    fetched all 8. This surfaces title + a short snippet of description
-    for up to `max_articles`, so the finalizer actually sees the specific
-    events, not just a truncated fragment of the first headline.
-
-    Falls back to a flat truncation if the embedded JSON can't be parsed.
-    """
-    idx = chunk_text.rfind("─")
-    json_start = chunk_text.find("{", idx) if idx != -1 else chunk_text.find("{")
-    if json_start == -1:
-        return chunk_text[:per_article_budget * 2]
-
-    try:
-        payload = json.loads(chunk_text[json_start:])
-    except (json.JSONDecodeError, ValueError):
-        return chunk_text[:per_article_budget * 2]
-
-    articles = payload.get("articles")
-    if not isinstance(articles, list) or not articles:
-        return chunk_text[:per_article_budget * 2]
-
-    header = f"[NEWS: query={payload.get('effective_query', payload.get('query', '?'))!r}, {payload.get('total_results', '?')} total results]"
-    lines = [header]
-    for a in articles[:max_articles]:
-        title = a.get("title", "")
-        desc = a.get("description", "")
-        published = a.get("published_at", "")
-        lines.append(f"  • [{published}] {title} — {desc[:per_article_budget]}")
-    return "\n".join(lines)
-
-
-def _extract_chunk_text(chunk: Union[str, dict]) -> str:
-    """
-    Safely extract plain text from a research context chunk.
-
-    DC-3: The isinstance(chunk, str) branch is kept for safety but is
-    currently unreachable — all callers in the pipeline produce dict chunks
-    with a "text" key. If the pipeline schema changes, this guard prevents
-    a silent crash.
-    """
-    if isinstance(chunk, str):
-        # NOTE: unreachable in the current pipeline (all chunks are dicts).
-        # Kept as a defensive fallback in case the schema changes upstream.
-        return chunk
-    if isinstance(chunk, dict):
-        return chunk.get("text", str(chunk))
-    return str(chunk)
-
-
-def _format_filing_chunk_fairly(chunk_text: str, per_section_budget: int = 3000) -> str:
-    """
-    Format a sec_edgar_filing chunk so every requested section gets a FAIR
-    character budget, instead of naively truncating the whole serialized
-    JSON blob.
-
-    Regression this guards against: sec_edgar_filing's "sections" dict
-    preserves document order — for a 10-Q that's typically
-    financial_statements, then mda, then risk_factors. financial_statements
-    is routinely tens of thousands of characters (full balance sheet,
-    income statement, cash flow statement, and notes). When the Brain
-    requests sections=["financial_statements", "mda"] together (observed
-    routinely in real traces) and the WHOLE chunk is truncated to a single
-    flat budget, financial_statements alone consumes the entire budget —
-    mda is fully present in the fetched data (confirmed via direct tool
-    output inspection) but never reaches the finalizer prompt at all,
-    because the flat truncation cuts the string before mda's text even
-    starts. Parsing the JSON and budgeting PER SECTION fixes this: each
-    section gets its own space regardless of how large its neighbors are.
-
-    Falls back to a flat truncation of the raw text if the embedded JSON
-    can't be parsed (e.g. unexpected format) — never raises, never returns
-    less information than the old behavior would have.
-    """
-    # The chunk's raw text looks like:
-    #   ──────────────
-    #   [TOOL: sec_edgar_filing] | [QUERY: TSLA]
-    #   ──────────────
-    #   {...json...}
-    # Find the JSON payload by locating the last line of dashes and taking
-    # everything after it.
-    idx = chunk_text.rfind("─")
-    json_start = chunk_text.find("{", idx) if idx != -1 else chunk_text.find("{")
-    if json_start == -1:
-        return chunk_text[:per_section_budget * 2]  # not JSON at all; flat fallback
-
-    try:
-        payload = json.loads(chunk_text[json_start:])
-    except (json.JSONDecodeError, ValueError):
-        return chunk_text[:per_section_budget * 2]  # unparseable; flat fallback
-
-    sections = payload.get("sections")
-    if not isinstance(sections, dict) or not sections:
-        return chunk_text[:per_section_budget * 2]  # no sections dict; flat fallback
-
-    header = (
-        f"[SEC FILING: {payload.get('ticker', '?')} {payload.get('form_type', '?')}, "
-        f"filed {payload.get('filed_at', '?')}]"
-    )
-    parts = [header]
-    for name, text in sections.items():
-        parts.append(f"--- {name} ---\n{text[:per_section_budget]}")
-    return "\n".join(parts)
-
-
-def _feedback_to_snapshot(fb: EvaluationFeedback) -> EvaluationSnapshot:
-    """Convert an EvaluationFeedback dataclass to a plain EvaluationSnapshot dict."""
-    return EvaluationSnapshot(
-        step=        fb.step,
-        passed=      fb.passed,
-        score=       fb.score,
-        next_action= fb.next_action,
-        issues=      list(fb.issues),
-    )
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# ManagerAgent
-# ══════════════════════════════════════════════════════════════════════════════
 
 class ManagerAgent:
     """
@@ -638,7 +273,7 @@ class ManagerAgent:
                 model=self._model,
                 max_tokens=768,
                 temperature=0.0,
-                system=_ROUTER_SYSTEM_PROMPT,
+                system=ROUTER_SYSTEM_PROMPT,
                 messages=self._memory.get_messages(),
             )
             if response.stop_reason == "max_tokens":
@@ -649,7 +284,7 @@ class ManagerAgent:
             decision = json.loads(raw)
 
             action = decision.get("action", "")
-            if action not in _VALID_ACTIONS:
+            if action not in VALID_ACTIONS:
                 log.warning("[Brain-Route] Invalid action '%s' — defaulting to abort.", action)
                 decision["action"] = "abort"
 
@@ -662,11 +297,7 @@ class ManagerAgent:
 
         except Exception as exc:
             log.exception("[Brain-Route] Claude call failed: %s", exc)
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("component", "brain_route")
-                    sentry_sdk.capture_exception(exc)
+            capture_exception("brain_route", exc)
             agents_run = self._memory.agents_run()
             if "ResearchAgent" not in agents_run:
                 fallback_action = "run_research"
@@ -700,12 +331,13 @@ class ManagerAgent:
             output_summary = {
                 "chunks_count": len(state.get("aggregated_research_context", [])),
                 "sample": [
-                    _extract_chunk_text(c)[:200]
+                    extract_chunk_text(c)[:200]
                     for c in state.get("aggregated_research_context", [])[:2]
                 ],
             }
         elif agent_name == "FinancialAnalystAgent":
             fm = state.get("financial_metrics_summary", {})
+            deterministic_validation = fm.get("financial_sanity") or evaluate_financial_sanity(fm)
             output_summary = {
                 "ticker":            fm.get("ticker"),
                 "composite_score":   fm.get("composite_score", {}).get("score"),
@@ -713,17 +345,53 @@ class ManagerAgent:
                 "validation_passed": fm.get("validation_passed"),
                 "extraction_errors": fm.get("extraction_errors", []),
                 "pe_ratio":          fm.get("pe_ratio", {}).get("pe_ratio"),
+                "forecast":          fm.get("forecast", {}),
+                "dcf_valuation":     fm.get("dcf_valuation", {}),
+                "reverse_dcf":       fm.get("reverse_dcf", {}),
+                "deterministic_financial_validation": deterministic_validation,
             }
+            if not deterministic_validation["passed"]:
+                issues = [item["message"] for item in deterministic_validation["critical_failures"]]
+                verdict = {
+                    "passed": False,
+                    "score": deterministic_validation["score"],
+                    "issues": issues,
+                    "next_action": "rerun_financial",
+                    "reasoning": "Deterministic critical financial checks failed before LLM evaluation.",
+                    "deterministic_validation": deterministic_validation,
+                }
+                return EvaluationFeedback(
+                    step="financial", timestamp=time.time(), passed=False,
+                    score=verdict["score"], issues=issues,
+                    next_action="rerun_financial", raw_verdict=json.dumps(verdict),
+                )
         else:
             sm = state.get("sentiment_analysis_summary", {})
+            sentiment_status = sm.get("status", "ERROR")
             output_summary = {
+                "status":            sentiment_status,
+                "polarity":          sm.get("polarity"),
                 "fear_greed_score":  sm.get("fear_greed_score"),
                 "fear_greed_label":  sm.get("fear_greed_label"),
                 "overall_sentiment": sm.get("overall_sentiment"),
                 "conviction_level":  sm.get("conviction_level"),
                 "total_chunks":      sm.get("total_chunks_analyzed"),
                 "extraction_errors": sm.get("extraction_errors", []),
+                "prior_attempt_errors": sm.get("prior_attempt_errors", []),
+                "attempts":          sm.get("attempts", []),
             }
+            if sentiment_status != "VALID":
+                issue = f"Sentiment status is {sentiment_status}; only VALID may advance as successful sentiment."
+                verdict = {
+                    "passed": False, "score": 40 if sentiment_status == "LOW_COVERAGE" else 0,
+                    "issues": [issue], "next_action": "rerun_sentiment",
+                    "reasoning": "Missing, errored, or low-coverage input cannot be treated as neutral sentiment.",
+                }
+                return EvaluationFeedback(
+                    step="sentiment", timestamp=time.time(), passed=False,
+                    score=verdict["score"], issues=[issue], next_action="rerun_sentiment",
+                    raw_verdict=json.dumps(verdict),
+                )
 
         user_content = (
             f"AGENT NAME: {agent_name}\n\n"
@@ -740,7 +408,7 @@ class ManagerAgent:
                 model=self._model,
                 temperature=0.0,
                 max_tokens=768,
-                system=_EVALUATOR_SYSTEM_PROMPT,
+                system=EVALUATOR_SYSTEM_PROMPT,
                 messages=self._memory.get_messages(),
             )
             if response.stop_reason == "max_tokens":
@@ -752,22 +420,21 @@ class ManagerAgent:
 
         except Exception as exc:
             log.exception("[Brain-Evaluate] Evaluation failed: %s", exc)
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("component", "brain_evaluate")
-                    scope.set_tag("agent_name", agent_name)
-                    sentry_sdk.capture_exception(exc)
+            capture_exception("brain_evaluate", exc, tags={"agent_name": agent_name})
+            financial_failure = agent_name == "FinancialAnalystAgent"
             verdict = {
-                "passed":      True,
-                "score":       50,
+                "passed":      False if financial_failure else True,
+                "score":       0 if financial_failure else 50,
                 "issues":      [f"Evaluation API call failed: {exc}"],
                 "next_action": (
                     "run_financial" if agent_name == "ResearchAgent"
-                    else ("run_sentiment" if agent_name == "FinancialAnalystAgent"
+                    else ("rerun_financial" if financial_failure
                           else "finalise")
                 ),
-                "reasoning": "Evaluation failed; assuming partial pass.",
+                "reasoning": (
+                    "Critical financial evaluation failed closed; valuation cannot advance."
+                    if financial_failure else "Evaluation failed; assuming partial pass."
+                ),
             }
 
         step_map = {
@@ -790,7 +457,7 @@ class ManagerAgent:
         )
         return feedback
 
-    async def _brain_finalise(self, state: SharedManagerState) -> str:
+    async def _brain_finalise(self, state: SharedManagerState, regeneration_context: list[dict] | None = None) -> str:
         """
         BRAIN PASS 3 — Final Report Synthesis (async).
 
@@ -830,7 +497,7 @@ class ManagerAgent:
         # of losing research content from the report entirely.
         synthesis_chunks = [
             c for c in all_chunks
-            if "[SYNTHESIZED RESEARCH SUMMARY" in _extract_chunk_text(c)[:60]
+            if "[SYNTHESIZED RESEARCH SUMMARY" in extract_chunk_text(c)[:60]
         ]
 
         if synthesis_chunks:
@@ -843,7 +510,7 @@ class ManagerAgent:
             # summary of everything gathered, not raw source text, so it
             # can afford a larger allowance than any single raw chunk.
             research_lines = "\n".join(
-                f"  - {_extract_chunk_text(c)[:6000]}" for c in synthesis_chunks
+                f"  - {extract_chunk_text(c)[:6000]}" for c in synthesis_chunks
             )
         else:
             log.info(
@@ -869,18 +536,18 @@ class ManagerAgent:
             # documents.
             filing_chunks = [
                 c for c in all_chunks
-                if "[TOOL: sec_edgar_filing]" in _extract_chunk_text(c)[:150]
+                if "[TOOL: sec_edgar_filing]" in extract_chunk_text(c)[:150]
             ]
             news_chunks = [
                 c for c in all_chunks
-                if "[TOOL: news_search]" in _extract_chunk_text(c)[:150]
+                if "[TOOL: news_search]" in extract_chunk_text(c)[:150]
             ]
             other_chunks = [c for c in all_chunks if c not in filing_chunks and c not in news_chunks]
             research_sample = filing_chunks[:2] + news_chunks[:2] + other_chunks[:3]
             research_lines = "\n".join(
-                f"  - {_format_filing_chunk_fairly(_extract_chunk_text(c))}" if c in filing_chunks
-                else f"  - {_format_news_chunk_fairly(_extract_chunk_text(c))}" if c in news_chunks
-                else f"  - {_extract_chunk_text(c)[:200]}"
+                f"  - {format_filing_chunk_fairly(extract_chunk_text(c))}" if c in filing_chunks
+                else f"  - {format_news_chunk_fairly(extract_chunk_text(c))}" if c in news_chunks
+                else f"  - {extract_chunk_text(c)[:200]}"
                 for c in research_sample
             )
 
@@ -937,7 +604,51 @@ class ManagerAgent:
             "dcf_valuation":     fm.get("dcf_valuation", {}),
             "dcf_monte_carlo":   fm.get("dcf_monte_carlo", {}),
             "capital_allocation": fm.get("capital_allocation", {}),
+            "earnings_quality":   fm.get("earnings_quality", {}),
+            "forecast":           fm.get("forecast", {}),
+            "financial_facts":    fm.get("financial_facts", []),
+            "financial_sanity":   fm.get("financial_sanity", {}),
             "validation_passed": fm.get("validation_passed"),
+
+            # Phase 1/2 ratios. Simple single-number ratios follow the same
+            # raw-value + "_period" pattern as roe/net_margin/de_ratio above;
+            # reverse_dcf and altman_z_score have several fields worth
+            # keeping together (assumptions/converged; zone/caveat) so they're
+            # passed through whole, same as dcf_valuation/composite_score.
+            "net_debt_to_ebitda":        fm.get("net_debt_to_ebitda", {}).get("net_debt_to_ebitda"),
+            "net_debt_to_ebitda_period": fm.get("net_debt_to_ebitda", {}).get("_period"),
+            "fcf_margin":                fm.get("fcf_margin", {}).get("fcf_margin_pct"),
+            "fcf_margin_period":         fm.get("fcf_margin", {}).get("_period"),
+            "fcf_yield":                 fm.get("fcf_yield", {}).get("fcf_yield_pct"),
+            "fcf_yield_period":          fm.get("fcf_yield", {}).get("_period"),
+            "ocf_ratio":                 fm.get("ocf_ratio", {}).get("ocf_ratio"),
+            "ocf_ratio_period":          fm.get("ocf_ratio", {}).get("_period"),
+            "reverse_dcf":               fm.get("reverse_dcf", {}),
+            # roic is a documented APPROXIMATION -- see its "note" field
+            # (tax_rate_pct is a 21% statutory placeholder, not this
+            # company's actual effective rate). Pass "is_approximation" and
+            # "note" through explicitly so the finaliser can't cite it as a
+            # precise figure the way it must not cite composite_score
+            # sub_scores as raw ratios (see numeric-fidelity guidance above).
+            "roic":                      fm.get("roic", {}).get("roic_pct"),
+            "roic_period":               fm.get("roic", {}).get("_period"),
+            "roic_is_approximation":     fm.get("roic", {}).get("is_approximation"),
+            "roic_note":                 fm.get("roic", {}).get("note"),
+            "roce":                      fm.get("roce", {}).get("roce_pct"),
+            "roce_period":               fm.get("roce", {}).get("_period"),
+            "debt_ratio":                fm.get("debt_ratio", {}).get("debt_ratio"),
+            "debt_ratio_period":         fm.get("debt_ratio", {}).get("_period"),
+            "equity_ratio":              fm.get("equity_ratio", {}).get("equity_ratio"),
+            "equity_ratio_period":       fm.get("equity_ratio", {}).get("_period"),
+            "altman_z_score":            fm.get("altman_z_score", {}),
+
+            # Deterministic analysis layer from FinancialAnalystAgent (rule-
+            # based, no LLM on its side -- see financial_agent.py's
+            # _build_consistency_checks/_build_data_quality_score). The
+            # finaliser can use these directly instead of re-deriving trend
+            # direction or a reliability read from the raw ratios itself.
+            "consistency_checks": fm.get("consistency_checks", {}),
+            "data_quality":       fm.get("data_quality", {}),
         }
         sent_summary = {
             "fear_greed_score":  sm.get("fear_greed_score"),
@@ -947,14 +658,27 @@ class ManagerAgent:
             "model_agreement":   sm.get("model_agreement"),
             "narrative":         sm.get("narrative"),
             "risk_flags":        sm.get("risk_flags", []),
+            "status":            sm.get("status"),
+            "aspect_observations": sm.get("aspect_observations", []),
+            "causal_aspects_supported": sm.get("causal_aspects_supported", []),
         }
+
+        canonical_payload = build_canonical_synthesis_payload(
+            state,
+            research_evidence=research_lines,
+        )
+        # Persist the exact factual contract used by both the first synthesis
+        # and any regeneration so traces/tests can audit source selection.
+        state["canonical_synthesis_payload"] = canonical_payload
 
         user_content = (
             f"TASK QUERY:\n{state.get('task_query', '')}\n\n"
-            f"RESEARCH HIGHLIGHTS (top 3 chunks):\n{research_lines}\n\n"
-            f"FINANCIAL METRICS SUMMARY:\n{json.dumps(fin_summary, indent=2)}\n\n"
-            f"SENTIMENT ANALYSIS SUMMARY:\n{json.dumps(sent_summary, indent=2)}\n\n"
-            f"EXECUTION HISTORY:\n"
+            "CANONICAL SYNTHESIS PAYLOAD (SOLE FACTUAL AUTHORITY):\n"
+            f"{json.dumps(canonical_payload, indent=2)}\n\n"
+            "SOURCE RULE: obey source_precedence; never let excluded legacy text "
+            "override structured values. Preserve canonical conflicts without guessing.\n\n"
+            + (f"MANDATORY REGENERATION FINDINGS:\n{json.dumps(regeneration_context, indent=2)}\nCorrect every finding; do not repeat the invalid wording.\n\n" if regeneration_context else "")
+            + "EXECUTION HISTORY:\n"
             + json.dumps(state.get("agent_execution_history", []), indent=2)
             + "\n\nSynthesize the final investment analysis report."
         )
@@ -965,7 +689,7 @@ class ManagerAgent:
                 model=self._model,
                 max_tokens=3584,
                 temperature=0.0,
-                system=_FINALISER_SYSTEM_PROMPT,
+                system=FINALISER_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],
             )
             report = response.content[0].text.strip()
@@ -976,11 +700,7 @@ class ManagerAgent:
 
         except Exception as exc:
             log.exception("[Brain-Finalise] Synthesis failed: %s", exc)
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("component", "brain_finalise")
-                    sentry_sdk.capture_exception(exc)
+            capture_exception("brain_finalise", exc)
             return (
                 f"[REPORT GENERATION FAILED — {exc}]\n\n"
                 f"Raw Financial Score: {fm.get('composite_score', {}).get('score')}\n"
@@ -1036,18 +756,12 @@ class ManagerAgent:
         )
 
         try:
-            if sentry_enabled():
-                import sentry_sdk
-                sentry_sdk.add_breadcrumb(
-                    category="manager_agent.dispatch",
-                    message=f"Dispatching {agent_class}",
-                    data={"agent_class": agent_class, "action": action},
-                    level="info",
-                )
+            add_breadcrumb("manager_agent.dispatch", f"Dispatching {agent_class}",
+                           {"agent_class": agent_class, "action": action})
             state   = await agent.run(state)
             elapsed = round(time.time() - t0, 2)
 
-            result_keys = _infer_result_keys(agent_key, state)
+            result_keys = infer_result_keys(agent_key, state)
 
             record.outcome     = "success"
             record.duration_s  = elapsed
@@ -1078,12 +792,8 @@ class ManagerAgent:
             record.duration_s    = elapsed
             record.error_message = str(exc)
 
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("agent_name", agent_class)
-                    scope.set_tag("action", action)
-                    sentry_sdk.capture_exception(exc)
+            capture_exception("manager_agent.dispatch", exc,
+                              tags={"agent_name": agent_class, "action": action})
 
             state["agent_execution_history"].append({
                 "agent_name":    agent_class,
@@ -1276,7 +986,7 @@ class ManagerAgent:
         # Single write point — _persist() must NOT call add_evaluation() again
         self._memory.add_evaluation(evaluation)
 
-        snapshot = _feedback_to_snapshot(evaluation)
+        snapshot = feedback_to_snapshot(evaluation)
 
         log.info(
             "[Node:Evaluate] %s → passed=%s score=%d next=%s",
@@ -1396,8 +1106,36 @@ class ManagerAgent:
             session_id, "finalise", agent="manager",
             message="Manager is writing the final investment report...",
         )
+        structured_findings = detect_material_period_conflicts(
+            shared.get("financial_metrics_summary", {}).get("financial_facts", [])
+        )
+        if any(item.get("blocking") for item in structured_findings):
+            shared["qa_period_findings"] = structured_findings
+            shared["recommendation_gate"] = build_recommendation_gate(shared)
+            critical = [{"check":"period_consistency","message":str(item)} for item in structured_findings if item.get("blocking")]
+            validation = {"passed":False,"critical_findings":critical,"warnings":[],"required_regeneration_context":critical,"publication_status":"REGENERATION_REQUIRED","checks":{}}
+            shared["final_publication_validation"] = validation
+            outcome = assemble_publication("", validation, shared)
+            shared.update(outcome)
+            log.error("[Node:Finalise] Material period conflict limited publication: %s", structured_findings)
+            return {"shared_state": shared}
+
+        shared["recommendation_gate"] = build_recommendation_gate(shared)
         final_report = await self._brain_finalise(shared)
-        shared["final_report"] = final_report
+        validation = validate_final_publication(final_report, shared)
+        shared["final_publication_validation"] = validation
+        shared["publication_validation_attempts"] = [{"attempt": 1, "validation": validation}]
+        if not validation["passed"]:
+            first_candidate = final_report
+            final_report = await self._brain_finalise(shared, validation["required_regeneration_context"])
+            second = validate_final_publication(final_report, shared)
+            shared["final_publication_validation"] = second
+            shared["publication_validation_attempts"].append({"attempt": 2, "validation": second})
+            if not second["passed"]:
+                shared["blocked_final_report"] = final_report
+                shared["first_blocked_final_report"] = first_candidate
+                shared.update(assemble_publication(final_report, second, shared))
+                return {"shared_state": shared}
 
         # -- QA: period-consistency check (non-blocking) ----------------------
         # Cross-checks each ratio's "_period" provenance tag (set by
@@ -1424,26 +1162,33 @@ class ManagerAgent:
                 "[Node:Finalise] period-consistency check itself failed "
                 "(non-fatal, report still returned): %s", exc,
             )
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("component", "qa.period_consistency")
-                    sentry_sdk.capture_exception(exc)
+            capture_exception("qa.period_consistency", exc)
 
-        shared["qa_period_findings"] = period_findings
+        shared["qa_period_findings"] = structured_findings + period_findings
         if period_findings:
             log.warning(
                 "[Node:Finalise] %d period-consistency issue(s) found in "
                 "%s report: %s",
                 len(period_findings), ticker or "?", period_findings,
             )
-            if sentry_enabled():
-                import sentry_sdk
-                sentry_sdk.capture_message(
-                    f"Period-consistency issue(s) in {ticker or '?'} report "
-                    f"({len(period_findings)} finding(s))",
-                    level="warning",
-                )
+            capture_message(
+                "qa.period_consistency",
+                f"Period-consistency issue(s) in {ticker or '?'} report "
+                f"({len(period_findings)} finding(s))",
+                level="warning",
+            )
+        blocking_narration_findings = [
+            finding for finding in period_findings if finding.get("severity") == "HIGH"
+        ]
+        if blocking_narration_findings:
+            shared["blocked_final_report"] = final_report
+            extra=[{"check":"period_consistency","message":str(x)} for x in blocking_narration_findings]
+            validation={**shared.get("final_publication_validation",{}),"passed":False}
+            validation["critical_findings"]=[*validation.get("critical_findings",[]),*extra]
+            validation["required_regeneration_context"]=validation["critical_findings"]
+            shared["final_publication_validation"]=validation
+            log.error("[Node:Finalise] Material period conflict limited report publication.")
+        shared.update(assemble_publication(final_report, shared.get("final_publication_validation",validation), shared))
         # -- end QA: period-consistency check ----------------------------------
 
         if ticker:
@@ -1458,11 +1203,7 @@ class ManagerAgent:
             self._memory.persist_long_term()
         except Exception as exc:
             log.warning("[Node:Finalise] persist_long_term() failed (non-fatal): %s", exc)
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("component", "memory.persist_long_term")
-                    sentry_sdk.capture_exception(exc)
+            capture_exception("memory.persist_long_term", exc)
 
         log.info(
             "[Node:Finalise] Report generated (%d chars). Long-term memory persisted.",
@@ -1490,11 +1231,7 @@ class ManagerAgent:
             self._memory.persist_long_term()
         except Exception as exc:
             log.warning("[Node:Abort] persist_long_term() failed (non-fatal): %s", exc)
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("component", "memory.persist_long_term")
-                    sentry_sdk.capture_exception(exc)
+            capture_exception("memory.persist_long_term", exc)
 
         log.warning(
             "[Node:Abort] Orchestration aborted at loop %d / %d.",
@@ -1736,34 +1473,3 @@ class ManagerAgent:
             detail={"loops": final["loop_counter"]},
         )
         return final_shared
-
-
-# ---------------------------------------------------------------------------
-# Private helper
-# ---------------------------------------------------------------------------
-
-def _infer_result_keys(agent_key: str, state: SharedManagerState) -> list[str]:
-    """
-    Infer which SharedManagerState keys an agent populated.
-
-    Parameters
-    ----------
-    agent_key : str
-        One of ``"research"`` | ``"financial"`` | ``"sentiment"``.
-    state : SharedManagerState
-        State after the agent's ``run()`` returned.
-
-    Returns
-    -------
-    list[str]
-        List of state keys that appear non-empty after the agent ran.
-    """
-    key_map = {
-        "research":  "aggregated_research_context",
-        "financial": "financial_metrics_summary",
-        "sentiment": "sentiment_analysis_summary",
-    }
-    result_key = key_map.get(agent_key)
-    if result_key and state.get(result_key):
-        return [result_key]
-    return []

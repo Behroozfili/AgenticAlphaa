@@ -1,37 +1,4 @@
-"""
-agents/research_agent.py — ResearchAgent
-==========================================
-Full LangGraph implementation of the Research Agent for Alpha-Agent Node.
-
-Architecture
-─────────────
-  SharedManagerState (in)
-        │
-        ▼
-  ResearchAgent.run()
-        │  instantiates ResearchAgentState
-        │
-        ▼
-  ┌──────────────────────────────────┐
-  │     LangGraph Internal Loop      │
-  │                                  │
-  │  [brain_node]                    │
-  │      │ structured JSON plan      │
-  │      ▼                           │
-  │  [executor_node]                 │
-  │      │ MCP tool calls            │
-  │      ▼                           │
-  │  [checker_node]                  │
-  │      │                           │
-  │      ├── is_complete=True ──────►END
-  │      │                           │
-  │      └── loop_counter >= max ───►END (force)
-  │                                  │
-  │      └── needs_more ────────────►[brain_node] (loop)
-  └──────────────────────────────────┘
-        │
-        ▼
-  SharedManagerState (out) — aggregated_research_context populated
+"""agents/research_agent.py — ResearchAgent
 """
 
 from __future__ import annotations
@@ -40,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from typing import Any, Literal
 
 import anthropic
@@ -51,8 +19,16 @@ from agents.state import ResearchAgentState, SharedManagerState
 from dotenv import load_dotenv
 from langsmith import traceable
 from core.observability import sentry_enabled
-from core.progress_bus import publish as _publish_progress, session_from_shared
+from core.progress_bus import publish as _publish_progress, session_from_directives
 from tools.research_tools.context_synthesizer import synthesize_research_context
+from agents.prompts.propt_search_agent import (BRAIN_SYSTEM_PROMPT, CHECKER_SYSTEM_PROMPT)
+from agents.executor_helpers.search_executor_helpers import (TICKER_ARG_BY_TOOL, 
+                                                             ensure_ticker_argument, 
+                                                             tool_call_signature, 
+                                                             sec_filing_doc_key, 
+                                                             sec_filing_sections, 
+                                                             build_sec_filing_coverage, 
+                                                             format_skip_notice)
 
 load_dotenv()
 
@@ -67,215 +43,6 @@ _MCP_SERVER_PARAMS = StdioServerParameters(
     args=[os.path.join(os.path.dirname(__file__), "..","tools","research_tools" ,"research_server.py")],
     env=None,   # inherits current environment (API keys etc.)
 )
-
-# ── Brain node system prompt ────────────────────────────────────
-_BRAIN_SYSTEM_PROMPT = """\
-You are the Research Brain for Alpha-Agent Node, a production-grade financial intelligence system.
-
-Your role: Given a research task and optional validator feedback, produce a precise JSON action plan
-that directs the Executor which MCP tools to call next.
-
-Available MCP tools and their EXACT argument schema (call by exact name,
-use EXACTLY these argument key names — they differ between tools):
-
-  - tavily_search
-      arguments: {"query": "<search text>"}
-
-  - news_search
-      arguments: {"query": "<search text>"}
-
-  - sec_edgar_search
-      arguments: {"query": "<search text>", "ticker": "<TICKER>", "form_type": "<optional 10-K/10-Q/8-K>"}
-      "ticker" is REQUIRED whenever a specific company is being researched —
-      omitting it runs an unscoped full-text search across ALL filers and
-      returns irrelevant results.
-
-  - sec_edgar_filing
-      arguments: {"ticker": "<TICKER>", "form_type": "<10-K or 10-Q>", "sections": [<list>]}
-      "ticker" is REQUIRED — this call fails validation without it.
-      "sections" accepts: "business", "risk_factors", "mda", "financial_statements",
-      or "all". Can be a single string or a list. Defaults to "all" if omitted.
-      For a comprehensive investment analysis task, explicitly request
-      ["mda", "risk_factors"] together — risk_factors covers competitive
-      threats, supply chain dependencies, and geopolitical/regulatory
-      exposure (e.g. export restrictions) that MD&A alone does not, and is
-      needed for a complete risk picture. Do not restrict to a single
-      section like ["financial_statements"] alone for this kind of task.
-
-  - rag_vector_search
-      arguments: {"query": "<search text>", "ticker_filter": "<TICKER>"}
-      "ticker_filter" is REQUIRED whenever the task concerns a specific
-      company — omitting it searches the ENTIRE vector store unfiltered
-      and can return chunks about unrelated companies.
-
-  - rag_graph_traverse
-      arguments: {"entity": "<TICKER>"}
-      "entity" is REQUIRED — without it the tool cannot run at all.
-
-  - rag_hybrid_query
-      arguments: {"query": "<search text>", "entity": "<TICKER>"}
-      "entity" is REQUIRED whenever a specific company is being researched.
-      Do NOT rely on the ticker symbol appearing inside "query" — this tool
-      only has a weak, best-effort fallback that looks for an ALL-CAPS
-      token in the query text (and fails silently whenever the query is
-      phrased using the company's name instead of its ticker symbol, e.g.
-      "Microsoft AI infrastructure spending" contains no extractable
-      ticker). Passing "entity" explicitly is the only reliable path —
-      never omit it.
-
-THE TICKER: the target company's ticker symbol is provided to you in
-MANAGER DIRECTIVES as "ticker" (e.g. "MSFT"). Whenever it is present,
-you MUST include it as the relevant argument (see schemas above — the
-key name differs per tool: "ticker", "ticker_filter", or "entity") on
-EVERY call to a ticker-scoped tool. This is not optional and does not
-depend on whether the ticker symbol happens to appear in your own
-"query" text.
-
-QUERY TEXT FORMAT — this differs by tool and matters a lot:
-  - news_search and sec_edgar_search are KEYWORD/boolean full-text search
-    engines, not semantic search. They match literal words, not meaning.
-    Use 2-5 concise keywords, e.g. "AAPL earnings Q2" or "Apple analyst
-    rating upgrade" — NEVER a full sentence like "Apple stock price
-    movement analyst ratings sentiment". A long natural-language query
-    against a keyword engine routinely returns zero or near-zero results,
-    even when the topic is well-covered — this has been observed in
-    production and is not a data availability problem, it's a query
-    phrasing problem.
-  - tavily_search, rag_vector_search, rag_graph_traverse, and
-    rag_hybrid_query use semantic/embedding-based search and handle
-    natural-language phrasing fine — you don't need to compress these
-    into keywords.
-
-Output format (strict JSON, no markdown fences):
-{
-  "reasoning": "<one sentence: why these tools in this order>",
-  "actions": [
-    {
-      "tool": "<exact tool name>",
-      "arguments": { <key-value pairs matching the exact schema above> }
-    }
-  ]
-}
-
-Rules:
-- Output ONLY valid JSON. No preamble, no explanation outside JSON.
-- Choose 1–3 tools per loop. Do not repeat a tool with identical arguments.
-- Incorporate validator feedback when provided to target missing information.
-- Prefer rag_hybrid_query for complex multi-faceted queries.
-- Always include "query" in arguments for search tools.
-- For news_search and sec_edgar_search, keep "query" to 2-5 keywords
-  (see QUERY TEXT FORMAT above) — never a full sentence.
-- Always include the ticker argument (see per-tool schema above) whenever
-  MANAGER DIRECTIVES provides one and the tool is ticker-scoped.
-"""
-
-# ── Checker node system prompt ───────────────────────────────────
-_CHECKER_SYSTEM_PROMPT = """\
-You are the Research Validator for Alpha-Agent Node.
-
-Your role: Audit the gathered context chunks and decide if they are sufficient
-to answer the original research query as completely as the available authoritative
-sources allow.
-
-Completeness criteria:
-  1. Recent data: at least one source from the last 30 days (or the most recent
-     periodic filing available, e.g. the latest 10-Q/10-K).
-  2. Factual depth: numbers, dates, or named entities relevant to the query.
-  3. Multi-source coverage: results from at least 2 different tool types.
-  4. No hallucination risk: findings are grounded in retrieved text, not assumed.
-
-CRITICAL — negative findings are valid findings:
-  - If an authoritative primary source has already been retrieved (e.g. the
-    relevant 10-Q/10-K sections are present in the context) and it simply does
-    NOT separately disclose the specific figure the query asks for (e.g. a
-    company reports R&D as a single line and does not break out "AI capex"),
-    then the correct, COMPLETE answer is that the source does not disclose it.
-    Mark is_complete=true and state the absence as the finding. Do NOT keep
-    demanding a number that the source does not contain.
-  - Do NOT request a section or document that is already present in the gathered
-    context. Check what was retrieved before asking for more.
-  - Distinguish "not yet retrieved" (→ keep searching) from "retrieved but the
-    data does not exist in the source" (→ complete). Only the former justifies
-    is_complete=false.
-
-Output format (strict JSON, no markdown fences):
-{
-  "is_complete": true | false,
-  "score": <int 0-100>,
-  "missing": "<specific information still genuinely missing AND obtainable, or 'nothing' if complete>",
-  "feedback": "<actionable instruction for the Brain to retrieve genuinely-missing AND obtainable data, or '' if complete>"
-}
-
-Rules:
-- Output ONLY valid JSON.
-- Be rigorous, but do not penalise the agent for data that authoritative sources
-  genuinely do not contain — that absence is itself the answer.
-- If is_complete is true, feedback must be an empty string "".
-"""
-
-
-# Maps each ticker-scoped MCP tool to the exact argument key it expects for
-# the ticker/entity. Names deliberately differ between tools (see
-# tools/research_tools/research_server.py / rag/hybrid_rag.py):
-#   rag_vector_search  -> ticker_filter
-#   rag_graph_traverse -> entity
-#   rag_hybrid_query   -> entity
-#   sec_edgar_search   -> ticker
-#   sec_edgar_filing   -> ticker
-_TICKER_ARG_BY_TOOL: dict[str, str] = {
-    "rag_vector_search":  "ticker_filter",
-    "rag_graph_traverse": "entity",
-    "rag_hybrid_query":   "entity",
-    "sec_edgar_search":   "ticker",
-    "sec_edgar_filing":   "ticker",
-}
-
-
-def _ensure_ticker_argument(
-    tool_name: str,
-    arguments: dict[str, Any],
-    directives: dict[str, Any],
-) -> dict[str, Any]:
-    """
-    Defensive safety net, independent of LLM Brain behaviour: if this tool
-    is ticker-scoped and the Brain's plan omitted the ticker argument (or
-    supplied it under the wrong key), inject it from manager_directives.
-
-    Root cause this guards against: rag_hybrid_query's built-in fallback
-    (_extract_ticker_from_query in rag/hybrid_rag.py) only works when the
-    literal ticker symbol happens to appear inside the free-text query
-    (e.g. "Apple AAPL earnings" -> "AAPL" extracted by luck). Queries
-    phrased using the company name instead ("Microsoft AI infrastructure
-    spending") have no extractable ticker, silently degrading
-    rag_hybrid_query to vector-only mode AND removing the ticker filter
-    from the underlying vector search entirely — letting chunks from
-    unrelated tickers leak into the results. The system prompt now
-    instructs the Brain to always pass the ticker explicitly, but a prompt
-    instruction can be missed; this function makes correctness NOT depend
-    on the LLM remembering.
-
-    A ticker already present in `arguments` (whatever the LLM supplied) is
-    always preserved — this only fills in a MISSING value, never overrides
-    an explicit one.
-    """
-    arg_key = _TICKER_ARG_BY_TOOL.get(tool_name)
-    if not arg_key:
-        return arguments  # not a ticker-scoped tool — nothing to do
-
-    if arguments.get(arg_key):
-        return arguments  # Brain already supplied it
-
-    ticker = directives.get("ticker")
-    if not ticker:
-        return arguments  # nothing to inject (no ticker known for this task)
-
-    patched = dict(arguments)
-    patched[arg_key] = ticker
-    logger.info(
-        "[Executor] Injected missing ticker argument for '%s': %s='%s'",
-        tool_name, arg_key, ticker,
-    )
-    return patched
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -329,9 +96,7 @@ class ResearchAgent:
         mcp_server_params: StdioServerParameters | None = None,
         llm_client: anthropic.Anthropic | None = None,
     ) -> None:
-        # ── LLM client ───────────────────────────────────────────
-        # Accept an injected client so tests can pass a mock without
-        # making real API calls or needing ANTHROPIC_API_KEY set.
+   
         self._llm = llm_client or anthropic.Anthropic(
             api_key=anthropic_api_key or os.environ["ANTHROPIC_API_KEY"]
         )
@@ -390,10 +155,12 @@ class ResearchAgent:
         internal_state: ResearchAgentState = {
             "messages":           [],
             "context_chunks":     [],
+            "called_tool_signatures": [],
             "loop_counter":       0,
             "validation_feedback": "",
             "is_complete":        False,
-            "shared_manager_ref": shared_state,
+            "task_query":         shared_state["task_query"],
+            "manager_directives": dict(shared_state.get("manager_directives", {})),
         }
 
         # ── Execute the compiled graph ───────────────────────────
@@ -417,8 +184,18 @@ class ResearchAgent:
         # this step. A synthesis failure never loses data or raises: see
         # synthesize_research_context's own docstring for why it returns
         # None on failure instead of raising.
+        #
+        # context_synthesizer now orders/labels chunks by source priority
+        # (SEC filings first for financial fundamentals, see its module
+        # docstring) IF each chunk is tagged {"source": ..., "text": ...}.
+        # Every chunk here already carries a "[TOOL: <name>]" tag (added by
+        # _format_tool_result for human readability) — reuse it instead of
+        # threading a parallel tagged-chunks list through ResearchAgentState.
+        tagged_chunks = [
+            self._tag_chunk_with_source(c) for c in final_state["context_chunks"]
+        ]
         synthesized_summary = await synthesize_research_context(
-            chunks=final_state["context_chunks"],
+            chunks=tagged_chunks,
             task_query=task_query,
             llm_client=self._llm,
             model=self._model,
@@ -458,8 +235,8 @@ class ResearchAgent:
 
         State reads
         -----------
-        state["shared_manager_ref"]["task_query"]
-        state["shared_manager_ref"]["manager_directives"]
+        state["task_query"]
+        state["manager_directives"]
         state["messages"]          — conversation history
         state["validation_feedback"] — Checker's critique (empty on first pass)
         state["loop_counter"]      — current iteration number
@@ -479,9 +256,8 @@ class ResearchAgent:
         dict[str, Any]
             Partial state update: {"messages": [user_msg, assistant_msg]}
         """
-        ref          = state["shared_manager_ref"]
-        task_query   = ref["task_query"]
-        directives   = ref.get("manager_directives", {})
+        task_query   = state["task_query"]
+        directives   = state["manager_directives"]
         feedback     = state["validation_feedback"]
         loop_num     = state["loop_counter"]
 
@@ -511,14 +287,14 @@ class ResearchAgent:
             model=self._model,
             max_tokens=1024,
             temperature=0,
-            system=_BRAIN_SYSTEM_PROMPT,
+            system=BRAIN_SYSTEM_PROMPT,
             messages=messages_for_api,
         )
         plan_text = response.content[0].text.strip()
         logger.debug("[Brain] plan output: %s", plan_text[:300])
 
         _publish_progress(
-            session_from_shared(ref), "agent_brain", agent="research",
+            session_from_directives(directives), "agent_brain", agent="research",
             message=f"Research Agent: planning research (iteration {loop_num + 1})",
             detail={"loop": loop_num + 1},
         )
@@ -570,7 +346,7 @@ class ResearchAgent:
         """
         new_counter = state["loop_counter"] + 1
         logger.info("[Executor] loop_counter → %d", new_counter)
-        session_id = session_from_shared(state["shared_manager_ref"])
+        session_id = session_from_directives(state["manager_directives"])
 
         # ── Parse Brain's JSON plan ──────────────────────────────
         plan_text = state["messages"][-1]["content"]
@@ -581,10 +357,14 @@ class ResearchAgent:
             return {
                 "loop_counter":  new_counter,
                 "context_chunks": ["[EXECUTOR WARNING] Brain produced no valid action plan."],
+                "called_tool_signatures": [],
             }
 
         # ── Execute tools via MCP ────────────────────────────────
         new_chunks: list[str] = []
+        new_signatures: list[str] = []
+        seen_signatures: set[str] = set(state.get("called_tool_signatures", []))
+        sec_filing_coverage = build_sec_filing_coverage(seen_signatures)
 
         try:
             from contextlib import AsyncExitStack
@@ -605,10 +385,47 @@ class ResearchAgent:
                         logger.warning("[Executor] Skipping action with no tool name.")
                         continue
 
-                    arguments = _ensure_ticker_argument(
+                    arguments = ensure_ticker_argument(
                         tool_name, arguments,
-                        state["shared_manager_ref"].get("manager_directives", {}),
+                        state["manager_directives"],
                     )
+
+                    query_hint = arguments.get("query") or arguments.get("entity") or arguments.get("ticker") or "N/A"
+                    signature = tool_call_signature(tool_name, arguments)
+
+                    if signature in seen_signatures:
+                        logger.info(
+                            "[Executor] SKIPPING exact-duplicate call: tool=%s args=%s",
+                            tool_name, arguments,
+                        )
+                        new_chunks.append(format_skip_notice(
+                            tool_name, query_hint, "duplicate",
+                            "This exact call (same tool, same arguments) was already made earlier "
+                            "in this session -- its result is already present in the context above. "
+                            "No new data was fetched. If you need more, change the arguments "
+                            "(different sections/mode/query), don't repeat the same call."
+                        ))
+                        continue
+
+                    doc_key = sec_filing_doc_key(arguments) if tool_name == "sec_edgar_filing" else None
+                    requested_sections = sec_filing_sections(arguments) if doc_key else set()
+                    already_covered = sec_filing_coverage.get(doc_key, set()) if doc_key else set()
+                    if doc_key and requested_sections and requested_sections <= already_covered:
+                        logger.info(
+                            "[Executor] SKIPPING redundant sec_edgar_filing call: sections=%s "
+                            "already covered=%s for doc_key=%s",
+                            requested_sections, already_covered, doc_key,
+                        )
+                        new_chunks.append(format_skip_notice(
+                            "sec_edgar_filing", query_hint, "redundant subset",
+                            f"Section(s) {sorted(requested_sections)} for this filing "
+                            f"(ticker={arguments.get('ticker')}, form_type={arguments.get('form_type', '10-K')}, "
+                            f"mode={arguments.get('mode', 'preview')}) were already fetched in an earlier "
+                            f"call -- see that sec_edgar_filing result above. No new data was fetched. "
+                            f"Request a DIFFERENT section, or use mode='full'/query=... on this section "
+                            f"for more depth instead of re-requesting it."
+                        ))
+                        continue
 
                     logger.info("[Executor] calling tool='%s' args=%s", tool_name, arguments)
                     _publish_progress(
@@ -635,6 +452,10 @@ class ResearchAgent:
                         # Format as a labelled chunk for readability in LLM prompts
                         chunk = self._format_tool_result(tool_name, arguments, raw_text)
                         new_chunks.append(chunk)
+                        new_signatures.append(signature)
+                        seen_signatures.add(signature)
+                        if doc_key:
+                            sec_filing_coverage.setdefault(doc_key, set()).update(requested_sections)
                         logger.info(
                             "[Executor] tool='%s' → %d chars", tool_name, len(raw_text)
                         )
@@ -676,6 +497,7 @@ class ResearchAgent:
         return {
             "loop_counter":   new_counter,
             "context_chunks": new_chunks,
+            "called_tool_signatures": new_signatures,
         }
 
     # ══════════════════════════════════════════════════════════════
@@ -698,7 +520,7 @@ class ResearchAgent:
         State reads
         -----------
         state["context_chunks"]                       — all gathered text so far
-        state["shared_manager_ref"]["task_query"]     — original research question
+        state["task_query"]                           — original research question
 
         State mutations returned
         ------------------------
@@ -715,7 +537,7 @@ class ResearchAgent:
         dict[str, Any]
             Partial state update: {"is_complete": bool, "validation_feedback": str}
         """
-        task_query    = state["shared_manager_ref"]["task_query"]
+        task_query    = state["task_query"]
         all_chunks    = state["context_chunks"]
         loop_counter  = state["loop_counter"]
 
@@ -774,7 +596,7 @@ class ResearchAgent:
             model=self._model,
             max_tokens=512,
             temperature=0,
-            system=_CHECKER_SYSTEM_PROMPT,
+            system=CHECKER_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_content}],
         )
         verdict_text = response.content[0].text.strip()
@@ -797,7 +619,7 @@ class ResearchAgent:
             verdict.get("missing", "")[:80],
         )
         _publish_progress(
-            session_from_shared(state["shared_manager_ref"]), "agent_checker", agent="research",
+            session_from_directives(state["manager_directives"]), "agent_checker", agent="research",
             message=(
                 f"Research Agent: checking data quality — "
                 f"{'sufficient ✓' if is_complete else 'needs more data'}"
@@ -841,9 +663,7 @@ class ResearchAgent:
         """
         loop_counter = state["loop_counter"]
         is_complete  = state["is_complete"]
-        max_loops    = state["shared_manager_ref"].get(
-            "manager_directives", {}
-        ).get("max_loops", self._max_loops)
+        max_loops    = state["manager_directives"].get("max_loops", self._max_loops)
 
         # Guardrail: hard cap on iterations
         if loop_counter >= max_loops:
@@ -977,3 +797,20 @@ class ResearchAgent:
             f"{separator}\n"
             f"{raw_text}\n"
         )
+
+    _TOOL_TAG_RE = re.compile(r"\[TOOL:\s*([^\]]+)\]")
+
+    @classmethod
+    def _tag_chunk_with_source(cls, chunk: str) -> dict:
+        """
+        Recover the tool name _format_tool_result already embedded as
+        "[TOOL: <name>]" and reshape the chunk into the
+        {"source": ..., "text": ...} form context_synthesizer.py's
+        source-priority ordering expects. Falls back to source=None
+        (synthesizer treats that as "unknown priority", not "lowest") if
+        the tag is missing or the chunk came from somewhere else, e.g. the
+        "[TOOL ERROR] ..." chunks built inline in _executor_node rather
+        than through _format_tool_result.
+        """
+        m = cls._TOOL_TAG_RE.search(chunk)
+        return {"source": m.group(1).strip() if m else None, "text": chunk}

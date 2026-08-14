@@ -112,9 +112,17 @@ class AlphaRetriever:
         ticker: Optional[str] = None,
         days_back: Optional[int] = None,
         score_threshold: float = 0.01,
+        fiscal_year: Optional[int] = None,
+        fiscal_quarter: Optional[str] = None,
+        period_end: Optional[str] = None,
+        metric_scope: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         """Same pipeline but returns the raw chunk dicts (useful for evaluation)."""
-        return self._run_pipeline(query, ticker, days_back, score_threshold)
+        return self._run_pipeline(
+            query, ticker, days_back, score_threshold,
+            fiscal_year=fiscal_year, fiscal_quarter=fiscal_quarter,
+            period_end=period_end, metric_scope=metric_scope,
+        )
 
     # ------------------------------------------------------------------
     # Shared pipeline (Stages 1-4), honouring the apply_* bypass flags
@@ -126,6 +134,10 @@ class AlphaRetriever:
         ticker: Optional[str],
         days_back: Optional[int],
         score_threshold: float,
+        *, fiscal_year: Optional[int] = None,
+        fiscal_quarter: Optional[str] = None,
+        period_end: Optional[str] = None,
+        metric_scope: Optional[str] = None,
     ) -> list[dict[str, Any]]:
         # Stage 1 — Hybrid Search (always runs — this is the actual retrieval)
         query_vec = self.embedder.embed_query(query)
@@ -137,6 +149,10 @@ class AlphaRetriever:
             top_k=self.stage1_k,
             score_threshold=score_threshold,
             limit=self.stage1_k,
+            fiscal_year=fiscal_year,
+            fiscal_quarter=fiscal_quarter,
+            period_end=period_end,
+            metric_scope=metric_scope,
         )
         logger.info("Stage 1 candidates: %d", len(candidates))
 

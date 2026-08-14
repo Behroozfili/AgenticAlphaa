@@ -151,12 +151,19 @@ async def news_search(
     to_date: Optional[str] = None,     # YYYY-MM-DD
     language: str = "en",
     sort_by: str = "relevancy",        # "relevancy" | "popularity" | "publishedAt"
-    page_size: int = 10,
+    page_size: int = 5,
     exclude_domains: Optional[list[str]] = None,
 ) -> dict:
     """
     Fetch financial news articles via NewsAPI.
     Returns: total_results, list of articles with title, url, source, published_at.
+
+    page_size defaults to 5 (was 10). News is a supplementary/recency
+    source relative to SEC filings, not the primary evidence for financial
+    fundamentals -- and the same story is routinely republished across many
+    outlets, so a larger page_size mostly buys near-duplicate coverage of
+    one event rather than genuinely new information. Callers explicitly
+    surveying market reaction/coverage breadth can still raise it.
 
     sort_by defaults to "relevancy" (was "publishedAt"). Sorting by recency
     means the newest article wins even when it's a weak/coincidental match —

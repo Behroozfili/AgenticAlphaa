@@ -98,13 +98,15 @@ class FearGreedResult:
                         Higher absolute score = higher model agreement.
         diagnostics   : Intermediate values for transparency / debugging.
     """
-    score:         float
-    label:         str
-    finbert_score: float
-    vader_score:   float
+    score:         float | None
+    label:         str | None
+    finbert_score: float | None
+    vader_score:   float | None
     weights:       dict[str, float] = field(default_factory=dict)
     confidence:    float            = 0.0
     diagnostics:   dict             = field(default_factory=dict)
+    status:        str              = "VALID"
+    polarity:      str | None       = None
 
 
 # ---------------------------------------------------------------------------
@@ -197,16 +199,37 @@ class FearGreedIndexCalculator:
         the calculator still runs and returns a score of 0.0 / "Neutral".
         This is intentional: a silent neutral is preferable to a crash.
         """
+        fb_valid = (
+            finbert_result.total_chunks > 0
+            and finbert_result.bullish_prob is not None
+            and finbert_result.bearish_prob is not None
+        )
+        vd_valid = vader_result.total_chunks > 0 and vader_result.compound is not None
+        if not fb_valid and not vd_valid:
+            return FearGreedResult(
+                score=None, label=None, finbert_score=None, vader_score=None,
+                weights={"finbert": self.finbert_weight, "vader": self.vader_weight},
+                confidence=0.0, diagnostics={"reason": "no valid model input"},
+                status="NO_DATA", polarity=None,
+            )
+
         # Step 1 — FinBERT directional score  ∈ [−1, +1]
-        finbert_score: float = finbert_result.bullish_prob - finbert_result.bearish_prob
+        finbert_score: float = (
+            finbert_result.bullish_prob - finbert_result.bearish_prob if fb_valid else 0.0
+        )
 
         # Step 2 — VADER compound  ∈ [−1, +1]
-        vader_score: float = vader_result.compound
+        vader_score: float = vader_result.compound if vd_valid else 0.0
 
         # Step 3 — Weighted average
+        effective_fb_weight = self.finbert_weight if fb_valid else 0.0
+        effective_vd_weight = self.vader_weight if vd_valid else 0.0
+        weight_total = effective_fb_weight + effective_vd_weight
+        effective_fb_weight /= weight_total
+        effective_vd_weight /= weight_total
         raw_score: float = (
-            (finbert_score * self.finbert_weight)
-            + (vader_score  * self.vader_weight)
+            (finbert_score * effective_fb_weight)
+            + (vader_score * effective_vd_weight)
         )
 
         # Step 4 — Clamp to [−1, +1]
@@ -224,12 +247,13 @@ class FearGreedIndexCalculator:
             finbert_score = round(finbert_score, 4),
             vader_score   = round(vader_score, 4),
             weights       = {
-                "finbert": self.finbert_weight,
-                "vader":   self.vader_weight,
+                "finbert": effective_fb_weight,
+                "vader":   effective_vd_weight,
             },
             confidence    = confidence,
             diagnostics   = {
                 "raw_score":              round(raw_score,     4),
+                "partial_model_coverage": not (fb_valid and vd_valid),
                 "finbert_bullish_prob":   finbert_result.bullish_prob,
                 "finbert_bearish_prob":   finbert_result.bearish_prob,
                 "finbert_neutral_prob":   finbert_result.neutral_prob,
@@ -241,13 +265,18 @@ class FearGreedIndexCalculator:
                 "vader_label":            vader_result.label,
                 "vader_total_chunks":     vader_result.total_chunks,
             },
+            status        = "VALID",
+            polarity      = (
+                "BULLISH" if clamped > 0.2 else "BEARISH" if clamped < -0.2
+                else "NEUTRAL"
+            ),
         )
         logger.info(
             "Fear/Greed index: score=%.4f label='%s' confidence=%.4f "
             "(finbert=%.4f × %.2f + vader=%.4f × %.2f)",
             clamped, label, confidence,
-            finbert_score, self.finbert_weight,
-            vader_score,   self.vader_weight,
+            finbert_score, effective_fb_weight,
+            vader_score,   effective_vd_weight,
         )
         return result
 
@@ -279,6 +308,16 @@ class FearGreedIndexCalculator:
         """
         from tools.sentiment_tools.finbert_analyzer import FinBertResult
         from tools.sentiment_tools.vader_scorer import VaderResult
+
+        if (
+            finbert_dict.get("status") == "NO_DATA" or vader_dict.get("status") == "NO_DATA"
+        ) and int(finbert_dict.get("total_chunks", 0)) <= 0 and int(vader_dict.get("total_chunks", 0)) <= 0:
+            return FearGreedResult(
+                score=None, label=None, finbert_score=None, vader_score=None,
+                weights={"finbert": self.finbert_weight, "vader": self.vader_weight},
+                confidence=0.0, diagnostics={"reason": "no valid model input"},
+                status="NO_DATA", polarity=None,
+            )
 
         finbert_result = FinBertResult(
             bullish_prob   = float(finbert_dict["bullish_prob"]),

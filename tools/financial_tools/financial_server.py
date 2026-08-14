@@ -26,17 +26,22 @@ No HTTP, no FastAPI, no web framework of any kind.
           ▼              ▼              ▼
    yahoo_finance.py  sec_edgar.py  financial_ratio_calculator.py
 
-Tool catalogue (17 tools)
+Tool catalogue (39 tools)
 --------------------------
 Yahoo Finance  : get_price_history, get_financial_ratios,
-                 get_revenue_growth, get_peer_comparison
+                 get_revenue_growth, get_peer_comparison,
+                 get_balance_sheet_snapshot
 SEC EDGAR      : get_cik, list_filings, get_filing_text, get_xbrl_financials
 Ratio Calc     : calc_pe, calc_pb, calc_ev_ebitda, calc_peg,
                  calc_gross_margin, calc_operating_margin, calc_net_margin,
                  calc_roe, calc_roa, calc_current_ratio, calc_quick_ratio,
                  calc_debt_to_equity, calc_interest_coverage,
                  calc_asset_turnover, calc_cagr,
-                 calc_revenue_cagr_from_growth, calc_composite_score
+                 calc_revenue_cagr_from_growth, calc_composite_score,
+                 calc_dcf, calc_dcf_scenarios, calc_dcf_monte_carlo,
+                 calc_net_debt_to_ebitda, calc_fcf_margin, calc_fcf_yield,
+                 calc_ocf_ratio, calc_roic, calc_roce, calc_debt_ratio,
+                 calc_equity_ratio, calc_altman_z_score, calc_reverse_dcf
 
 Usage
 -----
@@ -77,6 +82,7 @@ from yahoo_finance import (
     get_financial_ratios,
     get_revenue_growth,
     get_peer_comparison,
+    get_balance_sheet_snapshot,
 )
 from sec_edgar import (
     get_cik,
@@ -102,10 +108,23 @@ from financial_ratio_calculator import (
     cagr,
     compute_revenue_cagr_from_growth,
     composite_financial_score,
+    ForecastModel,
     discounted_cash_flow,
     dcf_scenario_range,
     dcf_monte_carlo,
+    dcf_multi_factor_monte_carlo,
+    net_debt_to_ebitda,
+    fcf_margin,
+    fcf_yield,
+    operating_cash_flow_ratio,
+    return_on_invested_capital,
+    return_on_capital_employed,
+    debt_ratio,
+    equity_ratio,
+    altman_z_score,
+    reverse_dcf,
 )
+
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -127,6 +146,21 @@ mcp = FastMCP(
     instructions="MCP server exposing financial analysis tools for the Financial Analyst Agent.",
     
 )
+
+
+@mcp.tool()
+def tool_calc_dcf_multi_factor_monte_carlo(
+    fcf_by_year: list[float], wacc_pct: float, terminal_growth_rate_pct: float,
+    cash: float = 0.0, total_debt: float = 0.0, lease_liabilities: float = 0.0,
+    minority_interest: float = 0.0, diluted_shares: float | None = None,
+    n_simulations: int = 2000, seed: int | None = None,
+) -> dict:
+    return dcf_multi_factor_monte_carlo(
+        fcf_by_year, wacc_pct, terminal_growth_rate_pct, cash=cash,
+        total_debt=total_debt, lease_liabilities=lease_liabilities,
+        minority_interest=minority_interest, diluted_shares=diluted_shares,
+        n_simulations=n_simulations, seed=seed,
+    )
 
 
 def _sentry_capture(tool_name: str, exc: Exception) -> None:
@@ -266,6 +300,34 @@ def tool_get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dic
     """
     log.info("tool_get_peer_comparison called: ticker=%s peers=%s", ticker, peers)
     return get_peer_comparison(ticker, peers)
+
+
+@mcp.tool()
+def tool_get_balance_sheet_snapshot(ticker: str) -> dict:
+    """
+    Retrieve a most-recent-period balance-sheet + EBIT snapshot for a
+    ticker: total_assets, total_liabilities, total_equity, current_assets,
+    current_liabilities, working_capital, retained_earnings, ebit.
+
+    Feeds the "Phase 2" ratios that need balance-sheet fields NOT present
+    in tool_get_financial_ratios' output (which only reads yfinance's flat
+    .info dict): tool_calc_roic, tool_calc_roce, tool_calc_debt_ratio,
+    tool_calc_equity_ratio, tool_calc_altman_z_score.
+
+    Args:
+        ticker: Stock ticker symbol, e.g. 'NVDA', 'AAPL'.
+
+    Returns:
+        dict with keys:
+          - ticker, period_end (str | None — ISO date of the balance-sheet
+            column used; check this is recent enough for your purpose)
+          - total_assets, total_liabilities, total_equity,
+            current_assets, current_liabilities, working_capital,
+            retained_earnings, ebit  (float | None each)
+          - error (str | None)
+    """
+    log.info("tool_get_balance_sheet_snapshot called: ticker=%s", ticker)
+    return _sentry_tool("tool_get_balance_sheet_snapshot", get_balance_sheet_snapshot, ticker)
 
 
 # ===========================================================================
@@ -646,16 +708,23 @@ def tool_calc_dcf(
     risk_free_rate_pct: float = 4.3,
     market_risk_premium_pct: float = 5.0,
     projection_years: int = 5,
+    market_cap: float | None = None,
+    total_debt: float | None = None,
+    cash: float | None = None,
+    marketable_securities: float | None = None,
+    lease_liabilities: float | None = None,
+    minority_interest: float | None = None,
+    diluted_shares: float | None = None,
+    pre_tax_cost_of_debt_pct: float | None = None,
+    effective_tax_rate_pct: float | None = None,
+    input_assessments: dict | None = None,
 ) -> dict:
     """
     Compute a simplified Discounted Cash Flow (DCF) valuation.
 
-    IMPORTANT: this is a simplified model — CAPM cost-of-equity is used as
-    a stand-in for WACC (no cost-of-debt component), and the result is an
-    ENTERPRISE value with no net-debt adjustment to equity value. See
-    discounted_cash_flow()'s docstring in financial_ratio_calculator.py
-    for full disclosure. Treat output as a rough sanity-check range, not
-    a precise target price.
+    Uses market-value WACC when capital-structure inputs are supplied and
+    bridges enterprise value to equity value only when every bridge input is
+    explicit. Legacy callers are retained but labelled as incomplete.
 
     Args:
         fcf_base:                  Most recent annual Free Cash Flow
@@ -694,6 +763,40 @@ def tool_calc_dcf(
         risk_free_rate_pct=risk_free_rate_pct,
         market_risk_premium_pct=market_risk_premium_pct,
         projection_years=projection_years,
+        market_cap=market_cap, total_debt=total_debt, cash=cash,
+        marketable_securities=marketable_securities,
+        lease_liabilities=lease_liabilities, minority_interest=minority_interest,
+        diluted_shares=diluted_shares,
+        pre_tax_cost_of_debt_pct=pre_tax_cost_of_debt_pct,
+        effective_tax_rate_pct=effective_tax_rate_pct,
+        input_assessments=input_assessments,
+    )
+
+
+@mcp.tool()
+def tool_build_forecast(
+    revenue_base: float,
+    fcf_base: float,
+    historical_revenue_cagr_pct: float | None = None,
+    current_revenue_growth_pct: float | None = None,
+    maturity_growth_anchor_pct: float = 5.0,
+    operating_margin_pct: float | None = None,
+    tax_rate_pct: float = 21.0,
+    capex_pct_revenue: float | None = None,
+    projection_years: int = 5,
+    source_period: str = "annual_latest",
+) -> dict:
+    """Build explicit bear/base/bull yearly operating and FCF forecasts."""
+    return ForecastModel(projection_years=projection_years).build_scenarios(
+        revenue_base=revenue_base,
+        fcf_base=fcf_base,
+        historical_revenue_cagr_pct=historical_revenue_cagr_pct,
+        current_revenue_growth_pct=current_revenue_growth_pct,
+        maturity_growth_anchor_pct=maturity_growth_anchor_pct,
+        operating_margin_pct=operating_margin_pct,
+        tax_rate_pct=tax_rate_pct,
+        capex_pct_revenue=capex_pct_revenue,
+        source_period=source_period,
     )
 
 
@@ -701,7 +804,7 @@ def tool_calc_dcf(
 def tool_calc_dcf_scenarios(
     fcf_base: float,
     beta: float,
-    base_growth_rate_pct: float,
+    base_growth_rate_pct: float | None = None,
     shares_outstanding: float | None = None,
     bear_growth_rate_pct: float | None = None,
     bull_growth_rate_pct: float | None = None,
@@ -709,6 +812,17 @@ def tool_calc_dcf_scenarios(
     risk_free_rate_pct: float = 4.3,
     market_risk_premium_pct: float = 5.0,
     projection_years: int = 5,
+    forecast_scenarios: dict | None = None,
+    market_cap: float | None = None,
+    total_debt: float | None = None,
+    cash: float | None = None,
+    marketable_securities: float | None = None,
+    lease_liabilities: float | None = None,
+    minority_interest: float | None = None,
+    diluted_shares: float | None = None,
+    pre_tax_cost_of_debt_pct: float | None = None,
+    effective_tax_rate_pct: float | None = None,
+    input_assessments: dict | None = None,
 ) -> dict:
     """
     Run DCF at three FCF growth assumptions (bear/base/bull) instead of a
@@ -746,6 +860,14 @@ def tool_calc_dcf_scenarios(
         risk_free_rate_pct=risk_free_rate_pct,
         market_risk_premium_pct=market_risk_premium_pct,
         projection_years=projection_years,
+        forecast_scenarios=forecast_scenarios,
+        market_cap=market_cap, total_debt=total_debt, cash=cash,
+        marketable_securities=marketable_securities,
+        lease_liabilities=lease_liabilities, minority_interest=minority_interest,
+        diluted_shares=diluted_shares,
+        pre_tax_cost_of_debt_pct=pre_tax_cost_of_debt_pct,
+        effective_tax_rate_pct=effective_tax_rate_pct,
+        input_assessments=input_assessments,
     )
 
 
@@ -942,6 +1064,328 @@ def tool_calc_composite_score(
         current_ratio=current_ratio_val,
         de_ratio=de_ratio,
         revenue_cagr_pct=revenue_cagr_pct,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 — Cash Flow Ratios & Reverse DCF
+# (data already available from tool_get_financial_ratios / tool_calc_dcf)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def tool_calc_net_debt_to_ebitda(total_debt: float, total_cash: float, ebitda: float) -> dict:
+    """
+    Calculate Net Debt / EBITDA — the standard credit-analysis leverage
+    multiple (years of current EBITDA needed to pay off debt net of cash).
+
+    Args:
+        total_debt: Total short+long-term debt (USD). From
+                    tool_get_financial_ratios' total_debt.
+        total_cash: Cash and cash equivalents (USD). From
+                    tool_get_financial_ratios' total_cash.
+        ebitda:     EBITDA, TTM (USD). From tool_get_financial_ratios' ebitda.
+
+    Returns:
+        dict with keys:
+          - net_debt, net_debt_to_ebitda (float | None)
+          - interpretation (str) 'net_cash_position' | 'low_leverage' |
+            'moderate_leverage' | 'high_leverage'
+          - formula (str)
+    """
+    log.info("tool_calc_net_debt_to_ebitda called: debt=%s cash=%s ebitda=%s", total_debt, total_cash, ebitda)
+    return net_debt_to_ebitda(total_debt, total_cash, ebitda)
+
+
+@mcp.tool()
+def tool_calc_fcf_margin(free_cash_flow: float, revenue: float) -> dict:
+    """
+    Calculate Free Cash Flow Margin: what fraction of revenue converts to
+    actual free cash after capex. Catches capex-heavy periods (e.g. AI
+    infrastructure buildouts) where net-income margins look fine but cash
+    generation is being consumed by investment.
+
+    Args:
+        free_cash_flow: Operating cash flow − capex, TTM (USD). From
+                        tool_get_financial_ratios' free_cash_flow.
+        revenue:        Total revenue, TTM (USD).
+
+    Returns:
+        dict with keys:
+          - fcf_margin_pct (float | None)
+          - interpretation (str) 'excellent' | 'strong' | 'modest' | 'cash_burning'
+          - formula (str)
+    """
+    log.info("tool_calc_fcf_margin called: fcf=%s revenue=%s", free_cash_flow, revenue)
+    return fcf_margin(free_cash_flow, revenue)
+
+
+@mcp.tool()
+def tool_calc_fcf_yield(free_cash_flow: float, market_cap: float) -> dict:
+    """
+    Calculate Free Cash Flow Yield: FCF as a percentage of market cap —
+    a cash-based, less-distorted-by-accounting counterpart to earnings
+    yield / P·E.
+
+    Args:
+        free_cash_flow: Free cash flow, TTM (USD). From
+                        tool_get_financial_ratios' free_cash_flow.
+        market_cap:     Market capitalization (USD). From
+                        tool_get_financial_ratios' market_cap.
+
+    Returns:
+        dict with keys:
+          - fcf_yield_pct (float | None)
+          - interpretation (str) 'cheap' | 'fair' | 'expensive' | 'cash_burning'
+          - formula (str)
+    """
+    log.info("tool_calc_fcf_yield called: fcf=%s market_cap=%s", free_cash_flow, market_cap)
+    return fcf_yield(free_cash_flow, market_cap)
+
+
+@mcp.tool()
+def tool_calc_ocf_ratio(operating_cash_flow: float, current_liabilities: float) -> dict:
+    """
+    Calculate the Operating Cash Flow Ratio: can near-term obligations be
+    covered by cash actually generated from operations (a stricter test
+    than the accrual-based current ratio)?
+
+    Args:
+        operating_cash_flow: Cash from operations, TTM (USD). From
+                              tool_get_financial_ratios' operating_cash_flow.
+        current_liabilities: Total current liabilities (USD). From
+                              tool_get_balance_sheet_snapshot's current_liabilities.
+
+    Returns:
+        dict with keys:
+          - ocf_ratio (float | None)
+          - interpretation (str) 'strong' | 'adequate' | 'weak'
+          - formula (str)
+    """
+    log.info("tool_calc_ocf_ratio called: ocf=%s current_liab=%s", operating_cash_flow, current_liabilities)
+    return operating_cash_flow_ratio(operating_cash_flow, current_liabilities)
+
+
+@mcp.tool()
+def tool_calc_reverse_dcf(
+    fcf_base: float,
+    beta: float,
+    target_enterprise_value: float,
+    terminal_growth_rate_pct: float = 2.5,
+    risk_free_rate_pct: float = 4.3,
+    market_risk_premium_pct: float = 5.0,
+    projection_years: int = 5,
+    growth_rate_search_bounds: tuple[float, float] = (-20.0, 60.0),
+    market_cap: float | None = None,
+    total_debt: float | None = None,
+    pre_tax_cost_of_debt_pct: float | None = None,
+    effective_tax_rate_pct: float | None = None,
+) -> dict:
+    """
+    Solve DCF in reverse: given the enterprise value the market is
+    currently implying, find the constant FCF growth rate that would
+    justify it. Answers "what growth rate is priced in right now?"
+    instead of "what's fair value at an assumed growth rate?".
+
+    IMPORTANT: target_enterprise_value must be an ENTERPRISE value, not
+    raw market cap — a reasonable proxy is market_cap + total_debt −
+    total_cash (both from tool_get_financial_ratios). Passing raw market
+    cap biases the result by however large net debt is.
+
+    Args:
+        fcf_base:                  Most recent annual Free Cash Flow (USD).
+        beta:                      Equity beta (from tool_get_financial_ratios).
+        target_enterprise_value:   The enterprise value to solve for — see
+                                    IMPORTANT note above for how to build it.
+        terminal_growth_rate_pct:  Perpetual growth after projection window.
+        risk_free_rate_pct:        CAPM risk-free rate.
+        market_risk_premium_pct:   CAPM equity risk premium.
+        projection_years:          Number of explicit projection years.
+        growth_rate_search_bounds: (min, max) growth % to search between.
+                                    Narrow this if you have a strong prior
+                                    to converge faster / avoid boundary
+                                    solutions.
+
+    Returns:
+        dict with keys:
+          - implied_growth_rate_pct (float | None) — the answer.
+          - resulting_enterprise_value (float | None) — should ≈ target.
+          - target_enterprise_value (float), converged (bool),
+            iterations_used (int), discount_rate_pct (float | None),
+            assumptions (dict), interpretation (str), error (str | None)
+    """
+    log.info(
+        "tool_calc_reverse_dcf called: fcf_base=%s beta=%s target_ev=%s",
+        fcf_base, beta, target_enterprise_value,
+    )
+    return reverse_dcf(
+        fcf_base=fcf_base,
+        beta=beta,
+        target_enterprise_value=target_enterprise_value,
+        terminal_growth_rate_pct=terminal_growth_rate_pct,
+        risk_free_rate_pct=risk_free_rate_pct,
+        market_risk_premium_pct=market_risk_premium_pct,
+        projection_years=projection_years,
+        growth_rate_search_bounds=growth_rate_search_bounds,
+        market_cap=market_cap,
+        total_debt=total_debt,
+        pre_tax_cost_of_debt_pct=pre_tax_cost_of_debt_pct,
+        effective_tax_rate_pct=effective_tax_rate_pct,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — Advanced Profitability, Leverage & Bankruptcy Risk
+# (needs tool_get_balance_sheet_snapshot's output)
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def tool_calc_roic(
+    ebit: float,
+    tax_rate_pct: float,
+    total_debt: float,
+    total_equity: float,
+    cash: float,
+) -> dict:
+    """
+    Calculate Return on Invested Capital (ROIC): NOPAT / Invested Capital.
+    Considered a better cross-company comparison than ROE, since ROE can
+    be inflated by leverage alone; ROIC measures returns on ALL capital
+    (debt + equity) regardless of financing mix.
+
+    Args:
+        ebit:         Earnings Before Interest and Taxes (USD).
+        tax_rate_pct: Effective tax rate as a percentage (e.g. 21.0).
+                      Use provision_for_income_taxes / pretax_income where
+                      available, not just the statutory rate.
+        total_debt:   Total debt (USD). From tool_get_financial_ratios.
+        total_equity: Total shareholders' equity (USD). From
+                      tool_get_balance_sheet_snapshot.
+        cash:         Cash and cash equivalents (USD). From
+                      tool_get_financial_ratios' total_cash.
+
+    Returns:
+        dict with keys:
+          - roic_pct, nopat, invested_capital (float | None)
+          - interpretation (str) 'excellent' | 'strong' | 'moderate' | 'weak'
+          - formula (str)
+    """
+    log.info("tool_calc_roic called: ebit=%s tax_rate=%s", ebit, tax_rate_pct)
+    return return_on_invested_capital(ebit, tax_rate_pct, total_debt, total_equity, cash)
+
+
+@mcp.tool()
+def tool_calc_roce(ebit: float, total_assets: float, current_liabilities: float) -> dict:
+    """
+    Calculate Return on Capital Employed (ROCE): EBIT / (Total Assets −
+    Current Liabilities). A pre-tax, financing-agnostic profitability
+    measure; a close variant is the "quality" leg of Greenblatt's Magic
+    Formula.
+
+    Args:
+        ebit:                 Earnings Before Interest and Taxes (USD).
+        total_assets:         Total assets (USD). From
+                               tool_get_balance_sheet_snapshot.
+        current_liabilities:  Total current liabilities (USD). From
+                               tool_get_balance_sheet_snapshot.
+
+    Returns:
+        dict with keys:
+          - roce_pct, capital_employed (float | None)
+          - interpretation (str) 'excellent' | 'strong' | 'moderate' | 'weak'
+          - formula (str)
+    """
+    log.info("tool_calc_roce called: ebit=%s total_assets=%s", ebit, total_assets)
+    return return_on_capital_employed(ebit, total_assets, current_liabilities)
+
+
+@mcp.tool()
+def tool_calc_debt_ratio(total_liabilities: float, total_assets: float) -> dict:
+    """
+    Calculate the Debt Ratio: fraction of total assets financed by
+    liabilities of any kind (not just interest-bearing debt).
+
+    Args:
+        total_liabilities: Total liabilities (USD). From
+                            tool_get_balance_sheet_snapshot.
+        total_assets:       Total assets (USD). From
+                            tool_get_balance_sheet_snapshot.
+
+    Returns:
+        dict with keys:
+          - debt_ratio (float | None)
+          - interpretation (str) 'low_leverage' | 'moderate_leverage' | 'high_leverage'
+          - formula (str)
+    """
+    log.info("tool_calc_debt_ratio called: total_liab=%s total_assets=%s", total_liabilities, total_assets)
+    return debt_ratio(total_liabilities, total_assets)
+
+
+@mcp.tool()
+def tool_calc_equity_ratio(total_equity: float, total_assets: float) -> dict:
+    """
+    Calculate the Equity Ratio: fraction of total assets financed by
+    shareholders' equity. Complement of the Debt Ratio.
+
+    Args:
+        total_equity: Total shareholders' equity (USD). From
+                      tool_get_balance_sheet_snapshot.
+        total_assets: Total assets (USD). From
+                      tool_get_balance_sheet_snapshot.
+
+    Returns:
+        dict with keys:
+          - equity_ratio (float | None)
+          - interpretation (str) 'well_capitalized' | 'moderate' | 'thin_equity_base'
+          - formula (str)
+    """
+    log.info("tool_calc_equity_ratio called: total_equity=%s total_assets=%s", total_equity, total_assets)
+    return equity_ratio(total_equity, total_assets)
+
+
+@mcp.tool()
+def tool_calc_altman_z_score(
+    working_capital: float,
+    retained_earnings: float,
+    ebit: float,
+    total_assets: float,
+    market_cap: float,
+    total_liabilities: float,
+    revenue: float,
+) -> dict:
+    """
+    Calculate the Altman Z-Score (1968 original) — a composite
+    bankruptcy-risk indicator.
+
+    IMPORTANT — model scope: built and validated on public manufacturing/
+    industrial firms. Less reliable for financial firms (banks/insurers)
+    and asset-light tech/software companies (small total_assets can
+    produce extreme, less meaningful scores). Present the caveat
+    alongside the number for non-manufacturing tickers.
+
+    Args:
+        working_capital:    Current Assets − Current Liabilities (USD).
+                             From tool_get_balance_sheet_snapshot.
+        retained_earnings:  Retained earnings (USD). From
+                             tool_get_balance_sheet_snapshot.
+        ebit:                Earnings Before Interest and Taxes (USD).
+        total_assets:        Total assets (USD). From
+                             tool_get_balance_sheet_snapshot.
+        market_cap:          Market value of equity (USD). From
+                             tool_get_financial_ratios.
+        total_liabilities:   Total liabilities (USD). From
+                             tool_get_balance_sheet_snapshot.
+        revenue:             Total revenue / Sales (USD).
+
+    Returns:
+        dict with keys:
+          - z_score (float | None)
+          - zone (str) 'safe' (>2.99) | 'grey' (1.81–2.99) | 'distress' (<1.81)
+          - interpretation (str), formula (str), caveat (str)
+    """
+    log.info("tool_calc_altman_z_score called: total_assets=%s", total_assets)
+    return altman_z_score(
+        working_capital, retained_earnings, ebit,
+        total_assets, market_cap, total_liabilities, revenue,
     )
 
 

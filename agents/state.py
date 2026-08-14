@@ -59,6 +59,37 @@ from typing import Annotated, Any, Union
 from typing_extensions import NotRequired, TypedDict
 
 
+class FinancialFact(TypedDict, total=False):
+    """Period- and scope-aware contract for a sourced financial fact."""
+    metric: str
+    value: float | int | str | None
+    unit: str | None
+    ticker: str | None
+    fiscal_year: int | None
+    fiscal_quarter: str | None
+    period_start: str | None
+    period_end: str | None
+    duration_months: int | None
+    filing_type: str | None
+    accession_number: str | None
+    metric_scope: str | None
+    gaap_status: str | None
+    source_url: str | None
+    provenance_status: str
+
+
+class TypedClaim(TypedDict, total=False):
+    """Claim whose epistemic category cannot be silently inferred by prose."""
+    claim_type: str
+    text: str
+    source_url: str | None
+    accession_number: str | None
+    speaker: str | None
+    derivation: str | None
+    confidence: str
+    validation_errors: list[str]
+
+
 # ══════════════════════════════════════════════════════════════════
 # Level 1 — Public contract: Manager ↔ All Specialist Agents
 # ══════════════════════════════════════════════════════════════════
@@ -146,6 +177,24 @@ class SharedManagerState(TypedDict, total=True):
             "revenue_cagr"             (dict)        : Revenue CAGR (%).
             "composite_score"          (dict)        : Weighted health score 0-100
                                                        and letter grade A-F.
+            "net_debt_to_ebitda"       (dict)        : Net Debt / EBITDA (ttm).
+            "fcf_margin"               (dict)        : Free Cash Flow Margin (%).
+            "fcf_yield"                (dict)        : Free Cash Flow Yield (%).
+            "ocf_ratio"                (dict)        : Operating Cash Flow Ratio.
+            "reverse_dcf"              (dict)        : Implied growth rate from
+                                                       current market value.
+            "roic"                     (dict)        : Return on Invested Capital (%);
+                                                       tax_rate_pct is a 21% statutory
+                                                       placeholder, not the company's
+                                                       actual effective rate -- see
+                                                       its own "note" key.
+            "roce"                     (dict)        : Return on Capital Employed (%).
+            "debt_ratio"               (dict)        : Total Liabilities / Total Assets.
+            "equity_ratio"             (dict)        : Total Equity / Total Assets.
+            "altman_z_score"           (dict)        : Bankruptcy-risk composite score;
+                                                       see its own "caveat" key
+                                                       (built for manufacturing/
+                                                       industrial firms).
             "annual_revenue_history"   (list[dict])  : [{year, revenue, yoy_growth}]
             "revenue_growth_ttm"       (float | None): Trailing 12-month YoY growth.
             "xbrl_total_assets"        (list[dict])  : Most recent SEC assets entry.
@@ -259,6 +308,16 @@ class ResearchAgentState(TypedDict):
         ``SharedManagerState["aggregated_research_context"]``.
         Each element may be a plain string or a dict with text + metadata.
 
+    called_tool_signatures : Annotated[list[str], operator.add]
+        Accumulator of canonical "tool_name|sorted-json-arguments" strings
+        for every tool call the Executor has actually made so far across
+        all loop iterations. Used to detect and skip an exact-duplicate
+        call (same tool, same arguments) the Brain re-issues in a later
+        loop -- without this, a Brain that doesn't realize it already has
+        an answer can re-fetch the identical data, wasting a call and
+        padding context_chunks with a byte-for-byte repeat of an earlier
+        chunk. See _executor_node's dedup check.
+
     loop_counter : int
         Monotonically increasing counter incremented by the Executor node
         at the start of each iteration.
@@ -284,10 +343,12 @@ class ResearchAgentState(TypedDict):
 
     messages:            Annotated[list[dict], operator.add]
     context_chunks:      Annotated[list[Union[str, dict]], operator.add]
+    called_tool_signatures: Annotated[list[str], operator.add]
     loop_counter:        int
     validation_feedback: str
     is_complete:         bool
-    shared_manager_ref:  SharedManagerState
+    task_query:          str
+    manager_directives:  dict[str, Any]
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -378,7 +439,8 @@ class FinancialAgentState(TypedDict):
     loop_counter:        int
     validation_feedback: str
     is_complete:         bool
-    shared_manager_ref:  SharedManagerState
+    task_query:          str
+    manager_directives:  dict[str, Any]
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -461,6 +523,15 @@ class SentimentAgentState(TypedDict):
         when an MCP tool call fails or returns an error payload.
         Forwarded into ``sentiment_analysis_summary["extraction_errors"]``.
 
+    attempts : list[dict]
+        Immutable per-attempt snapshots containing that attempt's retrieval,
+        model outputs, and errors. Only the selected successful/latest attempt
+        populates the top-level result.
+    sentiment_status : str
+        ``NO_DATA | VALID | ERROR | LOW_COVERAGE``; independent of polarity.
+    sentiment_polarity : str | None
+        ``NEUTRAL | BEARISH | BULLISH | MIXED`` only when model data exists.
+
     shared_manager_ref : SharedManagerState
         A read-only structured reference to the original SharedManagerState
         passed in by the Manager Agent at the start of ``run()``.
@@ -479,7 +550,21 @@ class SentimentAgentState(TypedDict):
     brain_reasoning:    str
     loop_counter:       int
     extraction_errors:  list[str]
-    shared_manager_ref: SharedManagerState
+    prior_attempt_errors: list[str]
+    attempts:            list[dict[str, Any]]
+    sentiment_status:    str
+    sentiment_polarity:  str | None
+    task_query:          str
+    manager_directives:  dict[str, Any]
+    # Explicit cross-agent inputs (least-privilege): the Sentiment Agent reads
+    # the Financial and Research agents' outputs. Declared here instead of
+    # carrying the whole SharedManagerState.
+    financial_metrics_summary:   dict[str, Any]
+    aggregated_research_context: list[Union[str, dict]]
+    # Transient: the Brain-plan node writes the retrieval plan here so the
+    # Executor node can read it (graph nodes communicate only via state).
+    current_plan:        dict[str, Any]
+    aspect_observations: NotRequired[list[dict[str, Any]]]
 
 
 # ══════════════════════════════════════════════════════════════════
