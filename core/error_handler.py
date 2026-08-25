@@ -77,6 +77,12 @@ def capture_message(
         pass
 
 
+# Backward-compatible aliases for consumers that imported the original
+# private helper names before the public observability API was introduced.
+_add_breadcrumb = add_breadcrumb
+_capture = capture_exception
+
+
 _SCALARS = (str, int, float, bool, type(None))
 _MAX_ITEMS = 10
 _MAX_LEN = 100

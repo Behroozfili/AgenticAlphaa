@@ -1,7 +1,6 @@
 """
 rag/embedding_manager.py — AlphaEmbedder
-Singleton embedding model with CUDA/MPS/CPU graceful fallback,
-optimized batch processing, and L2 normalization.
+
 """
 
 from __future__ import annotations
@@ -23,12 +22,9 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _select_device() -> str:
-    """
-    Priority: CUDA → MPS (Apple Silicon) → CPU.
-    Falls back automatically if GPU memory allocation fails at runtime.
-    """
+    
     if torch.cuda.is_available():
-        # Quick sanity: try to allocate a tiny tensor to detect OOM upfront
+       
         try:
             _ = torch.zeros(1, device="cuda")
             logger.info("AlphaEmbedder device: CUDA")
@@ -58,19 +54,7 @@ _INSTANCE: Optional["AlphaEmbedder"] = None
 
 
 def reset_embedder() -> None:
-    """
-    Reset the singleton AlphaEmbedder instance.
-
-    Intended for use in test teardown fixtures so each test can start
-    with a clean state without loading the real 200 MB model.
-
-    Example (pytest)::
-
-        @pytest.fixture(autouse=True)
-        def clean_embedder():
-            yield
-            reset_embedder()
-    """
+   
     global _INSTANCE
     with _LOCK:
         _INSTANCE = None
@@ -80,10 +64,7 @@ def get_embedder(
     model_name: str = "BAAI/bge-small-en-v1.5",
     batch_size: int = 64,
 ) -> "AlphaEmbedder":
-    """
-    Module-level factory that returns the single shared AlphaEmbedder instance.
-    Thread-safe via double-checked locking.
-    """
+   
     global _INSTANCE
     if _INSTANCE is None:
         with _LOCK:
@@ -97,16 +78,9 @@ def get_embedder(
 # ---------------------------------------------------------------------------
 
 class AlphaEmbedder:
-    """
-    Production-ready embedding engine.
+  
 
-    - Loaded once (singleton via get_embedder()).
-    - Gracefully falls back from CUDA/MPS to CPU on insufficient GPU RAM.
-    - Encodes in optimised batches.
-    - Returns L2-normalised vectors for consistent cosine similarity.
-    """
-
-    # Supported drop-in models (same 384-dim output, interchangeable)
+   
     SUPPORTED_MODELS = {
         "all-MiniLM-L6-v2",
         "BAAI/bge-small-en-v1.5",
@@ -154,16 +128,7 @@ class AlphaEmbedder:
     # ------------------------------------------------------------------
 
     def embed_chunks(self, chunks: list[ProcessedChunk]) -> list[dict]:
-        """
-        Embed a list of ProcessedChunks.
-
-        Returns a list of dicts, each containing:
-            {
-                "embedding": List[float],   # L2-normalised, 384-dim
-                "metadata":  dict,
-                "text":      str,
-            }
-        """
+     
         if not chunks:
             return []
 
@@ -189,10 +154,7 @@ class AlphaEmbedder:
     # ------------------------------------------------------------------
 
     def _encode_batch(self, texts: list[str]) -> np.ndarray:
-        """
-        Encode texts in mini-batches, concatenate, and L2-normalise.
-        Falls back to CPU if a GPU OOM occurs mid-batch.
-        """
+      
         assert self._model is not None, "Model not initialised."
 
         try:
@@ -220,7 +182,7 @@ class AlphaEmbedder:
             else:
                 raise
 
-        # Belt-and-suspenders explicit L2 norm (in case the model flag was ignored)
+       
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
         norms = np.where(norms == 0, 1.0, norms)   # avoid division by zero
         return embeddings / norms

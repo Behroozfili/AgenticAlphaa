@@ -1,64 +1,15 @@
-"""
-sentiment_server.py — Sentiment Agent MCP Server
-==================================================
-Exposes the four Sentiment Agent tools over the stdio MCP protocol.
-The Sentiment Agent acts as an MCP Client, connecting to this server
-and invoking these tools dynamically via standard protocol requests.
-
-Registered tools
-─────────────────
-  1. retrieve_social_data   — AlphaRetriever via rag/retriever.py (RAG pipeline)
-  2. analyze_finbert        — FinBertSentimentAnalyzer  (ProsusAI/finbert)
-  3. score_vader            — VaderLexiconScorer         (NLTK VADER)
-  4. calculate_fear_greed   — FearGreedIndexCalculator   (weighted aggregation)
-
-RAG Integration
-────────────────
-retrieve_social_data now uses AlphaRetriever.retrieve_raw() directly from
-rag/retriever.py — the same single entry point used by research_server.py.
-LocalSocialDataRetriever has been removed to eliminate the duplicate RAG path.
-
-Output contract for retrieve_social_data
-──────────────────────────────────────────
-{
-  "chunks":          list[str],        -- plain text, ready for FinBERT/VADER
-  "sources_metadata": list[dict],      -- parallel metadata per chunk
-  "total_retrieved": int
-}
-
-Each sources_metadata entry:
-{
-  "ticker":       str | None,
-  "source_type":  str | None,
-  "published_at": str | None,
-  "url":          str | None,
-  "title":        str | None,
-  "rrf_score":    float
-}
-
-Structural pattern
-───────────────────
-  Mirrors research_server.py exactly:
-    • mcp.server.Server          as the application host
-    • @app.list_tools()          to advertise tool schemas
-    • @app.call_tool()           to route and execute calls
-    • stdio_server()             as the transport layer
-    • match/case                 for clean routing
-    • json.dumps(result)         as the universal serialization contract
-
-Usage
-──────
-  python sentiment_server.py          # stdio mode (for LangGraph MCP client)
-"""
 
 from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
 import json
 import logging
 import os
+import re
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 from mcp.server import Server
@@ -187,6 +138,63 @@ def _get_fear_greed() -> FearGreedIndexCalculator:
 # RAG retrieval helper
 # ---------------------------------------------------------------------------
 
+_TRACKING_QUERY_KEYS = {"fbclid", "gclid", "ref", "source"}
+
+
+def _normalise_url(value: Any) -> str:
+    """Return a stable document URL without fragments or tracking parameters."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    try:
+        parts = urlsplit(raw)
+        query = urlencode(sorted([
+            (key, item) for key, item in parse_qsl(parts.query, keep_blank_values=True)
+            if key.lower() not in _TRACKING_QUERY_KEYS
+            and not key.lower().startswith("utm_")
+        ]))
+        return urlunsplit((
+            parts.scheme.lower(),
+            parts.netloc.lower(),
+            parts.path.rstrip("/") or "/",
+            query,
+            "",
+        ))
+    except ValueError:
+        return raw
+
+
+def _document_identity(chunk: dict[str, Any], text: str) -> tuple[str, str, str | None]:
+    """Return a stable document key, canonical URL, and optional identifier."""
+    canonical_url = _normalise_url(chunk.get("url"))
+    if canonical_url:
+        return f"url:{canonical_url}", canonical_url, None
+
+    for field in ("document_id", "url_hash", "source_id", "content_hash"):
+        value = str(chunk.get(field) or "").strip()
+        if value:
+            return f"{field}:{value}", "", value
+
+    title = str(chunk.get("title") or "").strip()
+    if title:
+        metadata_identity = "|".join(str(chunk.get(key) or "").strip().lower() for key in (
+            "source_type", "ticker", "published_at", "title",
+        ))
+        digest = hashlib.sha256(metadata_identity.encode("utf-8")).hexdigest()
+        return f"metadata:{digest}", "", digest
+
+    normalized_text = re.sub(r"\s+", " ", text).strip().lower()
+    digest = hashlib.sha256(normalized_text.encode("utf-8")).hexdigest()
+    return f"content:{digest}", "", digest
+
+
+def _domain_from_url(url: str) -> str:
+    try:
+        domain = urlsplit(url).netloc.lower()
+    except ValueError:
+        return ""
+    return domain[4:] if domain.startswith("www.") else domain
+
 def _retrieve_social_data(
     query:     str,
     ticker:    str | None,
@@ -197,8 +205,9 @@ def _retrieve_social_data(
 
     Uses retrieve_raw() instead of retrieve() so we get structured chunk
     dicts with metadata rather than a pre-formatted context string.
-    This keeps the output contract identical to what the SentimentAgent
-    expects: separate ``chunks`` and ``sources_metadata`` lists.
+    Raw chunks are grouped into document-level inputs before scoring. The
+    legacy ``chunks`` and ``sources_metadata`` keys remain available, while
+    additive counters expose deduplication and source independence.
 
     Parameters
     ----------
@@ -209,9 +218,9 @@ def _retrieve_social_data(
     Returns
     -------
     dict with keys:
-        chunks           : list[str]   — plain text per chunk
-        sources_metadata : list[dict]  — parallel metadata per chunk
-        total_retrieved  : int
+        chunks           : list[str]   — one text input per document
+        sources_metadata : list[dict]  — parallel document metadata
+        total_retrieved  : int         — unique document count
     """
     raw_chunks: list[dict] = _get_retriever().retrieve_raw(
         query=query,
@@ -219,27 +228,62 @@ def _retrieve_social_data(
         days_back=days_back,
     )
 
-    chunks:   list[str]  = []
-    metadata: list[dict] = []
+    documents: dict[str, dict[str, Any]] = {}
+    raw_chunk_count = 0
+    duplicate_text_chunks_removed = 0
 
     for chunk in raw_chunks:
         text = chunk.get("text", "").strip()
         if not text:
             continue
-        chunks.append(text)
-        metadata.append({
-            "ticker":       chunk.get("ticker"),
-            "source_type":  chunk.get("source_type"),
-            "published_at": chunk.get("published_at"),
-            "url":          chunk.get("url"),
-            "title":        chunk.get("title"),
-            "rrf_score":    chunk.get("rrf_score", chunk.get("freshness_score", 0.0)),
+        raw_chunk_count += 1
+        document_key, canonical_url, content_identifier = _document_identity(chunk, text)
+        document = documents.setdefault(document_key, {
+            "texts": [],
+            "seen_texts": set(),
+            "metadata": {
+                "ticker":       chunk.get("ticker"),
+                "source_type":  chunk.get("source_type"),
+                "published_at": chunk.get("published_at"),
+                "url":          canonical_url or chunk.get("url"),
+                "title":        chunk.get("title"),
+                "rrf_score":    chunk.get("rrf_score", chunk.get("freshness_score", 0.0)),
+                "document_key": document_key,
+                "content_identifier": content_identifier,
+                "domain":       _domain_from_url(canonical_url),
+                "chunk_count":  0,
+            },
         })
+        document["metadata"]["chunk_count"] += 1
+        document["metadata"]["rrf_score"] = max(
+            float(document["metadata"].get("rrf_score") or 0.0),
+            float(chunk.get("rrf_score", chunk.get("freshness_score", 0.0)) or 0.0),
+        )
+        normalized_text = re.sub(r"\s+", " ", text).strip()
+        if normalized_text not in document["seen_texts"]:
+            document["seen_texts"].add(normalized_text)
+            document["texts"].append(text)
+        else:
+            duplicate_text_chunks_removed += 1
+
+    chunks = ["\n\n".join(document["texts"]) for document in documents.values()]
+    metadata = [document["metadata"] for document in documents.values()]
+    domains = {item["domain"] for item in metadata if item.get("domain")}
+    unique_document_count = len(chunks)
+    evidence_independence = (
+        len(domains) / unique_document_count if unique_document_count else 0.0
+    )
 
     return {
         "chunks":           chunks,
         "sources_metadata": metadata,
-        "total_retrieved":  len(chunks),
+        "total_retrieved":  unique_document_count,
+        "raw_chunk_count": raw_chunk_count,
+        "unique_document_count": unique_document_count,
+        "unique_domain_count": len(domains),
+        "chunks_collapsed_to_documents": raw_chunk_count - unique_document_count,
+        "duplicate_text_chunks_removed": duplicate_text_chunks_removed,
+        "evidence_independence": round(evidence_independence, 4),
     }
 
 
@@ -433,6 +477,15 @@ async def list_tools() -> ListToolsResult:
                         "minimum": 0.0,
                         "maximum": 1.0,
                     },
+                    "evidence_independence": {
+                        "type": "number",
+                        "description": (
+                            "Optional independent-domain ratio in [0, 1]. When provided, "
+                            "it scales overall confidence but never changes sentiment direction."
+                        ),
+                        "minimum": 0.0,
+                        "maximum": 1.0,
+                    },
                 },
             },
         ),
@@ -501,10 +554,17 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                 else:
                     calculator = _get_fear_greed()
 
+                calculate_args: dict[str, Any] = {
+                    "finbert_dict": arguments["finbert_result"],
+                    "vader_dict": arguments["vader_result"],
+                }
+                if arguments.get("evidence_independence") is not None:
+                    calculate_args["evidence_independence"] = float(
+                        arguments["evidence_independence"]
+                    )
                 result_obj = await asyncio.to_thread(
                     calculator.calculate_from_dict,
-                    finbert_dict=arguments["finbert_result"],
-                    vader_dict=arguments["vader_result"],
+                    **calculate_args,
                 )
                 result = _to_dict(result_obj)
 

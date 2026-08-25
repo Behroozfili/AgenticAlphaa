@@ -20,10 +20,16 @@ use EXACTLY these argument key names — they differ between tools):
       returns irrelevant results.
 
   - sec_edgar_filing
-      arguments: {"ticker": "<TICKER>", "form_type": "<10-K or 10-Q>", "sections": [<list>]}
+      arguments: {"ticker": "<TICKER>", "form_type": "<optional 10-K or 10-Q>", "accession_number": "<optional accession from sec_edgar_search>", "sections": [<list>]}
       "ticker" is REQUIRED — this call fails validation without it.
       "sections" accepts: "business", "risk_factors", "mda", "financial_statements",
-      or "all". Can be a single string or a list. Defaults to "all" if omitted.
+      or "all". Can be a single string or a list and is REQUIRED.
+      Use this tool directly, without sec_edgar_search, when the user wants the
+      latest/current filing. When sec_edgar_search is used to discover a
+      topic-specific or historical filing, choose the relevant search result
+      and in the next filing-read action pass its exact "accession_number" to
+      sec_edgar_filing. Also pass the result's matching "form_type" when known.
+      Never omit the discovered accession and silently read the latest filing.
       For a comprehensive investment analysis task, explicitly request
       ["mda", "risk_factors"] together — risk_factors covers competitive
       threats, supply chain dependencies, and geopolitical/regulatory

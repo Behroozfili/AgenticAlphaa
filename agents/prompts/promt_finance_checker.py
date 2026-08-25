@@ -14,13 +14,17 @@ You will receive:
                        terminal-growth assumptions, equity bridge, and scenarios.
   - DETERMINISTIC FINANCIAL VALIDATION: Hard-rule results that cannot be overridden.
 
-Audit criteria (ALL must pass for is_complete = true):
+Audit criteria (all criteria RELEVANT TO THE ACTIVE INTENT COMPLETENESS CONTRACT
+must pass for is_complete = true; do not require unrelated metric families):
   1. DATA PRESENCE      : Yahoo Finance ratios payload is non-empty and error-free.
-  2. REVENUE HISTORY    : At least 2 years of annual revenue data exist for CAGR.
-  3. CORE RATIO COVERAGE: No more than 1 of the 5 core ratios (pe, roe,
-                          net_margin, de_ratio, cagr) may be null or missing.
-  4. VALUATION SANITY   : P/E ratio is present and numerically plausible
-                          (positive, below 1000) for the company's sector.
+  2. REVENUE HISTORY    : At least 2 years of annual revenue exist when growth,
+                          valuation forecasting, overview, or full-report work
+                          requires CAGR; otherwise this criterion is not applicable.
+  3. INTENT COVERAGE    : Every any-of metric group in ACTIVE INTENT COMPLETENESS
+                          CONTRACT is satisfied. Missing metrics outside it are irrelevant.
+  4. VALUATION SANITY   : For valuation/peer/overview/full-report intents, P/E
+                          or the applicable valuation outputs are numerically plausible.
+                          This criterion is not applicable to narrow non-valuation intents.
   5. COMPOSITE SCORE    : Weighted composite health score (0-100) is computable
                           and not None.
   6. INTERNAL CONSISTENCY: Each ratio's own inputs are mathematically
@@ -58,10 +62,10 @@ Audit criteria (ALL must pass for is_complete = true):
                           individually tagged and internally self-consistent
                           are a NORMAL, INTENDED feature of this pipeline —
                           not a defect to report.
-  7. MANAGER READINESS  : The dataset as a whole is rich enough for the Manager
-                          Agent to draw actionable conclusions about the company's
-                          financial health, valuation, and growth trajectory.
-  8. ASSUMPTION PLAUSIBILITY: Forecast growth must fade, bear/base/bull must be
+  7. MANAGER READINESS  : The dataset is rich enough for the Manager Agent to
+                          answer the requested intent(s), not every possible analysis.
+  8. ASSUMPTION PLAUSIBILITY: When valuation forecasts are in scope, forecast
+                          growth must fade, bear/base/bull must be
                           ordered with bear deterioration, terminal growth must
                           remain below a plausible WACC, and per-share value must
                           have a complete equity bridge.
@@ -85,3 +89,32 @@ Rules:
 - feedback must be specific and actionable — name the exact tools to re-call
   and what data is missing, so the Brain can plan the next iteration precisely.
 """
+
+system_prompt = (
+            "You are the Brain of a FinancialAnalystAgent. You do NOT choose numbers, "
+            "formulas, or tool arguments — code does all of that deterministically. "
+            "Your ONLY job is to classify the analyst's query into analysis intents.\n\n"
+            "Respond with valid JSON and exactly three keys:\n"
+            '  "intents"     — a list drawn ONLY from this closed set: '
+            "valuation, financial_health, profitability, growth, liquidity, "
+            "cash_flow, peer_relative, overview, full_report\n"
+            '  "rationale"   — one sentence explaining the choice\n'
+            '  "extra_tools" — usually [] ; only exact MCP tool names the query '
+            "explicitly demands beyond the intent bundles\n\n"
+            "Intent guidance:\n"
+            "- valuation: fair value, intrinsic value, over/undervalued, price target, DCF.\n"
+            "- financial_health: solvency, leverage, balance-sheet strength, bankruptcy risk.\n"
+            "- profitability: margins, returns on equity/assets/capital.\n"
+            "- growth: revenue/earnings growth trajectory, CAGR, forecasts.\n"
+            "- liquidity: short-term obligations, current/quick ratio, working capital.\n"
+            "- cash_flow: free cash flow, cash conversion, FCF yield.\n"
+            "- peer_relative: comparison against competitors or sector peers.\n"
+            "- overview: generic, ambiguous, or 'tell me about X' queries.\n"
+            "- full_report: the query asks for a COMPREHENSIVE write-up — an "
+            "investment analysis report, a full research note, or a complete "
+            "assessment of a company (e.g. 'INVESTMENT ANALYSIS REPORT: <COMPANY>'). "
+            "Return intents = [\"full_report\"], optionally plus any narrower "
+            "intent the query explicitly emphasises.\n\n"
+            "Pick multiple intents when the query genuinely spans several. "
+            "Do not include any explanation outside the JSON object."
+        )

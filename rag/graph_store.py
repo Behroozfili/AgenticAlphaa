@@ -1,22 +1,6 @@
 """
 rag/graph_store.py — AlphaGraphStore
-Entity extraction via Claude + Neo4j knowledge graph population.
 
-Pipeline:
-    RawDocument
-        │
-        ▼
-    Claude (entity + relation extraction)
-        │
-        ▼
-    Neo4j (MERGE nodes + relationships)
-
-Entity types recognized:
-    Company, Person, GeopoliticalEvent, MacroEvent, Product, Sector
-
-Relationship types:
-    COMPETES_WITH, SUPPLIES_TO, AFFECTED_BY, LED_BY,
-    PART_OF, RELATED_TO, ACQUIRED_BY
 """
 
 from __future__ import annotations
@@ -26,6 +10,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from typing import Optional
+import sentry_sdk
 
 import anthropic
 
@@ -109,15 +94,7 @@ Return ONLY valid JSON, no markdown fences:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class AlphaGraphStore:
-    """
-    Extracts entities and relationships from RawDocuments using Claude,
-    then persists them to Neo4j as a knowledge graph.
-
-    Usage:
-        store = AlphaGraphStore()
-        graph_docs = store.extract_batch(raw_docs)
-        store.upsert_batch(graph_docs)
-    """
+   
 
     EXTRACT_MODEL = "claude-haiku-4-5"
 
@@ -138,9 +115,7 @@ class AlphaGraphStore:
         neo4j_password: Optional[str] = None,
         max_tokens: int = 1024,
     ) -> None:
-        # Resolve Anthropic API key — raise early with a clear message
-        # instead of letting os.environ["ANTHROPIC_API_KEY"] raise a
-        # cryptic KeyError deep inside a tool call.
+       
         api_key = anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
             raise ValueError(
@@ -150,27 +125,17 @@ class AlphaGraphStore:
         self._api_key   = api_key
         self.max_tokens = max_tokens
 
-        # Store Neo4j credentials for use in connect() — no network I/O here
+        
         self._neo4j_uri      = neo4j_uri      or os.environ.get("NEO4J_URI")
         self._neo4j_user     = neo4j_user     or os.environ.get("NEO4J_USER", "neo4j")
         self._neo4j_password = neo4j_password or os.environ.get("NEO4J_PASSWORD")
 
-        # Clients are None until connect() is called explicitly
+        
         self._claude = None
         self._driver = None
 
     def connect(self) -> None:
-        """
-        Open the Anthropic client and the Neo4j driver, then verify connectivity.
-
-        Call this once after construction — in ingestion.py or any other
-        entry point — before calling extract_batch() or upsert_batch().
-        Keeping network I/O out of __init__ makes unit tests possible
-        without real credentials.
-
-        Neo4j is optional: if NEO4J_URI / NEO4J_PASSWORD are absent,
-        graph writes are disabled and a warning is logged.
-        """
+      
         self._claude = anthropic.AsyncAnthropic(api_key=self._api_key)
 
         if self._neo4j_uri and self._neo4j_password:
@@ -197,11 +162,7 @@ class AlphaGraphStore:
         raw_docs,                       # list[RawDocument]
         max_chars_per_doc: int = 1500,
     ) -> list[GraphDocument]:
-        """
-        Run Claude entity extraction on each RawDocument (async).
-        Skips documents that are too short to contain useful entities.
-        Returns a list of GraphDocuments (may be empty lists inside).
-        """
+       
         results: list[GraphDocument] = []
 
         for doc in raw_docs:
@@ -224,12 +185,7 @@ class AlphaGraphStore:
         return results
 
     def upsert_batch(self, graph_docs: list[GraphDocument]) -> dict[str, int]:
-        """
-        Write all entities and relationships to Neo4j.
-        Uses MERGE so it's fully idempotent — safe to run repeatedly.
-
-        Returns a summary dict: {nodes_merged, rels_merged, skipped}.
-        """
+       
         if self._driver is None:
             logger.warning("Neo4j not available — skipping graph upsert.")
             return {"nodes_merged": 0, "rels_merged": 0, "skipped": len(graph_docs)}
@@ -276,9 +232,7 @@ class AlphaGraphStore:
                 temperature=0.0,
                 messages=[
                     {"role": "user", "content": prompt},
-                    # Prefill the assistant turn with "{" so the model is forced
-                    # to emit raw JSON immediately — no markdown fences, no
-                    # "Here is the JSON:" preamble. We prepend the "{" back below.
+                    
                     {"role": "assistant", "content": "{"},
                 ],
             )
@@ -286,7 +240,7 @@ class AlphaGraphStore:
         except Exception as exc:
             logger.error("Claude extraction failed for %s: %s", source_url, exc)
             if sentry_enabled():
-                import sentry_sdk
+              
                 with sentry_sdk.push_scope() as scope:
                     scope.set_tag("component", "graph_store.extract")
                     scope.set_tag("source_url", source_url[:100])
@@ -301,17 +255,7 @@ class AlphaGraphStore:
 
     @staticmethod
     def _extract_json_block(raw: str) -> Optional[str]:
-        """
-        Pull the first balanced {...} JSON object out of a raw model response.
-
-        Robust against:
-          - markdown fences (```json ... ```)
-          - trailing commentary after the object (e.g. "**Reasoning:** ...")
-          - leading preamble before the object
-          - braces appearing inside string values
-
-        Returns the JSON substring, or None if no object is found.
-        """
+       
         start = raw.find("{")
         if start == -1:
             return None

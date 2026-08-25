@@ -24,7 +24,9 @@ Tier 2 (@pytest.mark.slow): SentimentAgent.run() end-to-end — real LLM
 Every test here is tied to a specific bug found and fixed during this
 project's development — see each test's docstring for which one.
 """
+import importlib
 import json
+from types import SimpleNamespace
 import pytest
 
 from tools.sentiment_tools.finbert_analyzer import FinBertSentimentAnalyzer
@@ -241,8 +243,14 @@ class TestSentimentAgentEndToEnd:
         })
         summary = result["sentiment_analysis_summary"]
         attempts = summary["attempts"]
-        final_retrieval = attempts[-1]["retrieval"] if attempts else {"chunks": []}
-        returned_chunks = final_retrieval.get("chunks", [])
+        selected_attempt = next(
+            (
+                attempt for attempt in attempts
+                if attempt.get("attempt_number") == summary.get("selected_attempt_number")
+            ),
+            attempts[-1] if attempts else {"retrieval": {"chunks": []}},
+        )
+        returned_chunks = selected_attempt.get("retrieval", {}).get("chunks", [])
 
         assert summary["total_chunks_analyzed"] == len(returned_chunks)
         if returned_chunks:
@@ -265,6 +273,9 @@ class TestSentimentAgentEndToEnd:
             "overall_sentiment", "conviction_level", "fear_greed_score",
             "fear_greed_label", "finbert_label", "vader_label",
             "model_agreement", "total_chunks_analyzed", "narrative",
+            "execution_success", "quality_passed", "confidence_components",
+            "source_document_counts", "aspect_observations",
+            "causal_aspects_supported", "attempts", "extraction_errors",
         ]
         missing = [k for k in required_keys if k not in summary]
         assert not missing, f"sentiment_analysis_summary missing keys: {missing}"
@@ -327,6 +338,10 @@ class TestSentimentAgentEndToEnd:
                 "finbert_result": frozen_finbert,
                 "vader_result": frozen_vader,
                 "retrieved_chunks": ["chunk"] * 6,
+                "sources_metadata": [],
+                "aspect_observations": [],
+                "sentiment_status": "VALID",
+                "manager_directives": {},
                 "messages": [],
             }
 
@@ -342,3 +357,106 @@ class TestSentimentAgentEndToEnd:
             f"changed here, this points at temperature not actually being 0 on "
             f"the LLM call, not at retrieval/live-data variance."
         )
+
+
+class TestSentimentValidationExport:
+    @staticmethod
+    def _trace_module(monkeypatch):
+        monkeypatch.setenv("LANGSMITH_API_KEY", "test-key")
+        return importlib.import_module("langsmith_trace")
+
+    @pytest.mark.parametrize(
+        ("overrides", "expected_status"),
+        [
+            ({"status": "LOW_COVERAGE"}, "LOW_COVERAGE"),
+            ({"causal_mismatch_detected": True}, "VALID"),
+            ({"fear_greed_score": None}, "VALID"),
+        ],
+        ids=["low-coverage", "causal-mismatch", "missing-score"],
+    )
+    def test_failed_sentiment_quality_is_never_exported_as_success(
+        self, monkeypatch, overrides, expected_status,
+    ):
+        trace_module = self._trace_module(monkeypatch)
+        summary = {
+            "status": "VALID",
+            "execution_success": True,
+            "pipeline_execution_success": True,
+            "quality_passed": True,
+            "fear_greed_score": 0.2,
+            "unique_document_count": 3,
+            "unique_domain_count": 2,
+            "extraction_errors": [],
+            "causal_mismatch_detected": False,
+        }
+        summary.update(overrides)
+
+        exported = trace_module.extract_sentiment_validation(
+            {"sentiment_analysis_summary": summary}
+        )
+
+        assert exported["status"] == expected_status
+        assert exported["execution_success"] is True
+        assert exported["quality_passed"] is False
+
+    def test_parse_trace_exports_complete_sentiment_audit(self, monkeypatch):
+        trace_module = self._trace_module(monkeypatch)
+        summary = {
+            "status": "VALID",
+            "execution_success": True,
+            "pipeline_execution_success": True,
+            "quality_passed": True,
+            "fear_greed_score": 0.2,
+            "fear_greed_label": "Greed",
+            "fear_greed_confidence": 0.8,
+            "unique_document_count": 3,
+            "unique_domain_count": 2,
+            "extraction_errors": [],
+            "causal_mismatch_detected": False,
+            "confidence_components": {
+                "confidence": 0.8,
+                "direction_strength": 0.2,
+                "model_agreement_score": 0.9,
+                "evidence_independence": 0.6667,
+            },
+            "source_document_counts": {
+                "raw_chunk_count": 5,
+                "unique_documents": 3,
+                "unique_domains": 2,
+            },
+            "aspect_observations": [{"aspect": "valuation"}],
+            "causal_aspects_supported": [],
+            "attempts": [{"attempt_number": 1, "status": "VALID"}],
+            "attempt_extraction_errors": ["first attempt timeout"],
+        }
+        root = SimpleNamespace(
+            inputs={
+                "task_query": "Analyze NVDA",
+                "manager_directives": {"ticker": "NVDA"},
+            },
+            outputs={"sentiment_analysis_summary": summary},
+            id="run-1",
+            trace_id="trace-1",
+            start_time="2026-08-24T00:00:00Z",
+            end_time=None,
+            latency=1.0,
+            status="success",
+            error=None,
+        )
+        monkeypatch.setattr(
+            trace_module,
+            "client",
+            SimpleNamespace(list_runs=lambda **kwargs: []),
+        )
+
+        artifact = trace_module.parse_trace(root, "test-project")
+
+        assert artifact["sentiment_analysis_summary"] == summary
+        audit = artifact["sentiment_validation"]
+        assert audit["quality_passed"] is True
+        assert audit["confidence_components"]["model_agreement_score"] == 0.9
+        assert audit["source_document_counts"]["unique_documents"] == 3
+        assert audit["aspect_observations"] == [{"aspect": "valuation"}]
+        assert audit["causal_aspects_supported"] == []
+        assert audit["attempts"][0]["attempt_number"] == 1
+        assert audit["attempt_extraction_errors"] == ["first attempt timeout"]

@@ -28,7 +28,12 @@ from tools.financial_tools.sec_edgar import (
     list_filings,
     get_filing_text,
     get_xbrl_financials,
+    _extract_annual,
 )
+
+
+def filing_text(form_type="10-K", words=600):
+    return f"FORM {form_type} ITEM 1 BUSINESS " + "financial " * words
 
 
 @pytest.fixture(autouse=True)
@@ -147,6 +152,7 @@ class TestListFilings:
                 "accessionNumber": ["0001-24-000001", "0001-24-000002", "0001-23-000003"],
                 "filingDate":      ["2024-11-01", "2024-08-01", "2023-11-01"],
                 "reportDate":      ["2024-09-30", "2024-06-30", "2023-09-30"],
+                "primaryDocument": ["nvda-20240930.htm", "nvda-10q.htm", "nvda-20230930.htm"],
             }}
         }
         mock_get.return_value = mock_resp
@@ -156,6 +162,7 @@ class TestListFilings:
         assert result["error"] is None
         assert len(result["filings"]) == 2
         assert all(f["accession_number"].startswith("0001-2") for f in result["filings"])
+        assert result["filings"][0]["primary_document"] == "nvda-20240930.htm"
 
     @patch("tools.financial_tools.sec_edgar.get_cik")
     def test_cik_lookup_failure_short_circuits(self, mock_get_cik):
@@ -217,14 +224,15 @@ class TestGetFilingText:
     def test_happy_path_strips_html_and_counts_words(self, mock_get_helper):
         mock_get_helper.side_effect = [
             {"directory": {"item": [{"name": "doc.htm"}]}},   # index.json
-            "<html><body>Hello   World</body></html>",         # raw document
+            f"<html><body>{filing_text()}</body></html>",      # raw document
         ]
 
         result = get_filing_text("0001045810-24-000010", "0001045810")
 
         assert result["error"] is None
-        assert "Hello" in result["text"]
-        assert result["word_count"] == 2
+        assert "FORM 10-K" in result["text"]
+        assert result["word_count"] >= 100
+        assert result["validation_status"] == "VALID"
 
     @patch("tools.financial_tools.sec_edgar._get")
     def test_index_fetch_failure_returns_underlying_error(self, mock_get_helper):
@@ -250,7 +258,9 @@ class TestGetFilingText:
         result = get_filing_text("0001045810-24-000010", "0001045810")
 
         assert result["text"] is None
-        assert "500 Server Error" in result["error"]
+        assert result["validation_status"] == "INVALID"
+        assert result["error"] == "No candidate document passed filing validation."
+        assert "500 Server Error" in str(result["attempted_documents"])
 
     @patch("tools.financial_tools.sec_edgar._get")
     def test_no_htm_items_falls_back_to_full_submission_txt(self, mock_get_helper):
@@ -261,13 +271,13 @@ class TestGetFilingText:
         not a failure path."""
         mock_get_helper.side_effect = [
             {"directory": {"item": []}},        # no htm/html files listed
-            "plain text full submission content",
+            filing_text(),
         ]
 
         result = get_filing_text("0001045810-24-000010", "0001045810")
 
         assert result["error"] is None
-        assert result["text"] == "plain text full submission content"
+        assert "FORM 10-K" in result["text"]
 
     @patch("tools.financial_tools.sec_edgar._get")
     def test_prefers_non_exhibit_htm_over_exhibit_files(self, mock_get_helper):
@@ -279,13 +289,49 @@ class TestGetFilingText:
                 {"name": "ex99-1.htm"},   # exhibit — should be skipped
                 {"name": "aapl-10q.htm"},  # primary document — should be preferred
             ]}},
-            "primary document content",
+            filing_text(),
         ]
 
         result = get_filing_text("0001045810-24-000010", "0001045810")
 
         assert result["error"] is None
-        assert result["text"] == "primary document content"
+        assert "FORM 10-K" in result["text"]
+
+
+    @patch("tools.financial_tools.sec_edgar._get")
+    def test_uses_primary_document_and_rejects_semantic_consent_filename(self, mock_get_helper):
+        mock_get_helper.side_effect = [
+            {"directory": {"item": [
+                {"name": "a2026auditorconsentletter.htm", "size": 9_000},
+                {"name": "nvda-20260125.htm", "size": 2_000_000},
+            ]}},
+            filing_text(),
+        ]
+
+        result = get_filing_text(
+            "0001045810-26-000001", "0001045810",
+            primary_document="nvda-20260125.htm", form_type="10-K",
+        )
+
+        assert result["validation_status"] == "VALID"
+        assert result["selected_document"] == "nvda-20260125.htm"
+        assert all("consent" not in item["document"] for item in result["attempted_documents"])
+
+    @patch("tools.financial_tools.sec_edgar._get")
+    def test_incomplete_document_is_available_but_not_valid(self, mock_get_helper):
+        mock_get_helper.side_effect = [
+            {"directory": {"item": [{"name": "report.htm"}]}},
+            "FORM 10-K auditor consent",
+            "FORM 10-K auditor consent",
+        ]
+
+        result = get_filing_text(
+            "0001045810-26-000001", "0001045810", form_type="10-K",
+        )
+
+        assert result["text"] is None
+        assert result["validation_status"] == "INVALID"
+        assert result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -303,11 +349,11 @@ class TestGetXbrlFinancials:
         mock_resp.json.return_value = {
             "facts": {"us-gaap": {
                 "Revenues": {"units": {"USD": [
-                    {"form": "10-K", "end": "2024-01-31", "val": 60_000_000_000},
-                    {"form": "10-K", "end": "2023-01-31", "val": 27_000_000_000},
+                    {"form": "10-K", "fp": "FY", "start": "2023-02-01", "end": "2024-01-31", "val": 60_000_000_000},
+                    {"form": "10-K", "fp": "FY", "start": "2022-02-01", "end": "2023-01-31", "val": 27_000_000_000},
                 ]}},
                 "NetIncomeLoss": {"units": {"USD": [
-                    {"form": "10-K", "end": "2024-01-31", "val": 30_000_000_000},
+                    {"form": "10-K", "fp": "FY", "start": "2023-02-01", "end": "2024-01-31", "val": 30_000_000_000},
                 ]}},
                 "Assets": {"units": {"USD": []}},
                 "Liabilities": {"units": {"USD": []}},
@@ -365,7 +411,7 @@ class TestGetXbrlFinancials:
             "facts": {"us-gaap": {
                 "Revenues": {"units": {"USD": []}},
                 "RevenueFromContractWithCustomerExcludingAssessedTax": {
-                    "units": {"USD": [{"form": "10-K", "end": "2024-01-31", "val": 10_000}]}
+                    "units": {"USD": [{"form": "10-K", "fp": "FY", "start": "2023-02-01", "end": "2024-01-31", "val": 10_000}]}
                 },
                 "NetIncomeLoss": {"units": {"USD": []}},
                 "Assets": {"units": {"USD": []}},
@@ -376,3 +422,40 @@ class TestGetXbrlFinancials:
 
         result = get_xbrl_financials("NVDA")
         assert result["revenue_annual"][0]["value"] == 10_000
+
+
+def test_amd_regression_all_concepts_are_ranked_before_selection():
+    payload = {"facts": {"us-gaap": {
+        "PreferredRevenue": {"units": {"USD": [{
+            "form": "10-K", "fp": "FY", "fy": 2024,
+            "start": "2024-01-01", "end": "2024-12-31", "val": 100,
+            "filed": "2025-02-01", "accn": "old",
+        }]}},
+        "AlternateRevenue": {"units": {"USD": [{
+            "form": "10-K", "fp": "FY", "fy": 2025,
+            "start": "2025-01-01", "end": "2025-12-31", "val": 130,
+            "filed": "2026-02-01", "accn": "new",
+        }]}},
+    }}}
+
+    rows = _extract_annual(payload, ["PreferredRevenue", "AlternateRevenue"])
+
+    assert rows[0]["period_end"] == "2025-12-31"
+    assert rows[0]["xbrl_concept"] == "AlternateRevenue"
+
+
+def test_annual_extraction_rejects_quarterly_fact_embedded_in_10k():
+    payload = {"facts": {"us-gaap": {"Revenue": {"units": {"USD": [
+        {
+            "form": "10-K", "fp": "Q4", "fy": 2025,
+            "start": "2025-10-01", "end": "2025-12-31", "val": 40,
+        },
+        {
+            "form": "10-K", "fp": "FY", "fy": 2025,
+            "start": "2025-01-01", "end": "2025-12-31", "val": 140,
+        },
+    ]}}}}}
+
+    rows = _extract_annual(payload, ["Revenue"])
+
+    assert [row["value"] for row in rows] == [140.0]

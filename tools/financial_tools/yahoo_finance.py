@@ -14,6 +14,9 @@ consumption by the Financial Analyst Agent or MCP server.
 """
 
 import math
+from datetime import datetime, timezone
+
+from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
 from typing import Any
@@ -86,6 +89,24 @@ def _safe_get(info: dict, key: str, default: Any = None) -> Any:
     """
     value = info.get(key)
     return value if value is not None else default
+
+
+def _safe_period_end(value: Any) -> str | None:
+    """Normalize Yahoo's mostRecentQuarter value to an ISO period-end date."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(value, tz=timezone.utc).date().isoformat()
+        except (OSError, OverflowError, ValueError):
+            return None
+    if hasattr(value, "date"):
+        try:
+            return value.date().isoformat()
+        except (AttributeError, ValueError):
+            return None
+    text = str(value).strip()
+    return text[:10] if len(text) >= 10 else None
 
 
 # ---------------------------------------------------------------------------
@@ -212,6 +233,14 @@ def get_financial_ratios(ticker: str) -> dict:
     """
     try:
         info = yf.Ticker(ticker).info
+        yahoo_de_pct = _safe_float(info.get("debtToEquity"))
+        lease_liabilities = info.get("capitalLeaseObligations")
+        if not lease_liabilities:
+            balance_sheet_snapshot = get_balance_sheet_snapshot(ticker)
+            lease_liabilities = (
+                info.get("capitalLeaseObligations")
+                or balance_sheet_snapshot.get("capital_lease_obligations")
+            )
 
         return {
             "ticker":           ticker.upper(),
@@ -235,6 +264,10 @@ def get_financial_ratios(ticker: str) -> dict:
             # current_ratio input and always flags it as missing.
             "current_ratio":    _safe_get(info, "currentRatio"),
             "quick_ratio":      _safe_get(info, "quickRatio"),
+            # Yahoo reports debtToEquity in percentage points (e.g. 66.0
+            # means a 0.66 ratio). Normalize it to the canonical ratio.
+            "de_ratio":         yahoo_de_pct / 100.0 if yahoo_de_pct is not None else None,
+            "financial_data_period_end": _safe_period_end(info.get("mostRecentQuarter")),
             "52w_high":         _safe_get(info, "fiftyTwoWeekHigh"),
             "52w_low":          _safe_get(info, "fiftyTwoWeekLow"),
             "current_price":    _safe_get(info, "currentPrice"),
@@ -247,8 +280,9 @@ def get_financial_ratios(ticker: str) -> dict:
             "ebitda":                _safe_get(info, "ebitda"),
             "free_cash_flow":        _safe_get(info, "freeCashflow"),
             "operating_cash_flow":   _safe_get(info, "operatingCashflow"),
+            "revenue_ttm":           _safe_get(info, "totalRevenue"),
             "diluted_shares":        _safe_get(info, "sharesOutstanding"),
-            "lease_liabilities":     _safe_get(info, "capitalLeaseObligations"),
+            "lease_liabilities":     lease_liabilities,
             "minority_interest":     _safe_get(info, "minorityInterest"),
             "interest_expense":      _safe_get(info, "interestExpense"),
             "effective_tax_rate":    _safe_get(info, "effectiveTaxRate"),
@@ -316,6 +350,7 @@ def get_balance_sheet_snapshot(ticker: str) -> dict:
         - "current_liabilities"  (float | None)
         - "working_capital"      (float | None) : current_assets − current_liabilities.
         - "retained_earnings"    (float | None)
+        - "capital_lease_obligations" (float | None)
         - "ebit"                 (float | None) : from the income
           statement (most recent period, may be a different (annual vs.
           quarterly-summed) period than the balance-sheet snapshot above
@@ -352,6 +387,9 @@ def get_balance_sheet_snapshot(ticker: str) -> dict:
         current_assets = _first_available_row(bs, ["Current Assets"])
         current_liabilities = _first_available_row(bs, ["Current Liabilities"])
         retained_earnings = _first_available_row(bs, ["Retained Earnings"])
+        capital_lease_obligations = _first_available_row(
+            bs, ["Capital Lease Obligations"]
+        )
 
         ebit = _first_available_row(fin, ["EBIT", "Operating Income"])
 
@@ -371,6 +409,7 @@ def get_balance_sheet_snapshot(ticker: str) -> dict:
             "current_liabilities": current_liabilities,
             "working_capital":     working_capital,
             "retained_earnings":   retained_earnings,
+            "capital_lease_obligations": capital_lease_obligations,
             "ebit":                ebit,
             "error":               None,
         }
@@ -658,10 +697,17 @@ def get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
         if not peers:
             peers = []
 
-        peer_ratios = []
-        for p in peers:
-            r = get_financial_ratios(p)
-            peer_ratios.append(r)
+        # Peers are fetched concurrently: each get_financial_ratios() call is
+        # an independent network round-trip to Yahoo, so running them serially
+        # made this function's latency scale linearly with the peer count.
+        # ThreadPoolExecutor.map preserves input order, so peer_ratios[i] still
+        # corresponds to peers[i]. The pool is capped at 5 to stay well inside
+        # Yahoo's rate limits (see the 10-peer recommendation above).
+        if peers:
+            with ThreadPoolExecutor(max_workers=min(5, len(peers))) as pool:
+                peer_ratios = list(pool.map(get_financial_ratios, peers))
+        else:
+            peer_ratios = []
 
         # Compute peer averages for numeric fields.
         # NOTE: peg_ratio is included specifically to give a growth-

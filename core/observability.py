@@ -9,7 +9,8 @@ import logging
 import os
 
 log = logging.getLogger("core.observability")
-import sentry_sdk 
+import sentry_sdk
+from langsmith import traceable
 
 
 _sentry_enabled: bool = False
@@ -99,3 +100,30 @@ def init_langsmith() -> bool:
 def langsmith_enabled() -> bool:
    
     return _langsmith_enabled
+
+# ─────────────────────────────────────────────────────────────────────────────
+#                            MCP tool-call tracing
+# ─────────────────────────────────────────────────────────────────────────────
+
+def traced_call_tool(session, tool_name, arguments):
+    """
+    Record a single MCP tool call as an independent LangSmith span
+    with run_type="tool".
+
+    A raw session.call_tool is not traced by LangSmith: it runs inside the
+    mcp library layer and creates no span. This wrapper runs inside the agent
+    process (which has an active trace context), so the span is correctly
+    attached as a child of the parent node.
+
+    The span name is set to the actual tool name (e.g. tool_get_cik) so the
+    validation script can locate it in actual_tool_calls.
+
+    arguments is passed positionally so this works with both call patterns
+    used across the agents (positional and keyword arguments=).
+    """
+
+    @traceable(run_type="tool", name=tool_name)
+    async def _inner():
+        return await session.call_tool(tool_name, arguments)
+
+    return _inner()

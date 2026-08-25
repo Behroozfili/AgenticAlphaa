@@ -1,0 +1,39 @@
+{
+  "cases": [
+    {
+      "ticker": "AMD",
+      "seen": true,
+      "report": "## Financial Performance\nDebt-to-equity ratio is approximately 0.7. Current ratio is 2.1.",
+      "financial_metrics_summary": {
+        "de_ratio": {"de_ratio": 0.66, "_period": "snapshot:2025-12-31", "validation_status": "FALLBACK", "source": "yahoo_finance.debtToEquity", "exact_period": {"basis": "snapshot", "period_end": "2025-12-31"}},
+        "current_ratio": {"current_ratio": 2.08, "_period": "snapshot:2025-12-31", "validation_status": "FALLBACK", "source": "yahoo_finance.currentRatio", "exact_period": {"basis": "snapshot", "period_end": "2025-12-31"}}
+      }
+    },
+    {
+      "ticker": "MSFT",
+      "seen": true,
+      "report": "## DCF Valuation\nThe $182.4 base-case per-share value includes the modeled EV-to-equity bridge for cash and debt.",
+      "financial_metrics_summary": {
+        "dcf_valuation": {
+          "base": {"equity_value_per_share": 182.37, "equity_bridge_complete": true, "equity_bridge": {"cash": 80, "total_debt": 40, "diluted_shares": 10}}
+        }
+      }
+    },
+    {
+      "ticker": "NVDA",
+      "seen": true,
+      "report": "FY2026 annual net margin was approximately 55.6%. Q1 revenue growth was discussed separately.",
+      "financial_metrics_summary": {
+        "net_margin": {"net_margin_pct": 55.64, "_period": "annual:2026", "validation_status": "VALID_PRIMARY", "source": "calculated_from_validated_inputs", "exact_period": {"basis": "annual", "period_end": "2026-01-25"}}
+      }
+    },
+    {
+      "ticker": "INTC",
+      "seen": false,
+      "report": "## Financial Performance\nCurrent ratio is approximately 1.3.",
+      "financial_metrics_summary": {
+        "current_ratio": {"current_ratio": 1.28, "_period": "snapshot:2025-12-31", "validation_status": "FALLBACK", "source": "yahoo_finance.currentRatio", "exact_period": {"basis": "snapshot", "period_end": "2025-12-31"}}
+      }
+    }
+  ]
+}

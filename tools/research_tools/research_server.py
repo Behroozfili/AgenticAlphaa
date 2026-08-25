@@ -235,8 +235,12 @@ async def list_tools() -> ListToolsResult:
         Tool(
             name="sec_edgar_filing",
             description=(
-                "Fetch and parse a section of the latest SEC filing (10-K/10-Q) for a "
-                "ticker. Two-step workflow, since a single section can run to tens of "
+                "Fetch and parse sections of an SEC filing for a ticker. Workflow A: "
+                "when the latest/current filing is wanted, call this tool directly and "
+                "it selects the latest requested form. Workflow B: when a topic-specific "
+                "or historical filing must be discovered, call sec_edgar_search first, "
+                "choose a result, then pass that result's accession_number here to fetch "
+                "the exact filing. Two-step reading workflow, since a single section can run to tens of "
                 "thousands of tokens:\n"
                 "1) Call with mode='preview' (the default) first. Returns each "
                 "section's real total length, a short raw text preview, and -- "
@@ -260,6 +264,14 @@ async def list_tools() -> ListToolsResult:
                     "ticker": {
                         "type": "string",
                         "description": "Stock ticker symbol (e.g. 'NVDA')"
+                    },
+                    "accession_number": {
+                        "type": "string",
+                        "description": (
+                            "Optional SEC accession number returned by sec_edgar_search. "
+                            "When provided, fetch this exact filing instead of automatically "
+                            "selecting the latest filing for the ticker/form type."
+                        )
                     },
                     "form_type": {
                         "type": "string",
@@ -568,7 +580,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             case "sec_edgar_filing":
                 result = await sec_edgar_filing(
                     ticker=arguments["ticker"],
-                    form_type=arguments.get("form_type") or arguments.get("filing_type") or "10-K",
+                    form_type=(
+                        arguments.get("form_type") or arguments.get("filing_type")
+                        or (None if arguments.get("accession_number") else "10-K")
+                    ),
                     sections=_normalize_sections(arguments.get("sections")),
                     mode=arguments.get("mode", "preview"),
                     preview_chars=arguments.get("preview_chars", 4000),
@@ -577,6 +592,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     offset=arguments.get("offset", 0),
                     length=arguments.get("length"),
                     max_chars=arguments.get("max_chars", 25000),
+                    accession_number=arguments.get("accession_number"),
                 )
 
             case "rag_vector_search":

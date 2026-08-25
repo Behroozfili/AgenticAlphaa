@@ -59,7 +59,8 @@ Your output (strict JSON — no markdown fences, no preamble):
   "model_agreement"    : "Strong" | "Moderate" | "Weak",
   "narrative"          : "<2-4 sentence actionable interpretation for the Manager Agent>",
   "risk_flags"         : ["<flag 1>", ...],
-  "data_quality_note"  : "<brief note on data coverage quality, or empty string>"
+  "data_quality_note"  : "<brief note on data coverage quality, or empty string>",
+  "causal_aspects_used": ["<aspect name used as a cause>", ...]
 }
 
 Rules:
@@ -68,6 +69,13 @@ Rules:
 - Be explicit about model_agreement: Strong = both models align; Weak = diverge > 0.3.
 - risk_flags: list data risks (e.g. too few chunks, high neutrality, recency gap).
   Return empty list [] if no flags.
+- An aspect may be presented as a cause of sentiment only when its exact
+  observation has causal_language_supported=True. A missing flag is not causal.
+- An observation with causal_language_supported=False may only be described as
+  "mentioned in evidence". Never say it drove, caused, weighed on, supported,
+  explained, or otherwise produced the sentiment direction.
+- causal_aspects_used must list every aspect presented causally. Return [] when
+  the narrative makes no causal attribution.
 - conviction_level: High if |fear_greed_score| > 0.4 and models agree; Low if < 0.15
   or models strongly diverge.
 """

@@ -292,15 +292,15 @@ class TestBrainEvaluate:
         assert feedback.step == "sentiment"
 
     @pytest.mark.asyncio
-    async def test_api_exception_defaults_to_partial_pass(self):
+    async def test_missing_research_is_not_promoted_to_pass_on_api_exception(self):
         llm = AsyncMock()
         llm.messages.create.side_effect = RuntimeError("down")
         manager = make_manager(llm=llm)
 
         feedback = await manager._brain_evaluate("ResearchAgent", {}, {"short_term": {}})
-        assert feedback.passed is True
-        assert feedback.score == 50
-        assert feedback.next_action == "run_financial"
+        assert feedback.passed is False
+        assert feedback.score < 50
+        assert feedback.next_action == "rerun_research"
 
     @pytest.mark.asyncio
     async def test_does_not_call_memory_add_evaluation(self):
@@ -523,21 +523,37 @@ class TestRunFullPipeline:
             make_llm_response(json.dumps({"action": "run_sentiment", "reasoning": "x", "directive_updates": {}})),
             make_llm_response(json.dumps({"passed": True, "score": 90, "issues": [], "next_action": "finalise"})),
             make_llm_response(json.dumps({"action": "finalise", "reasoning": "x", "directive_updates": {}})),
-            make_llm_response("Final synthesized report."),
+            make_llm_response(
+                "Final synthesized report.\n\n"
+                "## Executive Summary\nSummary.\n"
+                "## Financial Health\nFinancial facts.\n"
+                "## Market Sentiment\nSentiment facts.\n"
+                "## Research Highlights\nResearch facts.\n"
+                "## Risk Factors\nRisks.\n"
+                "## Scenario Analysis\nBull, base, and bear cases.\n"
+                "## Management Commentary Assessment\nNot available.\n"
+                "## Conclusion & Outlook\nConclusion."
+            ),
         ]
 
         research = make_specialist_agent("ResearchAgent")
         research.run = AsyncMock(side_effect=lambda s: {**s, "aggregated_research_context": ["chunk1", "chunk2", "chunk3"]})
         financial = make_specialist_agent("FinancialAnalystAgent")
-        financial.run = AsyncMock(side_effect=lambda s: {**s, "financial_metrics_summary": {"ticker": "NVDA", "composite_score": {"score": 80}}})
+        financial.run = AsyncMock(side_effect=lambda s: {**s, "financial_metrics_summary": {
+            "ticker": "NVDA", "composite_score": {"score": 80},
+            "validation_passed": True, "financial_sanity": {"passed": True},
+        }})
         sentiment = make_specialist_agent("SentimentAgent")
-        sentiment.run = AsyncMock(side_effect=lambda s: {**s, "sentiment_analysis_summary": {"fear_greed_score": 0.3}})
+        sentiment.run = AsyncMock(side_effect=lambda s: {**s, "sentiment_analysis_summary": {
+            "fear_greed_score": 0.3, "status": "VALID", "total_chunks_analyzed": 3,
+        }})
 
         manager = make_manager(llm=llm, research=research, financial=financial, sentiment=sentiment, max_loops=8)
 
         result = await manager.run(task_query="Analyze NVDA", manager_directives={"ticker": "NVDA"})
 
-        assert result["final_report"] == "Final synthesized report."
+        assert result["final_report"].startswith("Final synthesized report.")
+        assert result["execution_status"] == "completed"
         research.run.assert_called_once()
         financial.run.assert_called_once()
         sentiment.run.assert_called_once()
@@ -560,7 +576,9 @@ class TestRunFullPipeline:
 
         result = await manager.run(task_query="Analyze NVDA")
 
-        assert result.get("final_report", "") == ""
+        assert result.get("final_report", "")
+        assert result["execution_status"] == "failed"
+        assert result["publication_status"] == "DATA_INSUFFICIENT"
         assert "[ABORT]" in "".join(result["orchestrator_logs"])
 
     @pytest.mark.asyncio

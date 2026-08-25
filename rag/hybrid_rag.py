@@ -1,12 +1,6 @@
 """
 rag/hybrid_rag.py — HybridRAG
-Unified Hybrid RAG: Vector Search (Supabase pgvector) + Graph Traversal (Neo4j).
-Uses AlphaEmbedder singleton — no duplicate model loading.
 
-Tools exposed to the agent:
-    rag_vector_search   — semantic similarity over stored chunks
-    rag_graph_traverse  — relationship traversal from a named entity
-    rag_hybrid_query    — fused vector + graph via RRF (recommended)
 """
 
 from __future__ import annotations
@@ -22,11 +16,6 @@ from core.observability import sentry_enabled
 
 logger = logging.getLogger(__name__)
 
-# ── Optional imports — graceful degradation ────────────────────────────────
-# NOTE: _sb (raw Supabase client) and _embed() below are no longer used by
-# rag_vector_search itself (it now goes through AlphaRetriever/AlphaVectorStore
-# instead — see _retriever setup further down). Left in place in case other
-# tools in this module rely on them directly.
 
 try:
     from supabase import create_client
@@ -62,15 +51,7 @@ except Exception as exc:
     _embedder = None
     logger.warning("AlphaEmbedder not available: %s", exc)
 
-# AlphaRetriever gives ResearchAgent the full 4-stage pipeline (hybrid
-# search → freshness reranking → source diversity filter → token budget)
-# instead of a raw Supabase RPC call. All three narrowing stages are left
-# at their defaults (enabled) here — ResearchAgent's chunks feed straight
-# into an LLM prompt, so recency, source diversity, and a bounded context
-# size all matter for it, unlike SentimentAgent's retrieve_social_data
-# (rag/sentiment_server.py), which explicitly disables freshness reranking
-# and diversity filtering since its output feeds FinBERT/VADER batch
-# scoring rather than a prompt.
+
 try:
     from rag.retriever import AlphaRetriever
     from rag.vector_store import AlphaVectorStore
@@ -145,9 +126,7 @@ async def rag_vector_search(
             "ticker":       r.get("ticker"),
             "source_type":  r.get("source_type"),
             "chunk_text":   r.get("text"),
-            # freshness_score reflects the post-reranking score (what
-            # actually determined ordering/survival); fall back to the
-            # raw rrf_score if freshness reranking somehow wasn't applied.
+           
             "score":        round(r.get("freshness_score", r.get("rrf_score", 0.0)), 6),
             "published_at": r.get("published_at"),
             "url":          r.get("url"),
@@ -349,8 +328,7 @@ async def rag_hybrid_query(
 def _embed(text: str) -> list[float]:
     """Use the shared AlphaEmbedder singleton; fall back to a deterministic hash."""
     if _embedder is not None:
-        return _embedder.embed_query(text)   # FIX: use public API, not _encode_batch
-    # Fallback: deterministic pseudo-embedding (no model loaded)
+        return _embedder.embed_query(text)   
     h = int(hashlib.sha256(text.encode()).hexdigest(), 16)
     return [(h >> (i * 8) & 0xFF) / 255.0 for i in range(384)]
 
@@ -359,9 +337,7 @@ def _key(item: dict) -> str:
     return hashlib.md5(item["text"][:100].encode()).hexdigest()
 
 
-# Heuristic ticker extractor: looks for a 1-5 letter ALL-CAPS token that
-# isn't a common English stopword/acronym. Used only as a fallback when
-# the caller omits `entity` — best-effort, not authoritative.
+
 _TICKER_STOPWORDS = {
     "AI", "US", "USA", "CEO", "CFO", "IPO", "ETF", "GDP", "Q1", "Q2", "Q3", "Q4",
     "THE", "AND", "FOR", "WITH", "FROM", "INTO", "OVER",

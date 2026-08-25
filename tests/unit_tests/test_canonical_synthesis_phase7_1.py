@@ -40,8 +40,8 @@ def state():
         "sentiment_analysis_summary": {
             "status": "LOW_COVERAGE", "narrative": "Strong bullish market consensus",
             "aspect_observations": [
-                {"aspect": "valuation", "polarity": "Bearish", "evidence_span": "Valuation remains expensive.", "document_url": "https://example/a"},
-                {"aspect": "ai_demand", "polarity": "Bullish", "evidence_span": "", "document_url": "https://example/b"},
+                {"aspect": "valuation", "polarity": "Bearish", "evidence_span": "Valuation concerns weighed on sentiment.", "document_url": "https://example/a", "causal_language_supported": True},
+                {"aspect": "ai_demand", "polarity": "Bullish", "evidence_span": "", "document_url": "https://example/b", "causal_language_supported": True},
             ],
         },
         "recommendation_gate": {"confidence_level": "HIGH", "recommendation_mode": "ACTIONABLE_ALLOWED", "actionable_recommendation_allowed": True},
@@ -107,6 +107,52 @@ def test_aspect_without_evidence_is_excluded_from_causal_context():
     sentiment = build_canonical_synthesis_payload(state())["sentiment"]
     assert [x["aspect"] for x in sentiment["aspects"]] == ["valuation"]
     assert sentiment["causal_aspects_supported"] == ["valuation"]
+    assert sentiment["aspects"][0]["causal_language_supported"] is True
+
+
+def test_msft_mentions_without_causal_language_do_not_gain_causal_support():
+    s = state()
+    s["sentiment_analysis_summary"].update({
+        # Simulate a stale/upstream list that previously promoted mentions.
+        "causal_aspects_supported": ["competition", "valuation"],
+        "aspect_observations": [
+            {
+                "aspect": "valuation",
+                "polarity": "Bearish",
+                "evidence_span": "Microsoft's valuation remains elevated.",
+                "document_url": "https://example.com/msft-valuation",
+                "causal_language_supported": False,
+            },
+            {
+                "aspect": "competition",
+                "polarity": "Bearish",
+                "evidence_span": "Competition from Amazon and Google is intensifying.",
+                "document_url": "https://example.com/msft-competition",
+                "causal_language_supported": False,
+            },
+        ],
+    })
+
+    sentiment = build_canonical_synthesis_payload(s)["sentiment"]
+
+    assert sentiment["aspects"] == []
+    assert sentiment["causal_aspects_supported"] == []
+    assert sentiment["narrative_policy"]["pricing_in_claims_allowed"] is False
+
+
+def test_canonical_sentiment_fails_closed_for_legacy_row_without_causal_flag():
+    s = state()
+    s["sentiment_analysis_summary"]["aspect_observations"] = [{
+        "aspect": "valuation",
+        "polarity": "Bearish",
+        "evidence_span": "Valuation concerns weighed on sentiment.",
+        "document_title": "Legacy MSFT observation",
+    }]
+
+    sentiment = build_canonical_synthesis_payload(s)["sentiment"]
+
+    assert sentiment["aspects"] == []
+    assert sentiment["causal_aspects_supported"] == []
 
 
 def test_structured_dcf_wins_over_conflicting_legacy_summary():

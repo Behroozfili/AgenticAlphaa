@@ -237,14 +237,14 @@ class TestSecEdgarFiling:
     @pytest.mark.asyncio
     async def test_cik_not_found_returns_error(self):
         with patch.object(sec_edgar_module, "_resolve_cik", return_value=None):
-            result = await sec_edgar_filing("ZZZZ")
+            result = await sec_edgar_filing("ZZZZ", sections=["mda"])
         assert "CIK not found" in result["error"]
 
     @pytest.mark.asyncio
     async def test_submissions_fetch_failure_returns_error(self):
         with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
              patch.object(sec_edgar_module, "_get_submissions", return_value=None):
-            result = await sec_edgar_filing("AAPL")
+            result = await sec_edgar_filing("AAPL", sections=["mda"])
         assert "Failed to fetch EDGAR submissions" in result["error"]
 
     @pytest.mark.asyncio
@@ -254,7 +254,7 @@ class TestSecEdgarFiling:
                           return_value={"name": "Apple Inc.", "filings": {"recent": {
                               "form": ["8-K"], "accessionNumber": ["x"], "filingDate": ["2026-01-01"],
                           }}}):
-            result = await sec_edgar_filing("AAPL", form_type="10-K")
+            result = await sec_edgar_filing("AAPL", form_type="10-K", sections=["mda"])
         assert "No 10-K found" in result["error"]
 
     @pytest.mark.asyncio
@@ -276,7 +276,197 @@ class TestSecEdgarFiling:
             result = await sec_edgar_filing("AAPL", form_type="10-Q", sections=["mda"])
 
         assert "mda" in result["sections"]
-        assert "management" in result["sections"]["mda"].lower()
+        assert "management" in result["sections"]["mda"]["preview"].lower()
+        assert result["accession_number"] == "0000320193-26-000013"
+
+    @pytest.mark.asyncio
+    async def test_without_accession_keeps_latest_form_selection(self):
+        submissions = {
+            "name": "Apple Inc.",
+            "filings": {"recent": {
+                "form": ["10-K", "10-K"],
+                "accessionNumber": [
+                    "0000320193-26-000010",
+                    "0000320193-25-000010",
+                ],
+                "filingDate": ["2026-01-30", "2025-01-31"],
+            }},
+        }
+        sample_10k = "Item 7. Management's Discussion and Analysis " + "content " * 120
+        with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
+             patch.object(sec_edgar_module, "_get_submissions", return_value=submissions), \
+             patch.object(sec_edgar_module, "_fetch_text", return_value=sample_10k) as fetch_text:
+            result = await sec_edgar_filing("AAPL", form_type="10-K", sections=["mda"])
+
+        fetch_text.assert_awaited_once_with(
+            "320193", "0000320193-26-000010", "000032019326000010"
+        )
+        assert result["accession_number"] == "0000320193-26-000010"
+
+    @pytest.mark.asyncio
+    async def test_exact_accession_selects_requested_filing_without_find_latest(self):
+        requested = "000032019325000007"
+        submissions = {
+            "name": "Apple Inc.",
+            "filings": {"recent": {
+                "form": ["10-Q", "10-Q"],
+                "accessionNumber": [
+                    "0000320193-26-000013",
+                    "0000320193-25-000007",
+                ],
+                "filingDate": ["2026-05-01", "2025-02-01"],
+            }},
+        }
+        sample_10q = (
+            "Item 1. Financial Statements " + "figures " * 120
+            + "Item 2. Management's Discussion and Analysis " + "historical mda " * 120
+            + "Item 1A. Risk Factors " + "risks " * 120
+        )
+
+        with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
+             patch.object(sec_edgar_module, "_get_submissions", return_value=submissions), \
+             patch.object(sec_edgar_module, "_find_latest") as find_latest, \
+             patch.object(sec_edgar_module, "_fetch_text", return_value=sample_10q) as fetch_text:
+            result = await sec_edgar_filing(
+                "AAPL", accession_number=requested, sections=["mda"]
+            )
+
+        find_latest.assert_not_called()
+        fetch_text.assert_awaited_once_with(
+            "320193", "0000320193-25-000007", "000032019325000007"
+        )
+        assert result["form_type"] == "10-Q"
+        assert result["filed_at"] == "2025-02-01"
+        assert result["accession_number"] == "0000320193-25-000007"
+        assert "historical mda" in result["sections"]["mda"]["preview"]
+
+    @pytest.mark.asyncio
+    async def test_search_result_accession_can_be_read_exactly(self):
+        accession = "0000320193-25-000007"
+        search_response = make_response(json_data={
+            "hits": {"hits": [{"_source": {
+                "display_names": ["APPLE INC (0000320193)"],
+                "root_forms": ["10-Q"],
+                "adsh": accession,
+                "period_ending": "2024-12-28",
+                "file_date": "2025-02-01",
+            }}]}
+        })
+        submissions = {
+            "name": "Apple Inc.",
+            "filings": {"recent": {
+                "form": ["10-Q"],
+                "accessionNumber": [accession],
+                "filingDate": ["2025-02-01"],
+            }},
+        }
+        sample_10q = "Item 2. Management's Discussion and Analysis " + "content " * 120
+
+        with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
+             patch.object(sec_edgar_module.httpx, "AsyncClient",
+                          return_value=make_async_client_mock(search_response)), \
+             patch.object(sec_edgar_module, "_get_submissions", return_value=submissions), \
+             patch.object(sec_edgar_module, "_fetch_text", return_value=sample_10q):
+            search_result = await sec_edgar_search("export restrictions", ticker="AAPL")
+            filing_result = await sec_edgar_filing(
+                "AAPL",
+                accession_number=search_result["filings"][0]["accession_number"],
+                sections=["mda"],
+            )
+
+        assert filing_result["accession_number"] == accession
+
+    @pytest.mark.asyncio
+    async def test_unrelated_accession_returns_error_without_fallback(self):
+        with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
+             patch.object(sec_edgar_module, "_get_submissions") as get_submissions, \
+             patch.object(sec_edgar_module, "_find_latest") as find_latest, \
+             patch.object(sec_edgar_module, "_fetch_text") as fetch_text:
+            result = await sec_edgar_filing(
+                "AAPL",
+                accession_number="0001045810-25-000023",
+                sections=["mda"],
+            )
+
+        assert "does not belong" in result["error"]
+        get_submissions.assert_not_called()
+        find_latest.assert_not_called()
+        fetch_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_missing_accession_returns_error_without_latest_fallback(self):
+        submissions = {
+            "name": "Apple Inc.",
+            "filings": {"recent": {
+                "form": ["10-K"],
+                "accessionNumber": ["0000320193-26-000001"],
+                "filingDate": ["2026-01-01"],
+            }},
+        }
+        with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
+             patch.object(sec_edgar_module, "_get_submissions", return_value=submissions), \
+             patch.object(sec_edgar_module, "_find_latest") as find_latest, \
+             patch.object(sec_edgar_module, "_fetch_text") as fetch_text:
+            result = await sec_edgar_filing(
+                "AAPL",
+                accession_number="0000320193-25-999999",
+                sections=["mda"],
+            )
+
+        assert "was not found" in result["error"]
+        find_latest.assert_not_called()
+        fetch_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_explicit_form_conflict_returns_error(self):
+        submissions = {
+            "name": "Apple Inc.",
+            "filings": {"recent": {
+                "form": ["10-Q"],
+                "accessionNumber": ["0000320193-25-000007"],
+                "filingDate": ["2025-02-01"],
+            }},
+        }
+        with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
+             patch.object(sec_edgar_module, "_get_submissions", return_value=submissions), \
+             patch.object(sec_edgar_module, "_fetch_text") as fetch_text:
+            result = await sec_edgar_filing(
+                "AAPL",
+                form_type="10-K",
+                accession_number="0000320193-25-000007",
+                sections=["mda"],
+            )
+
+        assert "conflicts" in result["error"]
+        fetch_text.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_exact_accession_can_be_resolved_from_historical_metadata(self):
+        submissions = {
+            "name": "Apple Inc.",
+            "filings": {
+                "recent": {"accessionNumber": [], "form": [], "filingDate": []},
+                "files": [{"name": "CIK0000320193-submissions-001.json"}],
+            },
+        }
+        historical = {
+            "accessionNumber": ["0000320193-20-000001"],
+            "form": ["10-K"],
+            "filingDate": ["2020-01-01"],
+        }
+        sample_10k = "Item 7. Management's Discussion and Analysis " + "content " * 120
+        with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
+             patch.object(sec_edgar_module, "_get_submissions", return_value=submissions), \
+             patch.object(sec_edgar_module, "_get_submission_file", return_value=historical), \
+             patch.object(sec_edgar_module, "_fetch_text", return_value=sample_10k):
+            result = await sec_edgar_filing(
+                "AAPL",
+                accession_number="000032019320000001",
+                sections=["mda"],
+            )
+
+        assert result["accession_number"] == "0000320193-20-000001"
+        assert result["form_type"] == "10-K"
 
 
 # ---------------------------------------------------------------------------

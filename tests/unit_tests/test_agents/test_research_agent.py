@@ -44,6 +44,26 @@ def make_shared_state(task_query="Analyze NVDA", **kw):
     return state
 
 
+def make_research_state(
+    task_query="Analyze NVDA",
+    manager_directives=None,
+    **kw,
+):
+    """Build the top-level internal state created by ResearchAgent.run()."""
+    state: ResearchAgentState = {
+        "messages": [],
+        "context_chunks": [],
+        "called_tool_signatures": [],
+        "loop_counter": 0,
+        "validation_feedback": "",
+        "is_complete": False,
+        "task_query": task_query,
+        "manager_directives": dict(manager_directives or {}),
+    }
+    state.update(kw)
+    return state
+
+
 # ---------------------------------------------------------------------------
 # __init__
 # ---------------------------------------------------------------------------
@@ -144,11 +164,11 @@ class TestFormatToolResult:
 class TestShouldContinue:
     def _state(self, loop_counter, is_complete, max_loops_directive=None):
         directives = {"max_loops": max_loops_directive} if max_loops_directive is not None else {}
-        return {
-            "loop_counter": loop_counter,
-            "is_complete": is_complete,
-            "shared_manager_ref": {"manager_directives": directives},
-        }
+        return make_research_state(
+            loop_counter=loop_counter,
+            is_complete=is_complete,
+            manager_directives=directives,
+        )
 
     def test_forces_end_when_loop_counter_at_max(self):
         agent = make_agent(max_loops=3)
@@ -187,11 +207,7 @@ class TestBrainNode:
         llm.messages.create.return_value = make_llm_response('{"actions": []}')
         agent = make_agent(llm=llm)
 
-        state: ResearchAgentState = {
-            "messages": [], "context_chunks": [], "loop_counter": 0,
-            "validation_feedback": "", "is_complete": False,
-            "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state()
         update = await agent._brain_node(state)
 
         assert len(update["messages"]) == 2
@@ -205,11 +221,10 @@ class TestBrainNode:
         llm.messages.create.return_value = make_llm_response('{"actions": []}')
         agent = make_agent(llm=llm)
 
-        state: ResearchAgentState = {
-            "messages": [], "context_chunks": [], "loop_counter": 1,
-            "validation_feedback": "Need more recent data", "is_complete": False,
-            "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            loop_counter=1,
+            validation_feedback="Need more recent data",
+        )
         await agent._brain_node(state)
 
         sent_prompt = llm.messages.create.call_args.kwargs["messages"][-1]["content"]
@@ -222,11 +237,7 @@ class TestBrainNode:
         agent = make_agent(llm=llm)
 
         prior = [{"role": "user", "content": "prior msg"}]
-        state: ResearchAgentState = {
-            "messages": prior, "context_chunks": [], "loop_counter": 0,
-            "validation_feedback": "", "is_complete": False,
-            "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(messages=prior)
         await agent._brain_node(state)
 
         sent_messages = llm.messages.create.call_args.kwargs["messages"]
@@ -241,11 +252,9 @@ class TestExecutorNode:
     @pytest.mark.asyncio
     async def test_no_actions_returns_warning_chunk(self):
         agent = make_agent()
-        state: ResearchAgentState = {
-            "messages": [{"role": "assistant", "content": "not json"}],
-            "context_chunks": [], "loop_counter": 0, "validation_feedback": "",
-            "is_complete": False, "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            messages=[{"role": "assistant", "content": "not json"}],
+        )
         update = await agent._executor_node(state)
         assert update["loop_counter"] == 1
         assert "no valid action plan" in update["context_chunks"][0]
@@ -254,11 +263,9 @@ class TestExecutorNode:
     async def test_successful_tool_call_appends_formatted_chunk(self):
         agent = make_agent()
         plan = json.dumps({"actions": [{"tool": "tavily_search", "arguments": {"query": "NVDA"}}]})
-        state: ResearchAgentState = {
-            "messages": [{"role": "assistant", "content": plan}],
-            "context_chunks": [], "loop_counter": 0, "validation_feedback": "",
-            "is_complete": False, "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            messages=[{"role": "assistant", "content": plan}],
+        )
 
         mock_session = AsyncMock()
         tool_result = MagicMock()
@@ -282,11 +289,9 @@ class TestExecutorNode:
     async def test_tool_failure_appends_error_marker_not_raises(self):
         agent = make_agent()
         plan = json.dumps({"actions": [{"tool": "tavily_search", "arguments": {"query": "NVDA"}}]})
-        state: ResearchAgentState = {
-            "messages": [{"role": "assistant", "content": plan}],
-            "context_chunks": [], "loop_counter": 0, "validation_feedback": "",
-            "is_complete": False, "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            messages=[{"role": "assistant", "content": plan}],
+        )
 
         mock_session = AsyncMock()
         mock_session.call_tool.side_effect = RuntimeError("tool crashed")
@@ -307,11 +312,9 @@ class TestExecutorNode:
     async def test_mcp_connection_failure_appends_error_marker_not_raises(self):
         agent = make_agent()
         plan = json.dumps({"actions": [{"tool": "tavily_search", "arguments": {"query": "q"}}]})
-        state: ResearchAgentState = {
-            "messages": [{"role": "assistant", "content": plan}],
-            "context_chunks": [], "loop_counter": 0, "validation_feedback": "",
-            "is_complete": False, "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            messages=[{"role": "assistant", "content": plan}],
+        )
 
         with patch("agents.research_agent.stdio_client", side_effect=ConnectionError("server down")):
             update = await agent._executor_node(state)
@@ -322,11 +325,9 @@ class TestExecutorNode:
     async def test_action_with_no_tool_name_is_skipped(self):
         agent = make_agent()
         plan = json.dumps({"actions": [{"arguments": {"query": "q"}}]})
-        state: ResearchAgentState = {
-            "messages": [{"role": "assistant", "content": plan}],
-            "context_chunks": [], "loop_counter": 0, "validation_feedback": "",
-            "is_complete": False, "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            messages=[{"role": "assistant", "content": plan}],
+        )
 
         with patch("agents.research_agent.ClientSession") as mock_session_cls, \
              patch("agents.research_agent.stdio_client") as mock_stdio:
@@ -351,11 +352,7 @@ class TestCheckerNode:
     async def test_no_chunks_returns_incomplete_without_calling_llm(self):
         llm = MagicMock()
         agent = make_agent(llm=llm)
-        state: ResearchAgentState = {
-            "messages": [], "context_chunks": [], "loop_counter": 1,
-            "validation_feedback": "", "is_complete": False,
-            "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(loop_counter=1)
         update = await agent._checker_node(state)
         assert update["is_complete"] is False
         assert "No data was retrieved" in update["validation_feedback"]
@@ -368,14 +365,28 @@ class TestCheckerNode:
             json.dumps({"is_complete": True, "score": 95, "missing": "nothing", "feedback": ""})
         )
         agent = make_agent(llm=llm)
-        state: ResearchAgentState = {
-            "messages": [], "context_chunks": ["some chunk"], "loop_counter": 1,
-            "validation_feedback": "", "is_complete": False,
-            "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            context_chunks=["some chunk"],
+            loop_counter=1,
+        )
         update = await agent._checker_node(state)
         assert update["is_complete"] is True
         assert update["validation_feedback"] == ""
+
+    @pytest.mark.asyncio
+    async def test_fenced_verdict_with_trailing_rationale_does_not_retry(self):
+        llm = MagicMock()
+        llm.messages.create.return_value = make_llm_response(
+            '```json\n{"is_complete": true, "score": 82, "feedback": ""}\n```\nRationale: enough current evidence.'
+        )
+        agent = make_agent(llm=llm)
+        state = make_research_state(
+            context_chunks=["current filing evidence"], loop_counter=1
+        )
+
+        update = await agent._checker_node(state)
+
+        assert update == {"is_complete": True, "validation_feedback": ""}
 
     @pytest.mark.asyncio
     async def test_incomplete_verdict_keeps_feedback(self):
@@ -384,11 +395,10 @@ class TestCheckerNode:
             json.dumps({"is_complete": False, "feedback": "Need more sources"})
         )
         agent = make_agent(llm=llm)
-        state: ResearchAgentState = {
-            "messages": [], "context_chunks": ["chunk"], "loop_counter": 1,
-            "validation_feedback": "", "is_complete": False,
-            "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            context_chunks=["chunk"],
+            loop_counter=1,
+        )
         update = await agent._checker_node(state)
         assert update["is_complete"] is False
         assert update["validation_feedback"] == "Need more sources"
@@ -398,11 +408,10 @@ class TestCheckerNode:
         llm = MagicMock()
         llm.messages.create.return_value = make_llm_response("not valid json")
         agent = make_agent(llm=llm)
-        state: ResearchAgentState = {
-            "messages": [], "context_chunks": ["chunk"], "loop_counter": 1,
-            "validation_feedback": "", "is_complete": False,
-            "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            context_chunks=["chunk"],
+            loop_counter=1,
+        )
         update = await agent._checker_node(state)
         assert update["is_complete"] is False
         assert "retry" in update["validation_feedback"].lower()
@@ -415,11 +424,10 @@ class TestCheckerNode:
         )
         agent = make_agent(llm=llm)
         huge_chunk = "x" * 20000
-        state: ResearchAgentState = {
-            "messages": [], "context_chunks": [huge_chunk], "loop_counter": 1,
-            "validation_feedback": "", "is_complete": False,
-            "shared_manager_ref": make_shared_state(),
-        }
+        state = make_research_state(
+            context_chunks=[huge_chunk],
+            loop_counter=1,
+        )
         await agent._checker_node(state)
         sent_prompt = llm.messages.create.call_args.kwargs["messages"][0]["content"]
         assert "[truncated for audit]" in sent_prompt

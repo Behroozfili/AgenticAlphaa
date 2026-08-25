@@ -26,9 +26,9 @@ No HTTP, no FastAPI, no web framework of any kind.
           ▼              ▼              ▼
    yahoo_finance.py  sec_edgar.py  financial_ratio_calculator.py
 
-Tool catalogue (39 tools)
+Tool catalogue (38 tools)
 --------------------------
-Yahoo Finance  : get_price_history, get_financial_ratios,
+Yahoo Finance  : get_financial_ratios,
                  get_revenue_growth, get_peer_comparison,
                  get_balance_sheet_snapshot
 SEC EDGAR      : get_cik, list_filings, get_filing_text, get_xbrl_financials
@@ -36,9 +36,9 @@ Ratio Calc     : calc_pe, calc_pb, calc_ev_ebitda, calc_peg,
                  calc_gross_margin, calc_operating_margin, calc_net_margin,
                  calc_roe, calc_roa, calc_current_ratio, calc_quick_ratio,
                  calc_debt_to_equity, calc_interest_coverage,
-                 calc_asset_turnover, calc_cagr,
+                 calc_cagr,
                  calc_revenue_cagr_from_growth, calc_composite_score,
-                 calc_dcf, calc_dcf_scenarios, calc_dcf_monte_carlo,
+                 calc_dcf_scenarios, calc_dcf_monte_carlo,
                  calc_net_debt_to_ebitda, calc_fcf_margin, calc_fcf_yield,
                  calc_ocf_ratio, calc_roic, calc_roce, calc_debt_ratio,
                  calc_equity_ratio, calc_altman_z_score, calc_reverse_dcf
@@ -104,12 +104,10 @@ from financial_ratio_calculator import (
     quick_ratio,
     debt_to_equity,
     interest_coverage,
-    asset_turnover,
     cagr,
     compute_revenue_cagr_from_growth,
     composite_financial_score,
     ForecastModel,
-    discounted_cash_flow,
     dcf_scenario_range,
     dcf_monte_carlo,
     dcf_multi_factor_monte_carlo,
@@ -192,30 +190,9 @@ def _sentry_tool(tool_name: str, fn, *args, **kwargs):
 
 @mcp.tool()
 def tool_get_price_history(ticker: str, period: str = "1y") -> dict:
-    """
-    Retrieve historical OHLCV price data for a stock ticker.
-
-    Fetches Open, High, Low, Close, and Volume data for the requested period
-    using the Yahoo Finance API via the yfinance library.
-
-    Args:
-        ticker: Stock ticker symbol, e.g. 'NVDA', 'AAPL', 'MSFT'.
-        period: Time period for the data. Valid values:
-                '1d', '5d', '1mo', '3mo', '6mo', '1y', '2y', '5y',
-                '10y', 'ytd', 'max'. Defaults to '1y'.
-
-    Returns:
-        dict with keys:
-          - ticker      (str)        Normalised ticker symbol.
-          - period      (str)        Requested period.
-          - records     (list[dict]) OHLCV rows keyed by ISO-8601 date.
-          - start_date  (str | None) Earliest date in the result set.
-          - end_date    (str | None) Latest date in the result set.
-          - error       (str | None) Error message if the request failed.
-    """
+    """Retrieve historical OHLCV records for the requested Yahoo period."""
     log.info("tool_get_price_history called: ticker=%s period=%s", ticker, period)
-    return get_price_history(ticker, period)
-
+    return _sentry_tool("tool_get_price_history", get_price_history, ticker, period)
 
 @mcp.tool()
 def tool_get_financial_ratios(ticker: str) -> dict:
@@ -383,6 +360,7 @@ def tool_list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> d
               - accession_number (str) EDGAR accession number (with dashes).
               - filing_date      (str) Date filed (YYYY-MM-DD).
               - report_date      (str) Period of report (YYYY-MM-DD).
+              - primary_document (str) SEC-designated primary document.
               - document_url     (str) URL to the filing index page.
           - error     (str | None)
     """
@@ -391,7 +369,12 @@ def tool_list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> d
 
 
 @mcp.tool()
-def tool_get_filing_text(accession_number: str, cik: str) -> dict:
+def tool_get_filing_text(
+    accession_number: str,
+    cik: str,
+    primary_document: str | None = None,
+    form_type: str | None = None,
+) -> dict:
     """
     Download and extract the plain-text content of a specific SEC filing.
 
@@ -405,6 +388,9 @@ def tool_get_filing_text(accession_number: str, cik: str) -> dict:
                           Obtain this from tool_list_filings.
         cik:              10-digit zero-padded CIK of the filer.
                           Obtain this from tool_get_cik.
+        primary_document: Primary document filename returned by
+                          tool_list_filings.
+        form_type:        Expected SEC form used for content validation.
 
     Returns:
         dict with keys:
@@ -420,7 +406,11 @@ def tool_get_filing_text(accession_number: str, cik: str) -> dict:
         Parsing fails for ~8% of non-standard PDF-based filings.
     """
     log.info("tool_get_filing_text called: accession=%s cik=%s", accession_number, cik)
-    return get_filing_text(accession_number, cik)
+    return get_filing_text(
+        accession_number, cik,
+        primary_document=primary_document,
+        form_type=form_type,
+    )
 
 
 @mcp.tool()
@@ -699,81 +689,6 @@ def tool_calc_debt_to_equity(total_debt: float, shareholders_equity: float) -> d
 
 
 @mcp.tool()
-def tool_calc_dcf(
-    fcf_base: float,
-    beta: float,
-    shares_outstanding: float | None = None,
-    fcf_growth_rate_pct: float = 8.0,
-    terminal_growth_rate_pct: float = 2.5,
-    risk_free_rate_pct: float = 4.3,
-    market_risk_premium_pct: float = 5.0,
-    projection_years: int = 5,
-    market_cap: float | None = None,
-    total_debt: float | None = None,
-    cash: float | None = None,
-    marketable_securities: float | None = None,
-    lease_liabilities: float | None = None,
-    minority_interest: float | None = None,
-    diluted_shares: float | None = None,
-    pre_tax_cost_of_debt_pct: float | None = None,
-    effective_tax_rate_pct: float | None = None,
-    input_assessments: dict | None = None,
-) -> dict:
-    """
-    Compute a simplified Discounted Cash Flow (DCF) valuation.
-
-    Uses market-value WACC when capital-structure inputs are supplied and
-    bridges enterprise value to equity value only when every bridge input is
-    explicit. Legacy callers are retained but labelled as incomplete.
-
-    Args:
-        fcf_base:                  Most recent annual Free Cash Flow
-                                    (operating cash flow − capex), USD.
-                                    Get both from tool_get_xbrl_financials'
-                                    operating_cash_flow_annual / capex_annual.
-        beta:                      Equity beta (from tool_get_financial_ratios).
-        shares_outstanding:        Optional — enables per-share output.
-        fcf_growth_rate_pct:       Assumed FCF growth during projection window.
-                                    Consider grounding this in the company's
-                                    own revenue_cagr rather than the default.
-        terminal_growth_rate_pct:  Perpetual growth after projection window.
-        risk_free_rate_pct:        CAPM risk-free rate — update to current
-                                    10-year Treasury yield for precision.
-        market_risk_premium_pct:   CAPM equity risk premium.
-        projection_years:          Number of explicit projection years.
-
-    Returns:
-        dict with keys:
-          - enterprise_value, intrinsic_value_per_share (float | None)
-          - discount_rate_pct, terminal_value, pv_of_terminal_value
-          - projected_fcf (list[float])
-          - assumptions (dict) — every assumption used, echoed back
-          - interpretation (str), error (str | None)
-    """
-    log.info(
-        "tool_calc_dcf called: fcf_base=%s beta=%s shares_outstanding=%s",
-        fcf_base, beta, shares_outstanding,
-    )
-    return discounted_cash_flow(
-        fcf_base=fcf_base,
-        beta=beta,
-        shares_outstanding=shares_outstanding,
-        fcf_growth_rate_pct=fcf_growth_rate_pct,
-        terminal_growth_rate_pct=terminal_growth_rate_pct,
-        risk_free_rate_pct=risk_free_rate_pct,
-        market_risk_premium_pct=market_risk_premium_pct,
-        projection_years=projection_years,
-        market_cap=market_cap, total_debt=total_debt, cash=cash,
-        marketable_securities=marketable_securities,
-        lease_liabilities=lease_liabilities, minority_interest=minority_interest,
-        diluted_shares=diluted_shares,
-        pre_tax_cost_of_debt_pct=pre_tax_cost_of_debt_pct,
-        effective_tax_rate_pct=effective_tax_rate_pct,
-        input_assessments=input_assessments,
-    )
-
-
-@mcp.tool()
 def tool_build_forecast(
     revenue_base: float,
     fcf_base: float,
@@ -826,7 +741,7 @@ def tool_calc_dcf_scenarios(
 ) -> dict:
     """
     Run DCF at three FCF growth assumptions (bear/base/bull) instead of a
-    single point estimate. Prefer this over tool_calc_dcf for report
+    single point estimate. Prefer this over a single-point DCF for report
     generation — a single-point DCF using trailing growth routinely lands
     far below market price for a high-growth stock, which reads as "the
     model is broken" unless the growth-rate sensitivity is shown
@@ -835,7 +750,7 @@ def tool_calc_dcf_scenarios(
     Args:
         fcf_base, beta, shares_outstanding, terminal_growth_rate_pct,
         risk_free_rate_pct, market_risk_premium_pct, projection_years:
-            Same as tool_calc_dcf.
+            Same as tool_calc_dcf_scenarios.
         base_growth_rate_pct: Base case growth — typically the company's
             own trailing revenue/FCF CAGR (e.g. from tool_calc_cagr).
         bear_growth_rate_pct: Optional override; defaults to ~half of base.
@@ -899,7 +814,7 @@ def tool_calc_dcf_monte_carlo(
     Args:
         fcf_base, beta, shares_outstanding, terminal_growth_rate_pct,
         risk_free_rate_pct, market_risk_premium_pct, projection_years:
-            Same as tool_calc_dcf.
+            Same as tool_calc_dcf_scenarios.
         base_growth_rate_pct: Mean of the growth-rate distribution —
             typically the company's own trailing revenue/FCF CAGR.
         growth_std_pct: Std dev of the growth-rate distribution in
@@ -947,25 +862,6 @@ def tool_calc_interest_coverage(ebit: float, interest_expense: float) -> dict:
     """
     log.info("tool_calc_interest_coverage called: ebit=%s interest=%s", ebit, interest_expense)
     return interest_coverage(ebit, interest_expense)
-
-
-@mcp.tool()
-def tool_calc_asset_turnover(revenue: float, avg_total_assets: float) -> dict:
-    """
-    Calculate the Asset Turnover Ratio (revenue generation efficiency).
-
-    Args:
-        revenue:          Total annual revenue (USD).
-        avg_total_assets: Average total assets — (start + end) / 2 (USD).
-
-    Returns:
-        dict with keys:
-          - asset_turnover (float | None)
-          - interpretation (str) 'efficient' | 'moderate' | 'low_efficiency'
-          - formula        (str)
-    """
-    log.info("tool_calc_asset_turnover called: revenue=%s avg_assets=%s", revenue, avg_total_assets)
-    return asset_turnover(revenue, avg_total_assets)
 
 
 @mcp.tool()
@@ -1069,7 +965,7 @@ def tool_calc_composite_score(
 
 # ---------------------------------------------------------------------------
 # Phase 1 — Cash Flow Ratios & Reverse DCF
-# (data already available from tool_get_financial_ratios / tool_calc_dcf)
+# (data already available from tool_get_financial_ratios / tool_calc_dcf_scenarios)
 # ---------------------------------------------------------------------------
 
 @mcp.tool()

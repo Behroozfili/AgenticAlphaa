@@ -1,34 +1,4 @@
-"""
-tools/sentiment_tools/finbert_analyzer.py — FinBertSentimentAnalyzer
-======================================================
-Financial sentiment analysis using the open-source ProsusAI/finbert model.
 
-FinBERT is a BERT variant fine-tuned on the Financial PhraseBank dataset.
-It produces three probability scores per text:
-    - positive  (Bullish signal)
-    - negative  (Bearish signal)
-    - neutral
-
-Model card: https://huggingface.co/ProsusAI/finbert
-
-Architecture decisions
-───────────────────────
-  • Singleton model loading — loaded once at first instantiation, then shared.
-  • Batched inference — texts are grouped into mini-batches to prevent OOM.
-  • Truncation — FinBERT has a 512-token limit; inputs are auto-truncated.
-  • Device fallback — CUDA → MPS → CPU (matches AlphaEmbedder pattern).
-  • Aggregation — per-chunk scores are averaged into a corpus-level result.
-
-Public interface
-─────────────────
-  analyzer  = FinBertSentimentAnalyzer()
-  result    = analyzer.analyze(texts=["NVIDIA smashed estimates ...", ...])
-  # result.bullish_prob  → 0.72
-  # result.bearish_prob  → 0.15
-  # result.neutral_prob  → 0.13
-  # result.label         → "Bullish"
-  # result.chunk_scores  → per-text breakdown
-"""
 
 from __future__ import annotations
 

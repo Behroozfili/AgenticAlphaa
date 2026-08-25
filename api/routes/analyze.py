@@ -38,7 +38,10 @@ from pydantic import BaseModel, Field, field_validator
 from memory.manager_memory import ManagerMemory
 from api.dependencies import get_manager_memory
 from api.core.exceptions import AgentError
-from evaluation.publication_policy import assemble_publication
+from evaluation.publication_policy import (
+    assemble_publication,
+    execution_status_from_publication,
+)
 
 log = logging.getLogger("api.analyze")
 
@@ -296,6 +299,18 @@ async def analyze(
         error_message = str(exc)
         result = assemble_publication("", {"passed":False,"critical_findings":[],"warnings":[]}, {})
 
+    if status != "failed":
+        validation = result.get("final_publication_validation", {}) or {}
+        status = result.get("execution_status") or execution_status_from_publication(
+            result.get("publication_status"),
+            validation_passed=validation.get("passed"),
+        )
+        if status == "failed" and error_message is None:
+            error_message = (
+                "Analysis completed without a successful publication: "
+                f"{result.get('publication_status', 'UNKNOWN')}"
+            )
+
     # ── 4. Timing ─────────────────────────────────────────────────────────────
     duration_s   = round(time.monotonic() - started_at, 2)
     completed_at = datetime.now(timezone.utc).isoformat()
@@ -329,7 +344,7 @@ async def analyze(
         completed_at=completed_at,
         duration_s=duration_s,
         final_report=result.get("final_report", ""),
-        publication_status=result.get("publication_status", "PUBLISHED"),
+        publication_status=result.get("publication_status", "DATA_INSUFFICIENT"),
         publication_warnings=result.get("publication_warnings", []),
         withheld_sections=result.get("withheld_sections", []),
         section_reliability=result.get("section_reliability", []),

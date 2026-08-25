@@ -1,156 +1,6 @@
 """
 rag/vector_store.py — AlphaVectorStore
-Supabase-backed vector store with HNSW indexing, Hybrid Search (RRF),
-metadata filtering, pagination, and score thresholding.
 
-Prerequisite SQL (run once in Supabase SQL editor):
-─────────────────────────────────────────────────────────────────────────────
--- 1. Enable pgvector
-create extension if not exists vector;
-
--- 2. Documents table
-create table if not exists alpha_documents (
-    id            bigserial primary key,
-    content_hash  text        not null,
-    url_hash      text        not null,
-    ticker        text        not null,
-    source_type   text        not null,
-    published_at  timestamptz not null,
-    ingested_at   timestamptz not null,
-    chunk_index   int         not null default 0,
-    url           text,
-    title         text,
-    fiscal_year   int,
-    fiscal_quarter text,
-    period_start  date,
-    period_end    date,
-    duration_months int,
-    filing_type   text,
-    accession_number text,
-    metric_scope  text,
-    gaap_status   text,
-    text          text        not null,
-    embedding     vector(384),
-    fts           tsvector generated always as (to_tsvector('english', text)) stored,
-    -- Unique per CHUNK, not per document: a single article produces many
-    -- chunks that all share the same url_hash, so the conflict key must
-    -- include chunk_index or upserts fail with
-    -- "ON CONFLICT DO UPDATE command cannot affect row a second time".
-    constraint alpha_documents_url_chunk_key unique (url_hash, chunk_index)
-);
-
--- 3. HNSW index for fast ANN search
-create index if not exists alpha_docs_embedding_hnsw
-    on alpha_documents
-    using hnsw (embedding vector_cosine_ops)
-    with (m = 16, ef_construction = 64);
-
--- 4. GIN index for full-text search
-create index if not exists alpha_docs_fts_gin
-    on alpha_documents using gin (fts);
-
--- 5. RRF hybrid search function
-create or replace function alpha_hybrid_search(
-    query_embedding vector(384),
-    query_text      text,
-    filter_ticker   text    default null,
-    days_back       int     default null,
-    top_k           int     default 50,
-    rrf_k           int     default 60,
-    page_offset     int     default 0
-    ,filter_fiscal_year int default null
-    ,filter_fiscal_quarter text default null
-    ,filter_period_end date default null
-    ,filter_metric_scope text default null
-)
-returns table (
-    id           bigint,
-    text         text,
-    ticker       text,
-    source_type  text,
-    published_at timestamptz,
-    url          text,
-    title        text,
-    chunk_index  int,
-    fiscal_year int,
-    fiscal_quarter text,
-    period_start date,
-    period_end date,
-    duration_months int,
-    filing_type text,
-    accession_number text,
-    metric_scope text,
-    gaap_status text,
-    rrf_score    float
-)
-language sql stable as $$
-with
-vector_ranked as (
-    select
-        id,
-        row_number() over (order by embedding <=> query_embedding) as rank
-    from alpha_documents
-    where
-        (filter_ticker is null or ticker = filter_ticker)
-        and (days_back   is null or published_at > now() - (days_back || ' days')::interval)
-        and (filter_fiscal_year is null or fiscal_year = filter_fiscal_year)
-        and (filter_fiscal_quarter is null or fiscal_quarter = filter_fiscal_quarter)
-        and (filter_period_end is null or period_end = filter_period_end)
-        and (filter_metric_scope is null or metric_scope = filter_metric_scope)
-    order by embedding <=> query_embedding
-    limit top_k * 2
-),
-fts_ranked as (
-    select
-        id,
-        row_number() over (order by ts_rank_cd(fts, plainto_tsquery('english', query_text)) desc) as rank
-    from alpha_documents
-    where
-        fts @@ plainto_tsquery('english', query_text)
-        and (filter_ticker is null or ticker = filter_ticker)
-        and (days_back   is null or published_at > now() - (days_back || ' days')::interval)
-        and (filter_fiscal_year is null or fiscal_year = filter_fiscal_year)
-        and (filter_fiscal_quarter is null or fiscal_quarter = filter_fiscal_quarter)
-        and (filter_period_end is null or period_end = filter_period_end)
-        and (filter_metric_scope is null or metric_scope = filter_metric_scope)
-    limit top_k * 2
-),
-rrf as (
-    select
-        coalesce(v.id, f.id) as id,
-        coalesce(1.0 / (rrf_k + v.rank), 0) +
-        coalesce(1.0 / (rrf_k + f.rank), 0) as rrf_score
-    from vector_ranked v
-    full outer join fts_ranked f on v.id = f.id
-    order by rrf_score desc
-    limit top_k
-)
-select
-    d.id,
-    d.text,
-    d.ticker,
-    d.source_type,
-    d.published_at,
-    d.url,
-    d.title,
-    d.chunk_index,
-    d.fiscal_year,
-    d.fiscal_quarter,
-    d.period_start,
-    d.period_end,
-    d.duration_months,
-    d.filing_type,
-    d.accession_number,
-    d.metric_scope,
-    d.gaap_status,
-    r.rrf_score
-from rrf r
-join alpha_documents d on d.id = r.id
-order by r.rrf_score desc
-limit top_k
-offset page_offset;
-$$;
-─────────────────────────────────────────────────────────────────────────────
 """
 
 from __future__ import annotations
@@ -168,17 +18,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 class AlphaVectorStore:
-    """
-    Wraps Supabase for vector storage and retrieval.
-
-    Features:
-    - Upserts via url_hash (idempotent ingest)
-    - HNSW-accelerated cosine similarity (configured in SQL above)
-    - Hybrid RRF search via Postgres RPC
-    - Metadata filtering: ticker, days_back
-    - Pagination: limit + offset
-    - Score threshold to suppress low-quality results
-    """
+   
 
     TABLE = "alpha_documents"
     RPC   = "alpha_hybrid_search"
@@ -198,20 +38,13 @@ class AlphaVectorStore:
     # ------------------------------------------------------------------
 
     def upsert(self, records: list[dict[str, Any]]) -> int:
-        """
-        Upsert a batch of embedded records.
-
-        Each record must have:
-            embedding, text, and all metadata keys from AlphaProcessor.
-
-        Returns the number of rows upserted.
-        """
+    
         if not records:
             return 0
 
         rows = [self._to_row(r) for r in records]
 
-        # Supabase upsert on url_hash (unique constraint handles idempotency)
+       
         response = (
             self.client
             .table(self.TABLE)
@@ -243,24 +76,7 @@ class AlphaVectorStore:
         period_end: Optional[str] = None,
         metric_scope: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        """
-        Call the Postgres RRF function and apply client-side score filtering.
-
-        Args:
-            query_embedding:  L2-normalised query vector.
-            query_text:       Raw query string for FTS.
-            ticker:           Optional filter (e.g. "AAPL").
-            days_back:        Only consider docs newer than N days.
-            top_k:            Candidates considered inside the RPC.
-            rrf_k:            RRF smoothing constant (default 60).
-            score_threshold:  Minimum rrf_score to include in results.
-            limit:            Number of rows to return (pagination).
-            offset:           Row offset (pagination).
-
-        Returns:
-            List of result dicts with keys: id, text, ticker, source_type,
-            published_at, url, title, chunk_index, rrf_score.
-        """
+        
         params: dict[str, Any] = {
             "query_embedding": query_embedding,
             "query_text":      query_text,
@@ -272,8 +88,7 @@ class AlphaVectorStore:
             params["filter_ticker"] = ticker
         if days_back is not None:
             params["days_back"] = days_back
-        # The RPC applies exact period/scope predicates before vector/FTS
-        # ranking. Database migrations should add these optional arguments.
+        
         if fiscal_year is not None:
             params["filter_fiscal_year"] = fiscal_year
         if fiscal_quarter:
@@ -286,7 +101,6 @@ class AlphaVectorStore:
         response = self.client.rpc(self.RPC, params).execute()
         rows: list[dict] = response.data or []
 
-        # Client-side score threshold + pagination limit
         filtered = [r for r in rows if r.get("rrf_score", 0) >= score_threshold]
         return filtered[:limit]
 

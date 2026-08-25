@@ -1,65 +1,8 @@
-"""
-agents/sentiment_agent.py
---------------------------
-Production-grade SentimentAgent for the Alpha-Agent Node platform.
-
-Architecture
-------------
-The agent follows a two-tiered internal lifecycle:
-
-    ┌──────────────────────────────────────────────────────────────┐
-    │                       SentimentAgent                        │
-    │                                                              │
-    │  LAYER 1 — EXECUTOR (MCP Protocol Interface)                 │
-    │    _execute_sentiment_pipeline()                             │
-    │        ├─ retrieve_social_data   → retrieved_chunks          │
-    │        ├─ analyze_finbert        → finbert_result            │
-    │        ├─ score_vader            → vader_result              │
-    │        └─ calculate_fear_greed   → fear_greed_result         │
-    │                                                              │
-    │  LAYER 2 — BRAIN (Cognitive / LLM Interpretation Layer)      │
-    │    _brain_plan()    → structured retrieval plan              │
-    │    _brain_analyze() → narrative interpretation + verdict     │
-    │    run()            → entry point; drives the full loop      │
-    └──────────────────────────────────────────────────────────────┘
-
-Design notes
-------------
-  - No Checker layer: the Brain performs both pre-execution planning
-    and post-execution semantic interpretation of sentiment signals.
-  - The Brain calls Claude twice per loop iteration:
-      Pass 1 (_brain_plan)    — before the Executor runs, to decide
-                                 what query/ticker/days_back to use.
-      Pass 2 (_brain_analyze) — after the Executor runs, to interpret
-                                 FinBERT + VADER + Fear/Greed signals
-                                 in the context of the research task.
-  - MCP tools run sequentially: retrieve → finbert → vader → fear_greed.
-  - The loop runs at most ``max_loops`` times (default: 2). A second
-    pass only occurs if the Executor produced zero chunks on the first.
-
-MCP Tool Servers consumed
--------------------------
-    SentimentServer: retrieve_social_data, analyze_finbert,
-                     score_vader, calculate_fear_greed
-
-State contract
---------------
-    Input  : SharedManagerState  (task_query, manager_directives,
-                                  aggregated_research_context,
-                                  financial_metrics_summary)
-    Output : SharedManagerState  (+ sentiment_analysis_summary populated)
-
-Dependencies
-------------
-    pip install anthropic "mcp[cli]"
-"""
-
 from __future__ import annotations
 
 import json
 import logging
 import asyncio
-import re
 from urllib.parse import urlparse
 from typing import Any
 
@@ -67,28 +10,21 @@ import anthropic
 from langgraph.graph import END, StateGraph
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
-from agents.prompts.promt_sentinemt import (BRAIN_PLAN_SYSTEM_PROMPT,BRAIN_ANALYZE_SYSTEM_PROMPT)
+from agents.prompts.promt_sentinemt import (BRAIN_PLAN_SYSTEM_PROMPT, BRAIN_ANALYZE_SYSTEM_PROMPT)
 from evaluation.aspect_sentiment import extract_aspect_observations, supported_causal_aspects
-# ---------------------------------------------------------------------------
-# State contract imports
-# ---------------------------------------------------------------------------
-# SharedManagerState and SentimentAgentState are declared in agents/state.py
-# — the single source of truth for all state TypedDicts across the platform.
 from agents.state import SentimentAgentState, SharedManagerState
 from agents.executor_helpers.finance_executor_helper import extract_ticker
 from langsmith import traceable
-from core.observability import sentry_enabled
+from core.observability import traced_call_tool
 from core.progress_bus import publish as _publish_progress, session_from_directives
+from core.error_handler import capture_exception, add_breadcrumb
+from agents.executor_helpers.sentiment_helper import (
+    valid_composite_score,
+    causal_audit,
+    attempt_rank,
+)
 
-# ---------------------------------------------------------------------------
-# Logging — stderr only; stdout is reserved for MCP JSON-RPC
-# NOTE: logging.basicConfig() must NOT be called in library/agent code.
-# Configuration belongs exclusively in entry points (api/main.py or __main__).
-# ---------------------------------------------------------------------------
 log = logging.getLogger("sentiment-agent")
-
-
-
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -96,62 +32,50 @@ log = logging.getLogger("sentiment-agent")
 # ══════════════════════════════════════════════════════════════════════════════
 
 class SentimentAgent:
-    """
-    Specialist Sentiment Analysis Agent for the Alpha-Agent Node platform.
 
-    Responsibilities
-    ----------------
-    1. Receive a research task from the Manager Agent via ``SharedManagerState``.
-    2. Brain Pass 1 — plan an optimal RAG retrieval query for social/news data.
-    3. Executor — run the four-step MCP sentiment pipeline:
-           retrieve_social_data → analyze_finbert → score_vader
-           → calculate_fear_greed
-    4. Brain Pass 2 — interpret and synthesise all sentiment signals into
-       an actionable narrative verdict.
-    5. Commit a structured ``sentiment_analysis_summary`` into ``SharedManagerState``
-       for consumption by the Report Writer Agent and Manager Agent.
-
-    Two-Tier Architecture
-    ---------------------
-    Unlike the FinancialAnalystAgent (Brain + Executor + Checker) and the
-    ResearchAgent (LangGraph Brain + Executor + Checker), the SentimentAgent
-    uses a lighter Brain → Executor two-tier design. This is appropriate
-    because:
-      - The sentiment pipeline has a fixed, deterministic tool sequence.
-      - The Brain's second pass (post-analysis) replaces the Checker by
-        semantically evaluating data quality and flagging risks inline.
-      - A second loop iteration only triggers if zero chunks were retrieved.
-
-    Parameters
-    ----------
-    server_script_path : str
-        Absolute path to ``sentiment_server.py`` — the FastMCP stdio server
-        that exposes the four sentiment tools.
-    model : str
-        Anthropic model identifier. Defaults to ``"claude-haiku-4-5"``.
-    max_loops : int
-        Safety guardrail for the internal execution loop. Default: 2.
-        Iteration 2 only runs if the Executor retrieved zero chunks on
-        iteration 1 (e.g. query was too narrow).
-
-    Attributes
-    ----------
-    _llm : anthropic.Anthropic
-        Anthropic SDK client for Brain planning and analysis calls.
-    _server_params : StdioServerParameters
-        MCP server subprocess connection parameters.
-    _model : str
-        Model string forwarded to every Anthropic API call.
-    _default_max_loops : int
-        Fallback loop limit when Manager does not specify one.
-    """
+    _MIN_UNIQUE_DOCUMENTS = 3
+    _MIN_UNIQUE_DOMAINS = 2
 
     @staticmethod
-    def _extract_ticker(task_query: str, directives: dict[str, Any], financial_summary: dict[str, Any]) -> str | None:
+    def _extract_ticker(
+        task_query: str,
+        directives: dict[str, Any],
+        financial_summary: dict[str, Any],
+    ) -> str | None:
         """Backward-compatible wrapper around the shared ticker resolver."""
-        return extract_ticker(
-            task_query, directives, financial_summary,
+        return extract_ticker(task_query, directives, financial_summary)
+
+    @staticmethod
+    def _causal_audit(
+        analysis: dict[str, Any],
+        supported: list[str],
+    ) -> dict[str, Any]:
+        """Backward-compatible wrapper around the sentiment audit helper."""
+        return causal_audit(analysis, supported)
+
+    @classmethod
+    def _select_best_attempt(cls, state: SentimentAgentState) -> dict[str, Any] | None:
+        attempts = state.get("attempts", [])
+        if not attempts:
+            return None
+        selected = max(attempts, key=attempt_rank)
+        retrieval = selected.get("retrieval", {}) or {}
+        outputs = selected.get("model_outputs", {}) or {}
+        state["retrieved_chunks"] = list(retrieval.get("chunks", []))
+        state["sources_metadata"] = list(retrieval.get("sources_metadata", []))
+        state["finbert_result"] = dict(outputs.get("finbert", {}))
+        state["vader_result"] = dict(outputs.get("vader", {}))
+        state["fear_greed_result"] = dict(outputs.get("fear_greed", {}))
+        state["extraction_errors"] = list(selected.get("errors", []))
+        state["sentiment_status"] = str(selected.get("status", "NO_DATA"))
+        state["sentiment_polarity"] = selected.get("polarity")
+        state["fear_greed_result"]["retrieval_stats"] = dict(
+            selected.get("retrieval_stats", {})
         )
+        state["fear_greed_result"]["selected_attempt_number"] = selected.get(
+            "attempt_number"
+        )
+        return selected
 
     def __init__(
         self,
@@ -161,8 +85,6 @@ class SentimentAgent:
         llm_client: anthropic.Anthropic | None = None,
         mcp_server_params: StdioServerParameters | None = None,
     ) -> None:
-        # Accept an injected client so tests can pass a mock without
-        # making real API calls.
         self._llm               = llm_client or anthropic.Anthropic()
         self._model             = model
         self._default_max_loops = max_loops
@@ -172,13 +94,7 @@ class SentimentAgent:
             env=None,
         )
 
-        # MCP session is opened once per run() and shared with graph nodes via
-        # this slot (nodes receive only `state`, so they read the live session
-        # here). brain_analyze doesn't use it — it's a pure LLM call — but the
-        # slot being set during its node is harmless.
         self._session: ClientSession | None = None
-
-        # Compile the internal LangGraph state machine once at construction.
         self._graph = self._build_graph()
 
         log.info(
@@ -192,45 +108,13 @@ class SentimentAgent:
 
     @traceable(name="sentiment.brain_plan", run_type="llm")
     async def _brain_plan(self, state: SentimentAgentState) -> dict[str, Any]:
-        """
-        BRAIN PASS 1 — Pre-Execution Retrieval Planning.
 
-        Consults Claude before the Executor runs to produce an optimal
-        RAG retrieval plan: query string, ticker, and time window.
-
-        This pass is called once per loop iteration, immediately before
-        ``_execute_sentiment_pipeline()``. Its output directly configures
-        the ``retrieve_social_data`` MCP tool call.
-
-        Parameters
-        ----------
-        state : SentimentAgentState
-            Current agent-local state. Read fields:
-            - ``state["loop_counter"]``        : Current iteration index.
-            - ``state["task_query"]`` / ``state["manager_directives"]`` /
-              ``state["financial_metrics_summary"]`` /
-              ``state["aggregated_research_context"]``
-                                                  financial_metrics_summary,
-                                                  aggregated_research_context.
-
-        Returns
-        -------
-        dict[str, Any]
-            Structured retrieval plan with keys:
-            - ``"retrieval_query"`` (str)        : Semantic query for RAG.
-            - ``"ticker"``          (str | None) : Ticker to filter by.
-            - ``"days_back"``       (int)        : Recency window in days.
-            - ``"reasoning"``       (str)        : Claude's brief rationale.
-        """
-        shared = state.get("shared_manager_ref", {})
-        task_query = state.get("task_query", shared.get("task_query", ""))
-        directives = state.get("manager_directives", shared.get("manager_directives", {}))
-        fin_summary = state.get("financial_metrics_summary", shared.get("financial_metrics_summary", {}))
-        research_ctx = state.get("aggregated_research_context", shared.get("aggregated_research_context", []))
-
+        task_query = state.get("task_query", "")
+        directives = state.get("manager_directives",  {})
+        fin_summary = state.get("financial_metrics_summary",{})
+        research_ctx = state.get("aggregated_research_context", [])
         ticker = extract_ticker(task_query, directives, fin_summary)
 
-        # Build financial context snippet for Claude
         fin_ctx_snippet = ""
         if fin_summary:
             fin_ctx_snippet = (
@@ -268,7 +152,6 @@ class SentimentAgent:
             raw = response.content[0].text.strip()
             state["messages"].append({"role": "assistant", "content": raw})
 
-            # Strip markdown fences if present
             raw = raw.replace("```json", "").replace("```", "").strip()
             plan = json.loads(raw)
             log.info("[Brain-Plan] Plan: query='%s' ticker=%s days_back=%s",
@@ -282,55 +165,24 @@ class SentimentAgent:
 
         except (json.JSONDecodeError, Exception) as exc:
             log.warning("[Brain-Plan] Claude returned invalid plan (%s) — using defaults.", exc)
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("component", "sentiment.brain_plan")
-                    scope.set_tag("iteration", str(state["loop_counter"]))
-                    sentry_sdk.capture_exception(exc)
+            capture_exception(
+                "sentiment.brain_plan", exc,
+                tags={"iteration": str(state["loop_counter"])},
+            )
             default_plan = {
                 "retrieval_query": f"{ticker or 'market'} earnings sentiment investor reaction",
                 "ticker":          ticker,
-                "days_back":       int(directives.get("days_back", 7)),
+                "days_back":       int(directives.get("days_back", 30)),
                 "reasoning":       "Default plan: Brain planning failed; using heuristic query.",
             }
-            state["messages"].append({"role": "assistant",
-                                       "content": json.dumps(default_plan)})
+            state["messages"].append({"role": "assistant","content": json.dumps(default_plan)})
             return default_plan
 
     @traceable(name="sentiment.brain_analyze", run_type="llm")
     async def _brain_analyze(self, state: SentimentAgentState) -> str:
-        """
-        BRAIN PASS 2 — Post-Execution Sentiment Interpretation.
 
-        Called after the Executor has populated ``finbert_result``,
-        ``vader_result``, and ``fear_greed_result``. Consults Claude to
-        synthesise all three signals into an actionable narrative verdict.
-
-        This pass replaces a dedicated Checker: Claude is asked to flag
-        data quality issues (too few chunks, model divergence, recency gaps)
-        inline within the structured JSON response.
-
-        Parameters
-        ----------
-        state : SentimentAgentState
-            Current agent-local state. Read fields:
-            - ``state["fear_greed_result"]``  : Composite index output.
-            - ``state["finbert_result"]``      : FinBERT probabilities.
-            - ``state["vader_result"]``        : VADER compound score.
-            - ``state["retrieved_chunks"]``    : For chunk count context.
-            - ``state["task_query"]`` / ``state["financial_metrics_summary"]``
-
-        Returns
-        -------
-        str
-            Raw Claude response text (JSON string) stored in
-            ``state["brain_reasoning"]``. The caller parses this into the
-            final ``sentiment_analysis_summary``.
-        """
-        shared      = state.get("shared_manager_ref", {})
-        task_query  = state.get("task_query", shared.get("task_query", ""))
-        fin_summary = state.get("financial_metrics_summary", shared.get("financial_metrics_summary", {}))
+        task_query  = state.get("task_query","")
+        fin_summary = state.get("financial_metrics_summary", {})
         fg          = state["fear_greed_result"]
         fb          = state["finbert_result"]
         vd          = state["vader_result"]
@@ -346,7 +198,6 @@ class SentimentAgent:
                 "data_quality_note": "Missing input is not neutral sentiment.",
             })
 
-        # Concise financial context for Claude
         fin_ctx = ""
         if fin_summary:
             fin_ctx = json.dumps({
@@ -366,7 +217,12 @@ class SentimentAgent:
             f"VADER RESULT:\n{json.dumps({k: v for k, v in vd.items() if k != 'chunk_scores'}, indent=2)}\n\n"
             f"CHUNK COUNT ANALYSED: {len(state['retrieved_chunks'])}\n\n"
             f"ASPECT OBSERVATIONS:\n{json.dumps(state.get('aspect_observations', []), indent=2)}\n\n"
-            "Only attribute a sentiment cause to an aspect listed above with a non-empty evidence_span.\n\n"
+            "CAUSAL EVIDENCE CONTRACT: Present an aspect as a cause of sentiment ONLY when "
+            "that exact observation has causal_language_supported=True. An observation with "
+            "causal_language_supported=False or a missing flag may only be described as "
+            "'mentioned in evidence'; it must not be described as driving, causing, weighing "
+            "on, supporting, or explaining sentiment. List every aspect used causally in the "
+            "causal_aspects_used output field.\n\n"
             f"FINANCIAL CONTEXT:\n{fin_ctx or 'Not available'}\n\n"
             "Produce your sentiment interpretation JSON verdict."
         )
@@ -395,11 +251,7 @@ class SentimentAgent:
 
         except Exception as exc:
             log.exception("[Brain-Analyze] Claude API call failed: %s", exc)
-            if sentry_enabled():
-                import sentry_sdk
-                with sentry_sdk.push_scope() as scope:
-                    scope.set_tag("component", "sentiment.brain_analyze")
-                    sentry_sdk.capture_exception(exc)
+            capture_exception("sentiment.brain_analyze", exc)
             fallback = json.dumps({
                 "overall_sentiment":  "Neutral",
                 "conviction_level":   "Low",
@@ -423,62 +275,7 @@ class SentimentAgent:
         state:    SentimentAgentState,
         plan:     dict[str, Any],
     ) -> None:
-        """
-        EXECUTOR — Four-Step MCP Sentiment Pipeline.
 
-        Executes the fixed tool sequence:
-            retrieve_social_data → analyze_finbert → score_vader
-            → calculate_fear_greed
-
-        Results from each step are written directly into ``state``.
-        Individual tool failures are recorded in
-        ``state["extraction_errors"]`` but do not abort the pipeline —
-        subsequent steps receive empty payloads and run defensively.
-
-        Pipeline Steps
-        --------------
-        Step 1 — ``retrieve_social_data``
-            Uses ``plan["retrieval_query"]``, ``plan["ticker"]``, and
-            ``plan["days_back"]`` from the Brain's retrieval plan.
-            Populates ``state["retrieved_chunks"]`` and
-            ``state["sources_metadata"]``.
-
-        Step 2 — ``analyze_finbert``
-            Passes ``state["retrieved_chunks"]`` to ProsusAI/finbert.
-            Skipped (returns empty dict) if no chunks were retrieved.
-            Populates ``state["finbert_result"]``.
-
-        Step 3 — ``score_vader``
-            Passes ``state["retrieved_chunks"]`` to NLTK VADER.
-            Skipped if no chunks were retrieved.
-            Populates ``state["vader_result"]``.
-
-        Step 4 — ``calculate_fear_greed``
-            Passes ``state["finbert_result"]`` and ``state["vader_result"]``
-            to the weighted aggregator.
-            Skipped if both upstream results are empty.
-            Populates ``state["fear_greed_result"]``.
-
-        Parameters
-        ----------
-        session : ClientSession
-            Active MCP client session connected to the sentiment server.
-        state : SentimentAgentState
-            Mutable agent-local state. This method writes into:
-            ``state["retrieved_chunks"]``, ``state["sources_metadata"]``,
-            ``state["finbert_result"]``, ``state["vader_result"]``,
-            ``state["fear_greed_result"]``, ``state["extraction_errors"]``.
-        plan : dict[str, Any]
-            Output from ``_brain_plan()`` containing retrieval parameters.
-
-        Returns
-        -------
-        None
-            All results are written directly into ``state``.
-        """
-
-        # Atomically clear per-attempt state. Historical attempts remain
-        # immutable in attempts[] and their errors are reported separately.
         attempts = state.setdefault("attempts", [])
         prior_attempt_errors = [
             error for attempt in attempts for error in attempt.get("errors", [])
@@ -490,9 +287,9 @@ class SentimentAgent:
             "sentiment_status": "NO_DATA", "sentiment_polarity": None,
         })
 
-        # -- Internal helper: safe MCP call -----------------------------------
-        shared = state.get("shared_manager_ref", {})
-        directives_for_attempt = state.get("manager_directives", shared.get("manager_directives", {}))
+        directives_for_attempt = state.get(
+            "manager_directives", {})
+
         session_id = session_from_directives(directives_for_attempt)
 
         async def _call(tool: str, args: dict) -> dict:
@@ -502,15 +299,8 @@ class SentimentAgent:
                 detail={"tool": tool},
             )
             try:
-                if sentry_enabled():
-                    import sentry_sdk
-                    sentry_sdk.add_breadcrumb(
-                        category="mcp.sentiment",
-                        message=f"Calling {tool}",
-                        data={"tool": tool},
-                        level="info",
-                    )
-                result = await session.call_tool(tool, arguments=args)
+                add_breadcrumb("mcp.sentiment", f"Calling {tool}", {"tool": tool})
+                result = await traced_call_tool(session, tool, args)
                 payload = json.loads(result.content[0].text)
                 if payload.get("error"):
                     state["extraction_errors"].append(
@@ -537,12 +327,7 @@ class SentimentAgent:
                     message=f"Sentiment Agent: '{tool}' failed",
                     detail={"tool": tool, "outcome": "error", "error": str(exc)},
                 )
-                if sentry_enabled():
-                    import sentry_sdk
-                    with sentry_sdk.push_scope() as scope:
-                        scope.set_tag("tool", tool)
-                        scope.set_tag("component", "mcp.sentiment")
-                        sentry_sdk.capture_exception(exc)
+                capture_exception("mcp.sentiment", exc, tags={"tool": tool})
                 return {}
 
         # -- Step 1: retrieve_social_data ------------------------------------
@@ -566,7 +351,49 @@ class SentimentAgent:
         state["sources_metadata"] = social_data.get("sources_metadata", social_data.get("sources", []))
         log.info("[Executor] Retrieved %d chunks.", len(state["retrieved_chunks"]))
 
-        # -- Step 2: analyze_finbert -----------------------------------------
+        urls = [
+            str(item.get("url", "")).strip()
+            for item in state["sources_metadata"]
+            if isinstance(item, dict)
+        ]
+        inferred_documents = len({url for url in urls if url}) or len({
+            str(chunk).strip()
+            for chunk in state["retrieved_chunks"]
+            if str(chunk).strip()
+        })
+        inferred_domains = len({
+            urlparse(url).netloc.lower()
+            for url in urls
+            if urlparse(url).netloc
+        })
+        unique_documents = int(
+            social_data.get("unique_document_count", inferred_documents) or 0
+        )
+        unique_domains = int(
+            social_data.get("unique_domain_count", inferred_domains) or 0
+        )
+        raw_chunk_count = int(
+            social_data.get("raw_chunk_count", len(state["retrieved_chunks"])) or 0
+        )
+        evidence_independence = social_data.get("evidence_independence")
+        if evidence_independence is None and unique_documents:
+            evidence_independence = round(unique_domains / unique_documents, 4)
+        retrieval_stats = {
+            "raw_chunk_count": raw_chunk_count,
+            "unique_documents": unique_documents,
+            "unique_domains": unique_domains,
+            "chunks_collapsed_to_documents": int(
+                social_data.get(
+                    "chunks_collapsed_to_documents",
+                    max(0, raw_chunk_count - unique_documents),
+                ) or 0
+            ),
+            "duplicate_text_chunks_removed": int(
+                social_data.get("duplicate_text_chunks_removed", 0) or 0
+            ),
+            "evidence_independence": evidence_independence,
+        }
+
         if state["retrieved_chunks"]:
             log.info("[Executor] Step 2 — analyze_finbert (%d chunks).",
                      len(state["retrieved_chunks"]))
@@ -582,7 +409,6 @@ class SentimentAgent:
                 "total_chunks": 0, "skipped_chunks": 0,
             }
 
-        # -- Step 3: score_vader ---------------------------------------------
         if state["retrieved_chunks"]:
             log.info("[Executor] Step 3 — score_vader (%d chunks).",
                      len(state["retrieved_chunks"]))
@@ -598,13 +424,11 @@ class SentimentAgent:
                 "status": "NO_DATA", "total_chunks": 0, "skipped_chunks": 0,
             }
 
-        # -- Step 4: calculate_fear_greed ------------------------------------
         fb_has_data = state["finbert_result"].get("total_chunks", 0) > 0
         vd_has_data = state["vader_result"].get("total_chunks", 0) > 0
 
         if fb_has_data or vd_has_data:
             log.info("[Executor] Step 4 — calculate_fear_greed.")
-            # Pass custom weights from directives if provided
             directives = directives_for_attempt
             fear_greed_args: dict[str, Any] = {
                 "finbert_result": state["finbert_result"],
@@ -614,6 +438,10 @@ class SentimentAgent:
                 fear_greed_args["finbert_weight"] = float(directives["finbert_weight"])
             if "vader_weight" in directives:
                 fear_greed_args["vader_weight"] = float(directives["vader_weight"])
+            if social_data.get("evidence_independence") is not None:
+                fear_greed_args["evidence_independence"] = float(
+                    social_data["evidence_independence"]
+                )
 
             state["fear_greed_result"] = await _call(
                 "calculate_fear_greed", fear_greed_args
@@ -626,34 +454,70 @@ class SentimentAgent:
                 "weights": {}, "confidence": 0.0, "diagnostics": {},
             }
 
-        urls = [str(item.get("url", "")).strip() for item in state["sources_metadata"] if isinstance(item, dict)]
-        unique_documents = len({url for url in urls if url}) or len({
-            str(chunk).strip() for chunk in state["retrieved_chunks"] if str(chunk).strip()
-        })
-        unique_domains = len({urlparse(url).netloc.lower() for url in urls if urlparse(url).netloc})
         model_has_data = fb_has_data or vd_has_data
-        if not state["retrieved_chunks"] or not model_has_data:
-            status = "ERROR" if state["extraction_errors"] and not state["retrieved_chunks"] else "NO_DATA"
-        elif unique_documents < 3 or unique_domains < 2:
+        score = state["fear_greed_result"].get("score")
+        is_valid_composite_score = valid_composite_score(score)
+        for output_name, output in (
+            ("finbert", state["finbert_result"]),
+            ("vader", state["vader_result"]),
+            ("fear_greed", state["fear_greed_result"]),
+        ):
+            if str(output.get("status") or "").upper() == "ERROR":
+                state["extraction_errors"].append(
+                    f"{output_name} returned critical status ERROR"
+                )
+        critical_errors = list(state["extraction_errors"])
+        quality_failures: list[str] = []
+        if not state["retrieved_chunks"]:
+            quality_failures.append("no sentiment documents retrieved")
+        if not model_has_data:
+            quality_failures.append("no valid sentiment model output")
+        if not is_valid_composite_score:
+            quality_failures.append("missing or invalid composite sentiment score")
+        if unique_documents < self._MIN_UNIQUE_DOCUMENTS:
+            quality_failures.append(
+                f"unique document coverage {unique_documents} is below {self._MIN_UNIQUE_DOCUMENTS}"
+            )
+        if unique_domains < self._MIN_UNIQUE_DOMAINS:
+            quality_failures.append(
+                f"unique source-domain coverage {unique_domains} is below {self._MIN_UNIQUE_DOMAINS}"
+            )
+        if critical_errors:
+            quality_failures.append("critical extraction or scoring errors were recorded")
+
+        if critical_errors:
+            status = "ERROR"
+        elif not state["retrieved_chunks"] or not model_has_data:
+            status = "NO_DATA"
+        elif not is_valid_composite_score:
+            status = "ERROR"
+        elif (
+            unique_documents < self._MIN_UNIQUE_DOCUMENTS
+            or unique_domains < self._MIN_UNIQUE_DOMAINS
+        ):
             status = "LOW_COVERAGE"
         else:
             status = "VALID"
-        score = state["fear_greed_result"].get("score")
         polarity = state["fear_greed_result"].get("polarity")
-        if polarity is None and score is not None:
+        if polarity is None and is_valid_composite_score:
+            score = float(score)
             polarity = "BULLISH" if score > 0.2 else "BEARISH" if score < -0.2 else "NEUTRAL"
-        evidence_factor = min(1.0, unique_documents / 5.0) * min(1.0, unique_domains / 3.0)
-        model_confidence = float(state["fear_greed_result"].get("confidence") or 0.0)
-        state["fear_greed_result"]["confidence"] = round(model_confidence * evidence_factor, 4)
         state["fear_greed_result"].update({
             "status": status, "polarity": polarity,
             "coverage": {"unique_documents": unique_documents, "unique_domains": unique_domains,
-                         "source_independence_factor": round(evidence_factor, 4)},
+                         "evidence_independence": evidence_independence},
         })
         state["sentiment_status"] = status
         state["sentiment_polarity"] = polarity
+        execution_success = not critical_errors
+        quality_passed = status == "VALID" and not quality_failures
         attempts.append({
             "attempt_number": len(attempts) + 1, "plan": dict(plan), "status": status,
+            "execution_success": execution_success,
+            "quality_passed": quality_passed,
+            "quality_failures": quality_failures,
+            "polarity": polarity,
+            "retrieval_stats": dict(retrieval_stats),
             "retrieval": {"chunks": list(state["retrieved_chunks"]),
                           "sources_metadata": list(state["sources_metadata"])},
             "model_outputs": {"finbert": dict(state["finbert_result"]),
@@ -674,12 +538,8 @@ class SentimentAgent:
     # =========================================================================
     # LANGGRAPH NODES — thin wrappers over the layer methods above
     # =========================================================================
-    # Each node returns a partial-state dict. Heavy logic stays in _brain_plan /
-    # _execute_sentiment_pipeline / _brain_analyze — unchanged. The MCP session
-    # is read from self._session (set once per run() before the graph runs).
 
     async def _node_brain_plan(self, state: SentimentAgentState) -> dict[str, Any]:
-        # Increment once per cycle, mirroring the old while-loop.
         new_counter = state["loop_counter"] + 1
         log.info("[Run] Iteration %d", new_counter)
         plan = await self._brain_plan(state)
@@ -689,8 +549,6 @@ class SentimentAgent:
         await self._execute_sentiment_pipeline(
             self._session, state, state.get("current_plan", {})
         )
-        # _execute_sentiment_pipeline mutates several state keys in place;
-        # return them so the merged graph state reflects the update.
         return {
             "retrieved_chunks":  state["retrieved_chunks"],
             "sources_metadata":  state["sources_metadata"],
@@ -705,40 +563,44 @@ class SentimentAgent:
         }
 
     async def _node_analyze(self, state: SentimentAgentState) -> dict[str, Any]:
-        # Brain Pass 2 — pure LLM interpretation, no MCP tools needed.
+        self._select_best_attempt(state)
         state["aspect_observations"] = extract_aspect_observations(
             state["retrieved_chunks"], state["sources_metadata"],
             state.get("finbert_result", {}).get("chunk_scores", []),
         )
         raw_analysis = await self._brain_analyze(state)
-        return {"brain_reasoning": raw_analysis, "aspect_observations": state["aspect_observations"]}
+        return {
+            "brain_reasoning": raw_analysis,
+            "aspect_observations": state["aspect_observations"],
+            "retrieved_chunks": state["retrieved_chunks"],
+            "sources_metadata": state["sources_metadata"],
+            "finbert_result": state["finbert_result"],
+            "vader_result": state["vader_result"],
+            "fear_greed_result": state["fear_greed_result"],
+            "extraction_errors": state["extraction_errors"],
+            "sentiment_status": state["sentiment_status"],
+            "sentiment_polarity": state["sentiment_polarity"],
+        }
 
     def _should_continue(self, state: SentimentAgentState):
-        """
-        Conditional edge after the Executor. Mirrors the old while-loop:
-          - retrieved any chunks        → analyze (success, exit loop)
-          - loop_counter >= max_loops   → analyze (guardrail, even with no data)
-          - otherwise                   → brain_plan (retry, broader query)
-        """
         directives = state["manager_directives"]
         max_loops  = int(directives.get("max_loops", self._default_max_loops))
 
-        if state["retrieved_chunks"]:
-            log.info("[Run] Executor retrieved %d chunks — exiting loop.",
-                     len(state["retrieved_chunks"]))
+        if state.get("sentiment_status") == "VALID":
+            log.info("[Run] Sentiment attempt passed deterministic quality checks.")
             return "analyze"
         if state["loop_counter"] >= max_loops:
             log.warning("[Run] loop_counter=%d >= max_loops=%d — exiting to analyze.",
                         state["loop_counter"], max_loops)
             return "analyze"
+        log.info(
+            "[Run] Sentiment status=%s; retrying for stronger evidence coverage.",
+            state.get("sentiment_status", "NO_DATA"),
+        )
         return "brain_plan"
 
     def _build_graph(self):
-        """
-        Compile the internal state machine:
-            START → brain_plan → execute → (conditional) → brain_plan | analyze
-            analyze → END
-        """
+
         builder = StateGraph(SentimentAgentState)
 
         builder.add_node("brain_plan", self._node_brain_plan)
@@ -762,54 +624,6 @@ class SentimentAgent:
 
     @traceable(name="SentimentAgent.run", run_type="chain")
     async def run(self, shared_state: SharedManagerState) -> SharedManagerState:
-        """
-        PRIMARY ENTRY GATEWAY — Drives the Full Lifecycle Loop.
-
-        Called by the Manager Agent to initiate a sentiment analysis task.
-        Manages the complete MCP client session lifecycle, spawns the
-        agent-local state, drives the two-tiered Brain → Executor loop,
-        and commits verified sentiment results into ``shared_state``.
-
-        Lifecycle
-        ---------
-        1. Open an async MCP client session via ``stdio_client``.
-        2. Initialise ``SentimentAgentState`` from ``shared_state``.
-        3. Enter the loop (max ``max_loops`` iterations):
-            a. Increment ``loop_counter``.
-            b. Brain Pass 1 — ``_brain_plan()`` → retrieval plan.
-            c. Executor — ``_execute_sentiment_pipeline()`` → all results.
-            d. If chunks > 0: break (success). Else if more loops remain:
-               continue with a broader query on the next iteration.
-        4. Brain Pass 2 — ``_brain_analyze()`` → narrative interpretation.
-        5. Assemble ``sentiment_analysis_summary`` from all state fields.
-        6. Commit summary into ``shared_state["sentiment_analysis_summary"]``.
-        7. Return the mutated ``shared_state`` to the Manager Agent.
-
-        Loop Exit Conditions
-        --------------------
-        - Chunks > 0 after any Executor run (normal success path).
-        - ``loop_counter >= max_loops`` (safety guardrail, even if no data).
-        The Brain's second pass always runs regardless of loop exit reason.
-
-        Parameters
-        ----------
-        shared_state : SharedManagerState
-            The public state contract from the Manager Agent.
-            Read fields: ``task_query``, ``manager_directives``,
-            ``aggregated_research_context``, ``financial_metrics_summary``.
-
-        Returns
-        -------
-        SharedManagerState
-            The same dict mutated in-place to include:
-            ``shared_state["sentiment_analysis_summary"]`` — a dict with
-            all verified sentiment scores, labels, narrative, and metadata.
-
-        Raises
-        ------
-        RuntimeError
-            If the MCP server subprocess cannot be started.
-        """
         directives = shared_state.get("manager_directives", {})
         max_loops  = int(directives.get("max_loops", self._default_max_loops))
 
@@ -819,7 +633,6 @@ class SentimentAgent:
             max_loops,
         )
 
-        # -- Initialise agent-local state -------------------------------------
         state: SentimentAgentState = {
             "messages":           [],
             "retrieved_chunks":   [],
@@ -841,10 +654,6 @@ class SentimentAgent:
             "current_plan":       {},
         }
 
-        # -- Open MCP client session, then drive the compiled graph -----------
-        # Topology: brain_plan → execute → (conditional) → brain_plan | analyze
-        # The brain_analyze step (node "analyze") is a pure LLM call and does
-        # not touch the session; it simply runs as the graph's terminal node.
         async with stdio_client(self._server_params) as (read_stream, write_stream):
             async with ClientSession(read_stream, write_stream) as session:
 
@@ -860,14 +669,14 @@ class SentimentAgent:
                 finally:
                     self._session = None
 
-        # brain_analyze ran inside the graph's terminal node; its raw output is
-        # now in state["brain_reasoning"].
         raw_analysis = state["brain_reasoning"]
-
-        # Parse Brain's analysis JSON (graceful fallback if malformed)
+        analysis_parse_error = False
         try:
             analysis = json.loads(raw_analysis)
-        except json.JSONDecodeError:
+            if not isinstance(analysis, dict):
+                raise ValueError("sentiment analysis must be a JSON object")
+        except (json.JSONDecodeError, ValueError):
+            analysis_parse_error = True
             log.warning("[Run] Brain analysis JSON malformed — using raw text.")
             analysis = {
                 "overall_sentiment": "Neutral",
@@ -879,14 +688,64 @@ class SentimentAgent:
                 "data_quality_note": "",
             }
 
-        # -- Assemble sentiment_analysis_summary ------------------------------
         fg = state["fear_greed_result"]
         fb = state["finbert_result"]
         vd = state["vader_result"]
+        retrieval_stats = fg.get("retrieval_stats", {}) or fg.get("coverage", {}) or {}
+        selected_attempt_number = fg.get("selected_attempt_number")
+        causal_aspects = supported_causal_aspects(state.get("aspect_observations", []))
+        causal_audit_result = causal_audit(analysis, causal_aspects)
+        if causal_audit_result["causal_mismatch_detected"]:
+            analysis["narrative"] = (
+                "Sentiment narrative withheld because its causal attribution was not "
+                "supported by an observation with causal_language_supported=True."
+            )
+            analysis["key_signals"] = []
+            analysis["causal_aspects_used"] = []
+            existing_risk_flags = analysis.get("risk_flags", [])
+            if not isinstance(existing_risk_flags, list):
+                existing_risk_flags = [str(existing_risk_flags)]
+            analysis["risk_flags"] = existing_risk_flags + [
+                "Unsupported causal sentiment attribution"
+            ]
+        selected_attempt = next(
+            (
+                attempt for attempt in state.get("attempts", [])
+                if attempt.get("attempt_number") == selected_attempt_number
+            ),
+            None,
+        ) or {}
+        quality_failures = list(selected_attempt.get("quality_failures", []))
+        if causal_audit_result["causal_mismatch_detected"]:
+            quality_failures.append(
+                "analysis claimed causal aspects without causal_language_supported=True"
+            )
+        analysis_risk_flags = analysis.get("risk_flags", [])
+        brain_execution_error = analysis_parse_error or any(
+            "brain api call failed" in str(flag).lower()
+            for flag in analysis_risk_flags
+        )
+        if brain_execution_error:
+            quality_failures.append("sentiment interpretation failed or was malformed")
+        quality_failures = list(dict.fromkeys(quality_failures))
+        quality_passed = bool(
+            selected_attempt.get("quality_passed")
+            and not causal_audit_result["causal_mismatch_detected"]
+            and not brain_execution_error
+        )
+        attempt_errors = [
+            error
+            for attempt in state.get("attempts", [])
+            for error in attempt.get("errors", [])
+        ]
 
         sentiment_analysis_summary: dict[str, Any] = {
             "status":               state.get("sentiment_status", "NO_DATA"),
             "polarity":             state.get("sentiment_polarity"),
+            "execution_success":    True,
+            "pipeline_execution_success": bool(selected_attempt.get("execution_success")),
+            "quality_passed":       quality_passed,
+            "quality_failures":     quality_failures,
             # Core Fear/Greed index
             "ticker":               extract_ticker(
                                         shared_state.get("task_query", ""),
@@ -896,6 +755,24 @@ class SentimentAgent:
             "fear_greed_score":     fg.get("score"),
             "fear_greed_label":     fg.get("label"),
             "fear_greed_confidence": fg.get("confidence"),
+            "direction_strength":   fg.get("direction_strength"),
+            "model_agreement_score": fg.get("model_agreement_score"),
+            "evidence_independence": fg.get(
+                "evidence_independence",
+                retrieval_stats.get("evidence_independence"),
+            ),
+            "confidence_components": {
+                "confidence": fg.get("confidence"),
+                "direction_strength": fg.get("direction_strength"),
+                "model_agreement_score": fg.get("model_agreement_score"),
+                "evidence_independence": fg.get(
+                    "evidence_independence",
+                    retrieval_stats.get("evidence_independence"),
+                ),
+                "model_coverage_score": (fg.get("diagnostics", {}) or {}).get(
+                    "model_coverage_score"
+                ),
+            },
 
             # FinBERT signals
             "finbert_label":        fb.get("label"),
@@ -909,9 +786,22 @@ class SentimentAgent:
 
             # Data coverage
             "total_chunks_analyzed": len(state["retrieved_chunks"]),
+            "raw_chunk_count":       retrieval_stats.get("raw_chunk_count"),
+            "unique_document_count": retrieval_stats.get("unique_documents", 0),
+            "unique_domain_count":   retrieval_stats.get("unique_domains", 0),
+            "chunks_collapsed_to_documents": retrieval_stats.get(
+                "chunks_collapsed_to_documents", 0
+            ),
+            "duplicate_text_chunks_removed": retrieval_stats.get(
+                "duplicate_text_chunks_removed", 0
+            ),
+            "source_document_counts": dict(retrieval_stats),
             "sources_metadata":      state["sources_metadata"],
             "aspect_observations":   state.get("aspect_observations", []),
-            "causal_aspects_supported": supported_causal_aspects(state.get("aspect_observations", [])),
+            "causal_aspects_supported": causal_aspects,
+            "causal_aspects_used":   causal_audit_result["claimed_causal_aspects"],
+            "causal_audit":          causal_audit_result,
+            "causal_mismatch_detected": causal_audit_result["causal_mismatch_detected"],
 
             # Brain interpretation
             "overall_sentiment":    analysis.get("overall_sentiment"),
@@ -922,14 +812,15 @@ class SentimentAgent:
             "risk_flags":           analysis.get("risk_flags", []),
             "data_quality_note":    analysis.get("data_quality_note", ""),
 
-            # Full diagnostics (for Report Writer / downstream agents)
+
             "brain_reasoning":       raw_analysis,
             "fear_greed_diagnostics": fg.get("diagnostics", {}),
 
-            # Execution metadata
             "loop_iterations_used": state["loop_counter"],
+            "selected_attempt_number": selected_attempt_number,
             "extraction_errors":    state["extraction_errors"],
             "prior_attempt_errors": state.get("prior_attempt_errors", []),
+            "attempt_extraction_errors": attempt_errors,
             "attempts":             state.get("attempts", []),
         }
 

@@ -199,7 +199,7 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
       <div class="input-card">
         <div class="q-wrap">
           <label class="field-label" for="query-input">Question</label>
-          <textarea id="query-input" rows="3" placeholder="Is NVIDIA a good buy for Q4 2025 given current AI spending?"></textarea>
+          <textarea id="query-input" rows="3" maxlength="500" placeholder="Is NVIDIA a good buy for Q4 2025 given current AI spending?"></textarea>
         </div>
         <div class="t-wrap">
           <div class="ticker-group">
@@ -1215,7 +1215,15 @@ function handleProgressEvent(evt) {
 async function runAnalysis() {
   const query=document.getElementById('query-input').value.trim();
   const ticker=document.getElementById('ticker-input').value.trim().toUpperCase();
-  if (!query||query.length<10){document.getElementById('query-input').focus();return;}
+  // Mirror the server-side AnalyzeRequest constraints (query: 10-500 chars)
+  // so a bad input is caught here instead of coming back as an opaque 422.
+  if (query.length<10 || query.length>500) {
+    document.getElementById('query-input').focus();
+    renderError(query.length<10
+      ? 'Question must be at least 10 characters.'
+      : `Question must be at most 500 characters (currently ${query.length}).`);
+    return;
+  }
 
   document.getElementById('results-section').style.display='none';
   document.getElementById('results-section').innerHTML='';
@@ -1254,7 +1262,22 @@ async function runAnalysis() {
     });
     stopClock();
 
-    if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.detail?.message||e.message||`HTTP ${res.status}`);}
+    if(!res.ok){
+      const e=await res.json().catch(()=>({}));
+      // FastAPI validation failures (422) return detail as an ARRAY of
+      // {loc, msg, type} objects — not an object with .message. Flatten it
+      // so the user sees which field was rejected instead of a bare "HTTP 422".
+      let msg;
+      if (Array.isArray(e.detail)) {
+        msg = e.detail.map(d => {
+          const field = Array.isArray(d.loc) ? d.loc.filter(x => x !== 'body').join('.') : '';
+          return field ? `${field}: ${d.msg}` : d.msg;
+        }).join(' · ');
+      } else {
+        msg = e.detail?.message || e.message || e.detail;
+      }
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
     const data=await res.json();
 
     // Safety net: if any node never received a completing event (e.g. a

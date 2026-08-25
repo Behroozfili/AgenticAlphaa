@@ -1,7 +1,6 @@
 """
 rag/processor.py — AlphaProcessor
-Double-key idempotency (SHA256 content + URL hash), semantic boundary chunking,
-metadata enrichment, and observability metrics.
+
 """
 
 from __future__ import annotations
@@ -18,9 +17,7 @@ from rag.loader import RawDocument
 
 logger = logging.getLogger(__name__)
 
-# Maximum number of url_hash entries kept in the in-memory dedup store.
-# When the cap is reached, the oldest half is evicted (FIFO-LRU).
-# Override at construction time via max_seen= if needed.
+
 _DEFAULT_MAX_SEEN: int = 100_000
 
 # ---------------------------------------------------------------------------
@@ -66,23 +63,7 @@ def _url_hash(url: str) -> str:
 # ---------------------------------------------------------------------------
 
 class AlphaProcessor:
-    """
-    Processes RawDocuments into enriched, deduplicated chunks.
-
-    Idempotency logic (double-key):
-    - content_hash  = SHA256(full document text)
-    - url_hash      = SHA256(url)
-
-    Decision table:
-    ┌──────────────────────┬──────────────────────────────────┐
-    │ Condition            │ Action                           │
-    ├──────────────────────┼──────────────────────────────────┤
-    │ Both match           │ Skip (exact duplicate)           │
-    │ URL matches, content │ Update (new version of same doc) │
-    │   differs            │                                  │
-    │ Neither matches      │ Ingest as new                    │
-    └──────────────────────┴──────────────────────────────────┘
-    """
+    
 
     # Semantic boundary separators — ordered from coarsest to finest
     SEPARATORS = ["\n\n", "\n", ". ", "? ", "! ", "; ", ", ", " ", ""]
@@ -100,10 +81,7 @@ class AlphaProcessor:
             length_function=len,
             is_separator_regex=False,
         )
-        # In-memory dedup store: url_hash -> content_hash
-        # Capped at max_seen entries to prevent unbounded memory growth
-        # in long-running ingestion processes (H-7 fix).
-        # In production, replace with a Redis / Postgres lookup.
+        
         self._seen: dict[str, str] = {}
         self._max_seen: int = max_seen
         self.metrics = ProcessorMetrics()
@@ -113,10 +91,7 @@ class AlphaProcessor:
     # ------------------------------------------------------------------
 
     def process(self, docs: list[RawDocument]) -> list[ProcessedChunk]:
-        """
-        Convert a batch of RawDocuments into deduplicated, enriched chunks.
-        Returns the metrics alongside chunks (metrics accessible via .metrics).
-        """
+      
         self.metrics = ProcessorMetrics()
         all_chunks: list[ProcessedChunk] = []
 
@@ -138,7 +113,7 @@ class AlphaProcessor:
         u_hash       = _url_hash(doc.url)
         ingested_at  = datetime.now(timezone.utc).isoformat()
 
-        # --- Double-key idempotency check ---
+       
         if u_hash in self._seen:
             existing_c_hash = self._seen[u_hash]
             if existing_c_hash == c_hash:
@@ -148,10 +123,10 @@ class AlphaProcessor:
             else:
                 logger.info("UPDATE new content for url=%s", doc.url)
                 self.metrics.content_updates += 1
-        # Record / update the seen state (via capped helper)
+       
         self._add_to_seen(u_hash, c_hash)
 
-        # --- Semantic boundary chunking ---
+       
         raw_chunks = self.splitter.split_text(full_text)
         chunks: list[ProcessedChunk] = []
 
@@ -186,13 +161,7 @@ class AlphaProcessor:
         return chunks
 
     def _add_to_seen(self, u_hash: str, c_hash: str) -> None:
-        """
-        Store a url_hash → content_hash mapping with a size cap.
-
-        When the store reaches _max_seen entries, the oldest half is
-        evicted (FIFO). This keeps memory bounded for long-running
-        ingestion processes without requiring an external cache.
-        """
+    
         if len(self._seen) >= self._max_seen:
             # Evict the oldest half — dict preserves insertion order (Python 3.7+)
             evict_count = self._max_seen // 2

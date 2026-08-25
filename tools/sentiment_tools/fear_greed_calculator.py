@@ -1,52 +1,4 @@
-"""
-tools/fear_greed_calculator.py — FearGreedIndexCalculator
-==========================================================
-Aggregates FinBERT (deep NLP) and VADER (rule-based) outputs into
-a single normalised Fear/Greed index score.
 
-Output range
-─────────────
-  +1.0  →  Extreme Greed  (Highly Bullish)
-   0.0  →  Neutral
-  -1.0  →  Extreme Fear   (Highly Bearish)
-
-Aggregation logic
-──────────────────
-  1. Convert FinBERT probabilities to a directional score:
-         finbert_score = bullish_prob − bearish_prob   ∈ [−1, +1]
-
-  2. Use VADER compound directly:
-         vader_score   = compound                       ∈ [−1, +1]
-
-  3. Weighted average:
-         raw_score = (finbert_score × W_FINBERT) + (vader_score × W_VADER)
-
-     Default weights:
-         W_FINBERT = 0.65   (higher weight for deep financial NLP)
-         W_VADER   = 0.35   (lightweight social-text baseline)
-
-  4. Clamp output to [−1, +1] to absorb floating-point edge cases.
-
-  5. Map to a human-readable market label using five-band thresholds.
-
-Label bands
-────────────
-  score ∈ [ 0.60,  1.00]  → "Extreme Greed"
-  score ∈ [ 0.20,  0.60)  → "Greed"
-  score ∈ (-0.20,  0.20)  → "Neutral"
-  score ∈ (-0.60, -0.20]  → "Fear"
-  score ∈ [-1.00, -0.60]  → "Extreme Fear"
-
-Public interface
-─────────────────
-  calc   = FearGreedIndexCalculator()
-  result = calc.calculate(finbert_result, vader_result)
-  # result.score        → −1.0 … +1.0
-  # result.label        → "Extreme Greed" | "Greed" | … | "Extreme Fear"
-  # result.finbert_score→ directional FinBERT component
-  # result.vader_score  → VADER compound component
-  # result.weights      → {"finbert": 0.65, "vader": 0.35}
-"""
 
 from __future__ import annotations
 
@@ -94,14 +46,22 @@ class FearGreedResult:
         finbert_score : Directional FinBERT component (bullish − bearish).
         vader_score   : VADER compound score used as input.
         weights       : Dict of {"finbert": float, "vader": float} weights applied.
-        confidence    : Simple heuristic: |score| mapped to [0, 1].
-                        Higher absolute score = higher model agreement.
+        direction_strength: Absolute directional score; zero can still be a
+                            high-confidence neutral result.
+        model_agreement_score: FinBERT/VADER agreement in [0, 1], or None when
+                               only one model is available.
+        evidence_independence: Optional independent-domain ratio in [0, 1].
+        confidence    : Agreement/model-coverage confidence, optionally scaled
+                        by evidence independence. It is not direction strength.
         diagnostics   : Intermediate values for transparency / debugging.
     """
     score:         float | None
     label:         str | None
     finbert_score: float | None
     vader_score:   float | None
+    direction_strength: float = 0.0
+    model_agreement_score: float | None = None
+    evidence_independence: float | None = None
     weights:       dict[str, float] = field(default_factory=dict)
     confidence:    float            = 0.0
     diagnostics:   dict             = field(default_factory=dict)
@@ -169,6 +129,8 @@ class FearGreedIndexCalculator:
         self,
         finbert_result: FinBertResult,
         vader_result:   VaderResult,
+        *,
+        evidence_independence: float | None = None,
     ) -> FearGreedResult:
         """
         Compute the Fear/Greed index from FinBERT and VADER outputs.
@@ -179,7 +141,7 @@ class FearGreedIndexCalculator:
           3. Weighted average → raw score.
           4. Clamp to [−1, +1].
           5. Map to label band.
-          6. Compute confidence heuristic.
+          6. Compute direction strength, model agreement, and confidence.
 
         Parameters
         ----------
@@ -195,9 +157,8 @@ class FearGreedIndexCalculator:
 
         Notes
         -----
-        If both models analyzed zero valid chunks (both returned empty results),
-        the calculator still runs and returns a score of 0.0 / "Neutral".
-        This is intentional: a silent neutral is preferable to a crash.
+        If both models analyzed zero valid chunks, the calculator returns an
+        explicit NO_DATA result. Missing evidence must not become silent Neutral.
         """
         fb_valid = (
             finbert_result.total_chunks > 0
@@ -208,6 +169,8 @@ class FearGreedIndexCalculator:
         if not fb_valid and not vd_valid:
             return FearGreedResult(
                 score=None, label=None, finbert_score=None, vader_score=None,
+                direction_strength=0.0, model_agreement_score=None,
+                evidence_independence=self._normalise_independence(evidence_independence),
                 weights={"finbert": self.finbert_weight, "vader": self.vader_weight},
                 confidence=0.0, diagnostics={"reason": "no valid model input"},
                 status="NO_DATA", polarity=None,
@@ -238,14 +201,35 @@ class FearGreedIndexCalculator:
         # Step 5 — Label band
         label: str = self._score_to_label(clamped)
 
-        # Step 6 — Confidence heuristic: |score| (0 = fully uncertain, 1 = max signal)
-        confidence: float = round(abs(clamped), 4)
+        # Step 6 — Keep direction strength separate from evidence confidence.
+        direction_strength = round(abs(clamped), 4)
+        independence = self._normalise_independence(evidence_independence)
+        if fb_valid and vd_valid:
+            model_agreement_score: float | None = round(
+                1.0 - (abs(finbert_score - vader_score) / 2.0), 4
+            )
+            model_coverage_score = 1.0
+        else:
+            model_agreement_score = None
+            model_coverage_score = 0.5
+        confidence_base = (
+            model_agreement_score
+            if model_agreement_score is not None
+            else model_coverage_score
+        )
+        confidence = round(
+            confidence_base * (independence if independence is not None else 1.0),
+            4,
+        )
 
         result = FearGreedResult(
             score         = round(clamped, 4),
             label         = label,
             finbert_score = round(finbert_score, 4),
             vader_score   = round(vader_score, 4),
+            direction_strength = direction_strength,
+            model_agreement_score = model_agreement_score,
+            evidence_independence = independence,
             weights       = {
                 "finbert": effective_fb_weight,
                 "vader":   effective_vd_weight,
@@ -253,6 +237,11 @@ class FearGreedIndexCalculator:
             confidence    = confidence,
             diagnostics   = {
                 "raw_score":              round(raw_score,     4),
+                "direction_strength":      direction_strength,
+                "model_agreement_score":  model_agreement_score,
+                "model_coverage_score":   model_coverage_score,
+                "evidence_independence":  independence,
+                "legacy_absolute_score_confidence": direction_strength,
                 "partial_model_coverage": not (fb_valid and vd_valid),
                 "finbert_bullish_prob":   finbert_result.bullish_prob,
                 "finbert_bearish_prob":   finbert_result.bearish_prob,
@@ -280,7 +269,13 @@ class FearGreedIndexCalculator:
         )
         return result
 
-    def calculate_from_dict(self, finbert_dict: dict, vader_dict: dict) -> FearGreedResult:
+    def calculate_from_dict(
+        self,
+        finbert_dict: dict,
+        vader_dict: dict,
+        *,
+        evidence_independence: float | None = None,
+    ) -> FearGreedResult:
         """
         Convenience overload for callers that receive JSON payloads.
 
@@ -301,46 +296,58 @@ class FearGreedIndexCalculator:
         FearGreedResult
             Same as calculate().
 
-        Raises
-        ------
-        KeyError
-            If required keys are missing from either dict.
+        Missing model fields are treated as unavailable model coverage so legacy
+        and partial payloads can still be scored safely.
         """
         from tools.sentiment_tools.finbert_analyzer import FinBertResult
         from tools.sentiment_tools.vader_scorer import VaderResult
 
-        if (
-            finbert_dict.get("status") == "NO_DATA" or vader_dict.get("status") == "NO_DATA"
-        ) and int(finbert_dict.get("total_chunks", 0)) <= 0 and int(vader_dict.get("total_chunks", 0)) <= 0:
-            return FearGreedResult(
-                score=None, label=None, finbert_score=None, vader_score=None,
-                weights={"finbert": self.finbert_weight, "vader": self.vader_weight},
-                confidence=0.0, diagnostics={"reason": "no valid model input"},
-                status="NO_DATA", polarity=None,
+        fb_values_available = (
+            finbert_dict.get("status") not in {"NO_DATA", "ERROR"}
+            and all(
+                finbert_dict.get(key) is not None
+                for key in ("bullish_prob", "bearish_prob", "neutral_prob")
             )
+        )
+        vd_values_available = (
+            vader_dict.get("status") not in {"NO_DATA", "ERROR"}
+            and vader_dict.get("compound") is not None
+        )
+        fb_total = int(finbert_dict.get("total_chunks", 1 if fb_values_available else 0))
+        vd_total = int(vader_dict.get("total_chunks", 1 if vd_values_available else 0))
 
         finbert_result = FinBertResult(
-            bullish_prob   = float(finbert_dict["bullish_prob"]),
-            bearish_prob   = float(finbert_dict["bearish_prob"]),
-            neutral_prob   = float(finbert_dict["neutral_prob"]),
-            label          = str(finbert_dict.get("label", "Neutral")),
-            total_chunks   = int(finbert_dict.get("total_chunks", 0)),
+            bullish_prob   = float(finbert_dict["bullish_prob"]) if fb_values_available else None,
+            bearish_prob   = float(finbert_dict["bearish_prob"]) if fb_values_available else None,
+            neutral_prob   = float(finbert_dict["neutral_prob"]) if fb_values_available else None,
+            label          = str(finbert_dict.get("label", "Neutral")) if fb_values_available else None,
+            total_chunks   = fb_total,
             skipped_chunks = int(finbert_dict.get("skipped_chunks", 0)),
         )
         vader_result = VaderResult(
-            compound       = float(vader_dict["compound"]),
+            compound       = float(vader_dict["compound"]) if vd_values_available else None,
             positive_mean  = float(vader_dict.get("positive_mean", 0.0)),
             negative_mean  = float(vader_dict.get("negative_mean", 0.0)),
             neutral_mean   = float(vader_dict.get("neutral_mean",  0.0)),
-            label          = str(vader_dict.get("label", "Neutral")),
-            total_chunks   = int(vader_dict.get("total_chunks", 0)),
+            label          = str(vader_dict.get("label", "Neutral")) if vd_values_available else None,
+            total_chunks   = vd_total,
             skipped_chunks = int(vader_dict.get("skipped_chunks", 0)),
         )
-        return self.calculate(finbert_result, vader_result)
+        return self.calculate(
+            finbert_result,
+            vader_result,
+            evidence_independence=evidence_independence,
+        )
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _normalise_independence(value: float | None) -> float | None:
+        if value is None:
+            return None
+        return round(max(0.0, min(1.0, float(value))), 4)
 
     @staticmethod
     def _score_to_label(score: float) -> str:

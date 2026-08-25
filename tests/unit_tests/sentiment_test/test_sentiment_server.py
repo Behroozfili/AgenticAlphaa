@@ -76,7 +76,67 @@ class TestRetrieveSocialData:
         mock_get_retriever.return_value = mock_retriever
 
         result = _retrieve_social_data("q", ticker=None, days_back=7)
-        assert result == {"chunks": [], "sources_metadata": [], "total_retrieved": 0}
+        assert result["chunks"] == []
+        assert result["sources_metadata"] == []
+        assert result["total_retrieved"] == 0
+        assert result["raw_chunk_count"] == 0
+        assert result["unique_document_count"] == 0
+        assert result["unique_domain_count"] == 0
+        assert result["evidence_independence"] == 0.0
+
+    @patch("tools.sentiment_tools.sentiment_server._get_retriever")
+    def test_duplicate_article_chunks_become_one_document_input(self, mock_get_retriever):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = [
+            {"text": "First paragraph", "url": "https://example.com/story?utm_source=x", "rrf_score": 0.5},
+            {"text": "Second paragraph", "url": "https://example.com/story#section", "rrf_score": 0.8},
+            {"text": "First paragraph", "url": "https://example.com/story", "rrf_score": 0.6},
+            {"text": "Independent report", "url": "https://other.example/report", "rrf_score": 0.7},
+        ]
+        mock_get_retriever.return_value = mock_retriever
+
+        result = _retrieve_social_data("query", ticker="MSFT", days_back=7)
+
+        assert result["raw_chunk_count"] == 4
+        assert result["total_retrieved"] == 2
+        assert result["unique_document_count"] == 2
+        assert result["chunks_collapsed_to_documents"] == 2
+        assert result["duplicate_text_chunks_removed"] == 1
+        assert result["unique_domain_count"] == 2
+        assert result["evidence_independence"] == 1.0
+        assert result["chunks"][0] == "First paragraph\n\nSecond paragraph"
+        assert result["sources_metadata"][0]["chunk_count"] == 3
+        assert result["sources_metadata"][0]["rrf_score"] == 0.8
+
+    @patch("tools.sentiment_tools.sentiment_server._get_retriever")
+    def test_content_identifier_groups_chunks_when_url_is_missing(self, mock_get_retriever):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = [
+            {"text": "Part one", "document_id": "doc-1"},
+            {"text": "Part two", "document_id": "doc-1"},
+        ]
+        mock_get_retriever.return_value = mock_retriever
+
+        result = _retrieve_social_data("query", ticker=None, days_back=7)
+
+        assert result["chunks"] == ["Part one\n\nPart two"]
+        assert result["total_retrieved"] == 1
+        assert result["sources_metadata"][0]["content_identifier"] == "doc-1"
+
+    @patch("tools.sentiment_tools.sentiment_server._get_retriever")
+    def test_domain_concentration_reduces_evidence_independence(self, mock_get_retriever):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = [
+            {"text": "Article one", "url": "https://example.com/one"},
+            {"text": "Article two", "url": "https://example.com/two"},
+        ]
+        mock_get_retriever.return_value = mock_retriever
+
+        result = _retrieve_social_data("query", ticker=None, days_back=7)
+
+        assert result["unique_document_count"] == 2
+        assert result["unique_domain_count"] == 1
+        assert result["evidence_independence"] == 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +187,7 @@ class TestCallToolRouting:
 
         result = await call_tool("retrieve_social_data", {"query": "NVDA"})
 
-        mock_retrieve.assert_called_once_with(query="NVDA", ticker=None, days_back=7)
+        mock_retrieve.assert_called_once_with(query="NVDA", ticker=None, days_back=30)
         assert result.isError is False
 
     @pytest.mark.asyncio
@@ -172,6 +232,25 @@ class TestCallToolRouting:
         mock_get_fear_greed.assert_called_once()
         calculator.calculate_from_dict.assert_called_once_with(
             finbert_dict={"bullish_prob": 0.5}, vader_dict={"compound": 0.1},
+        )
+
+    @pytest.mark.asyncio
+    @patch("tools.sentiment_tools.sentiment_server._get_fear_greed")
+    async def test_routes_optional_evidence_independence_to_calculator(self, mock_get_fear_greed):
+        calculator = MagicMock()
+        calculator.calculate_from_dict.return_value = MagicMock()
+        mock_get_fear_greed.return_value = calculator
+
+        await call_tool("calculate_fear_greed", {
+            "finbert_result": {"bullish_prob": 0.5},
+            "vader_result": {"compound": 0.1},
+            "evidence_independence": 0.4,
+        })
+
+        calculator.calculate_from_dict.assert_called_once_with(
+            finbert_dict={"bullish_prob": 0.5},
+            vader_dict={"compound": 0.1},
+            evidence_independence=0.4,
         )
 
     @pytest.mark.asyncio

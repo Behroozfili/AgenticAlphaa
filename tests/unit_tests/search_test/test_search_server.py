@@ -12,7 +12,7 @@ import json
 from unittest.mock import patch, AsyncMock, MagicMock
 import pytest
 
-from tools.research_tools.research_server import call_tool
+from tools.research_tools.research_server import call_tool, list_tools
 
 
 # ---------------------------------------------------------------------------
@@ -28,8 +28,8 @@ class TestCallToolRouting:
         result = await call_tool("tavily_search", {"query": "NVDA news"})
 
         mock_tavily.assert_called_once_with(
-            query="NVDA news", max_results=5, search_depth="basic",
-            include_domains=None, topic="finance",
+            query="NVDA news", max_results=3, search_depth="basic",
+            include_domains=None, topic="finance", snippet_chars=500,
         )
         assert result.isError is False
 
@@ -61,14 +61,39 @@ class TestCallToolRouting:
 
     @pytest.mark.asyncio
     @patch("tools.research_tools.research_server.sec_edgar_filing", new_callable=AsyncMock)
-    async def test_routes_to_sec_edgar_filing_with_default_sections(self, mock_filing):
+    async def test_routes_to_sec_edgar_filing_with_defaults(self, mock_filing):
         mock_filing.return_value = {"ticker": "NVDA", "sections": {}}
 
         await call_tool("sec_edgar_filing", {"ticker": "NVDA"})
 
         mock_filing.assert_called_once_with(
-            ticker="NVDA", form_type="10-K", sections=["all"], max_chars=25000,
+            ticker="NVDA", form_type="10-K", sections=[], mode="preview",
+            preview_chars=4000, query=None, query_window=3000, offset=0,
+            length=None, max_chars=25000, accession_number=None,
         )
+
+    @pytest.mark.asyncio
+    @patch("tools.research_tools.research_server.sec_edgar_filing", new_callable=AsyncMock)
+    async def test_routes_accession_number_without_forcing_default_form(self, mock_filing):
+        mock_filing.return_value = {"ticker": "NVDA", "sections": {}}
+
+        await call_tool("sec_edgar_filing", {
+            "ticker": "NVDA",
+            "accession_number": "0001045810-25-000023",
+            "sections": ["risk_factors"],
+        })
+
+        assert mock_filing.await_args.kwargs["accession_number"] == "0001045810-25-000023"
+        assert mock_filing.await_args.kwargs["form_type"] is None
+
+    @pytest.mark.asyncio
+    async def test_sec_filing_schema_advertises_exact_accession_workflow(self):
+        result = await list_tools()
+        tool = next(item for item in result.tools if item.name == "sec_edgar_filing")
+
+        assert "accession_number" in tool.inputSchema["properties"]
+        assert "sec_edgar_search" in tool.description
+        assert "exact filing" in tool.description
 
     @pytest.mark.asyncio
     @patch("tools.research_tools.research_server.rag_vector_search", new_callable=AsyncMock)

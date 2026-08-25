@@ -8,16 +8,10 @@ logger = logging.getLogger(__name__)
 
 EDGAR_BASE   = "https://www.sec.gov"
 EDGAR_DATA   = "https://data.sec.gov/submissions/CIK{cik}.json"
+EDGAR_SUBMISSIONS = "https://data.sec.gov/submissions/{name}"
 HEADERS      = {"User-Agent": "AlphaAgentNode research@alpha-agent.ai"}
 
 _CIK_CACHE: dict[str, str] = {}
-
-# SEC's full-text search backend (efts.sec.gov) becomes unreliable —
-# and frequently returns 500 — once a query string accumulates too many
-# ANDed terms (we've observed failures around 10+ words). Brain-generated
-# queries tend to pile on synonyms/dates ("Apple AI capex spending Q4 2025
-# earnings capital expenditure infrastructure investment June 2026"), so
-# we defensively cap the term count before sending the request.
 _MAX_QUERY_TERMS = 6
 
 
@@ -69,10 +63,7 @@ async def sec_edgar_search(
         try:
             cik = await _resolve_cik(ticker)
         except Exception as exc:
-            # CIK resolution failing must NEVER silently widen the search to
-            # the entire EDGAR corpus — log it and surface it to the caller
-            # so an unfiltered, ticker-less query is never mistaken for a
-            # ticker-scoped one.
+         
             logger.warning(
                 "sec_edgar_search: CIK resolution failed for ticker=%r: %s",
                 ticker, exc,
@@ -115,19 +106,6 @@ async def sec_edgar_search(
     for hit in data.get("hits", {}).get("hits", [])[:max_results]:
         src = hit.get("_source", {})
 
-        # SEC's efts.sec.gov full-text search index does NOT use the field
-        # names this code previously assumed ("entity_name", "form_type",
-        # "accession_no", "period_of_report"). Those keys don't exist in the
-        # real response, so every filing silently came back with empty
-        # strings for company/form_type/accession_number/period — the only
-        # field that was ever populated was "filed_at" (file_date), which is
-        # why prior traces showed filings with real dates but blank
-        # everything else. The actual field names are:
-        #   display_names      list[str]  e.g. ["APPLE INC (0000320193)"]
-        #   root_forms         list[str]  e.g. ["10-Q"]
-        #   adsh               str        e.g. "0000320193-26-000013"
-        #   period_ending      str        e.g. "2026-03-28"
-        #   file_date          str        e.g. "2026-05-01"
         display_names = src.get("display_names") or []
         root_forms    = src.get("root_forms") or []
 
@@ -141,16 +119,6 @@ async def sec_edgar_search(
 
     return {"query": query, "filings": filings}
 
-
-# A rough "sub-heading" inside a section body: a short run of ALL-CAPS
-# words immediately followed by a normal sentence (e.g. "STRATEGIC AND
-# COMPETITIVE RISKS We face intense competition..."). These come from SEC's
-# own bolded sub-headers within Risk Factors / MD&A and are the cheapest
-# possible signal an agent can use to jump to the right part of a huge
-# section without reading the whole thing. Heuristic, not perfect: misses
-# sub-headers that don't happen to be followed directly by a capitalized
-# sentence, and can occasionally catch a stray all-caps phrase that isn't
-# really a heading. Good enough as a navigation aid, not a source of truth.
 _HEADING_PATTERN = re.compile(
     r"(?:(?<=[.?!]\s)|^)((?:[A-Z][A-Z&,'\u2019\-]{1,}\s+){1,7}[A-Z][A-Z&,'\u2019\-]{1,})(?=\s+[A-Z][a-z])"
 )
@@ -161,9 +129,6 @@ def _find_headings(body: str) -> list:
     seen = []
     for m in _HEADING_PATTERN.finditer(body):
         h = m.group(1).strip()
-        # Skip the section's own title line re-matching (e.g. "RISK FACTORS"
-        # right at the start, from "ITEM 1A. RISK FACTORS ...") and
-        # near-duplicates -- these aren't useful sub-headings.
         if h.startswith("ITEM ") or h in seen or m.start() <= 25:
             continue
         seen.append(h)
@@ -186,33 +151,10 @@ def _query_snippet(body: str, query: str, window: int) -> dict:
     }
 
 
-# ── Deterministic compression, no LLM ──────────────────────────────
-#
-# Preview mode's raw `preview` (first N chars) and `headings` (bare list of
-# sub-header titles) are still useful, but neither is actually a *summary*
-# -- one is just the beginning of the document, the other has no content.
-# These two helpers turn the section into something genuinely short but
-# information-dense, using only string/regex work (no model call, no
-# risk of paraphrasing a number wrong):
-#
-#   - `_heading_leads`: for prose sections (risk_factors, mda, business),
-#     pairs each detected sub-heading with the first sentence that follows
-#     it -- a structural TL;DR the agent can scan in one screen.
-#   - `_extract_key_figures`: for financial_statements, which is a table
-#     of numbers rather than prose, pulls the standard income-statement
-#     line items out verbatim (exact strings, never rounded/reformatted)
-#     instead of returning any prose at all.
-
 _SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-Z\"'])")
 _LEAD_SENTENCE_CHARS = 220
 _MAX_LEADS = 10
 
-# Sentences containing a dollar figure, a percentage, or "million"/"billion"
-# are disproportionately likely to be the actual analyst-relevant content
-# in a prose section (revenue growth, tax exposure, cost changes, ...).
-# Pulling these out separately from _heading_leads catches numeric detail
-# that a heading's *first* sentence often doesn't include (the number
-# usually lands 2-3 sentences in, after the topic is introduced).
 _NUMERIC_HINT = re.compile(r"(\$\s?[\d,]+|\d+(?:\.\d+)?%|\bmillion\b|\bbillion\b)", re.I)
 _MAX_EXCERPTS = 6
 _EXCERPT_CHARS = 220
@@ -248,22 +190,6 @@ def _heading_leads(body: str) -> list:
             break
     return out
 
-
-# Standard 10-K/10-Q financial-statement line items this looks for, in
-# roughly the order they appear across Income Statement, then Cash Flow
-# Statement. Each is followed by 1-4 numeric tokens (current/prior period,
-# quarter/YTD -- the exact count varies by filing), which this pulls out
-# character-for-character (with $, commas, and parens intact) rather than
-# re-parsing into floats -- avoids ever silently mangling a number.
-#
-# The cash-flow items (Additions to property and equipment, Net cash from
-# operations, Net cash used in investing) matter as much as the income
-# statement ones: "Additions to property and equipment" IS the capex
-# figure -- for a query like "AI infrastructure spending", this is often
-# THE number that answers the question, and previously wasn't extracted
-# at all (income-statement-only list), forcing the agent to fall back to
-# weaker secondary sources (news articles that only mention capex in
-# passing) instead of the filing's own authoritative figure.
 _KEY_FIGURE_LABELS = [
     "Total revenue",
     "Total cost of revenue",
@@ -279,17 +205,6 @@ _KEY_FIGURE_LABELS = [
     "Additions to property and equipment",
     "Net cash used in investing",
 ]
-
-# Matches a number, optionally $-prefixed, optionally wrapped in
-# parentheses (SEC's convention for a negative/outflow figure). The `\s*`
-# immediately before the closing paren is required: real filings routinely
-# render negatives as "(30,876 )" with a space before ")", and without
-# tolerating that space here, the match silently stops short (e.g. capturing
-# just "(30,876" with no closing paren and dropping the rest of the row) --
-# this went unnoticed for the income-statement labels above because SEC
-# income-statement rows are rarely negative, but cash-flow outflow lines
-# (capex, investing activities) are negative far more often and would have
-# been silently mis-extracted without this fix.
 _NUM_TOKEN = r"\$?\s*\(?-?[\d,]+(?:\.\d+)?\s*\)?"
 
 
@@ -309,7 +224,7 @@ def _extract_key_figures(body: str) -> dict:
 # ─────────────────────────────────────────────
 async def sec_edgar_filing(
     ticker: str,
-    form_type: str = "10-K",
+    form_type: Optional[str] = None,
     sections: list = None,             # e.g. ["risk_factors","mda"] -- REQUIRED, no silent "all"
     mode: str = "preview",             # "preview" | "full"
     preview_chars: int = 2000,
@@ -318,10 +233,14 @@ async def sec_edgar_filing(
     offset: int = 0,                   # mode="full" only: start position within the section
     length: int = None,                # mode="full" only: chars to return (default: max_chars)
     max_chars: int = 25000,            # hard ceiling on how much of a section is ever parsed out
+    accession_number: Optional[str] = None,
 ) -> dict:
     """
-    Fetch the latest SEC filing (10-K / 10-Q) for a ticker and return one or
-    more named sections: business, risk_factors, mda, financial_statements.
+    Fetch an SEC filing (10-K / 10-Q) for a ticker and return one or more
+    named sections: business, risk_factors, mda, financial_statements. By
+    default the latest filing of ``form_type`` (10-K when omitted) is used.
+    When ``accession_number`` is provided, that exact filing is resolved from
+    the ticker's SEC submissions metadata instead.
 
     `sections` must be given explicitly and must name real sections -- there
     is no "give me everything" default. A single filing's sections can run
@@ -374,29 +293,118 @@ async def sec_edgar_filing(
     if mode not in ("preview", "full"):
         return {"ticker": ticker, "error": f"mode must be 'preview' or 'full', got {mode!r}"}
 
-    cik = await _resolve_cik(ticker)
+    normalized_accession = None
+    if accession_number is not None:
+        normalized_accession = _normalize_accession_number(accession_number)
+        if normalized_accession is None:
+            return {
+                "ticker": ticker,
+                "accession_number": accession_number,
+                "error": (
+                    f"Invalid SEC accession number {accession_number!r}; expected "
+                    "18 digits, with or without dashes (for example "
+                    "0001045810-25-000023)."
+                ),
+            }
+
+    try:
+        cik = await _resolve_cik(ticker)
+    except Exception as exc:
+        result = {"ticker": ticker, "error": f"CIK resolution failed for {ticker}: {exc}"}
+        if normalized_accession:
+            result["accession_number"] = normalized_accession
+        return result
     if not cik:
-        return {"ticker": ticker, "error": f"CIK not found for {ticker}"}
+        result = {"ticker": ticker, "error": f"CIK not found for {ticker}"}
+        if normalized_accession:
+            result["accession_number"] = normalized_accession
+        return result
 
-    submissions = await _get_submissions(cik)
+    if normalized_accession and normalized_accession[:10] != cik.zfill(10):
+        return {
+            "ticker": ticker,
+            "accession_number": normalized_accession,
+            "error": (
+                f"Accession number {normalized_accession} does not belong to "
+                f"ticker {ticker}."
+            ),
+        }
+
+    try:
+        submissions = await _get_submissions(cik)
+    except Exception as exc:
+        result = {"ticker": ticker, "error": f"Failed to fetch EDGAR submissions: {exc}"}
+        if normalized_accession:
+            result["accession_number"] = normalized_accession
+        return result
     if not submissions:
-        return {"ticker": ticker, "error": "Failed to fetch EDGAR submissions"}
+        result = {"ticker": ticker, "error": "Failed to fetch EDGAR submissions"}
+        if normalized_accession:
+            result["accession_number"] = normalized_accession
+        return result
 
-    filing_meta = _find_latest(submissions, form_type)
-    if not filing_meta:
-        return {"ticker": ticker, "error": f"No {form_type} found"}
+    if normalized_accession:
+        try:
+            filing_meta = await _find_by_accession(submissions, normalized_accession)
+        except Exception as exc:
+            return {
+                "ticker": ticker,
+                "accession_number": normalized_accession,
+                "error": f"Failed to resolve accession number from EDGAR submissions: {exc}",
+            }
+        if not filing_meta:
+            return {
+                "ticker": ticker,
+                "accession_number": normalized_accession,
+                "error": (
+                    f"Accession number {normalized_accession} was not found in "
+                    f"EDGAR submissions for ticker {ticker}."
+                ),
+            }
+        actual_form_type = filing_meta.get("form", "")
+        if not actual_form_type:
+            return {
+                "ticker": ticker,
+                "accession_number": normalized_accession,
+                "error": (
+                    f"EDGAR submissions metadata for accession {normalized_accession} "
+                    "does not include its form type."
+                ),
+            }
+        if form_type and actual_form_type and form_type.upper() != actual_form_type.upper():
+            return {
+                "ticker": ticker,
+                "accession_number": normalized_accession,
+                "error": (
+                    f"Requested form type {form_type} conflicts with accession "
+                    f"{normalized_accession}, which is a {actual_form_type} filing."
+                ),
+            }
+    else:
+        actual_form_type = form_type or "10-K"
+        filing_meta = _find_latest(submissions, actual_form_type)
+        if not filing_meta:
+            return {"ticker": ticker, "error": f"No {actual_form_type} found"}
 
     acc_dash   = filing_meta["accessionNumber"]          # e.g. 0000320193-26-000013
     acc_nodash = acc_dash.replace("-", "")               # e.g. 000032019326000013
-    raw_text   = await _fetch_text(cik, acc_dash, acc_nodash)
-    # Extract with a generous internal cap -- NOT max_chars. Preview mode's
-    # total_chars/headings/query need the section's real full size; if we
-    # truncated at max_chars (which defaults to 25000, a "full mode response
-    # size" cap) before computing those, preview would report a fake,
-    # artificially-small total instead of the document's actual length.
-    # max_chars/length are applied below, only when slicing for output.
+    try:
+        raw_text = await _fetch_text(cik, acc_dash, acc_nodash)
+    except Exception as exc:
+        return {
+            "ticker": ticker,
+            "accession_number": acc_dash,
+            "error": f"Failed to fetch filing text for accession {acc_dash}: {exc}",
+        }
+    if not raw_text:
+        return {
+            "ticker": ticker,
+            "accession_number": acc_dash,
+            "error": f"Failed to fetch filing text for accession {acc_dash}.",
+        }
+    
     _EXTRACTION_SAFETY_CAP = 750_000  # generous ceiling against pathological input, not a response cap
-    parsed = _extract_sections(raw_text, sections, _EXTRACTION_SAFETY_CAP, form_type)
+    parsed = _extract_sections(raw_text, sections, _EXTRACTION_SAFETY_CAP, actual_form_type)
 
     sections_out = {}
     for name, body in parsed.items():
@@ -407,17 +415,12 @@ async def sec_edgar_filing(
             entry["preview_chars_returned"] = min(preview_chars, len(body))
             entry["headings"] = _find_headings(body)
             if name == "financial_statements":
-                # Numbers table, not prose -- pull the standard line items
-                # out verbatim instead of a heading+sentence digest.
+                
                 entry["key_figures"] = _extract_key_figures(body)
             else:
-                # Structural TL;DR: each sub-heading + the sentence right
-                # after it. Usually all the signal an agent needs without
-                # reading the full section.
+                
                 entry["digest"] = _heading_leads(body)
-                # Numeric-signal sentences the heading+lead approach can
-                # miss (the number is often a few sentences into a
-                # subsection, not in its opening line).
+                
                 entry["important_excerpts"] = _important_excerpts(body)
         else:  # mode == "full"
             take = length if length is not None else max_chars
@@ -433,7 +436,7 @@ async def sec_edgar_filing(
     return {
         "ticker":           ticker,
         "company":          submissions.get("name", ""),
-        "form_type":        form_type,
+        "form_type":        actual_form_type,
         "filed_at":         filing_meta.get("filingDate", ""),
         "accession_number": filing_meta.get("accessionNumber", ""),
         "mode":             mode,
@@ -494,11 +497,6 @@ async def _resolve_cik(ticker: str) -> Optional[str]:
 
     cik = _TICKER_TO_CIK.get(t)
 
-    # Multi-class share tickers (e.g. Berkshire Hathaway) are sometimes typed
-    # with a dot ("BRK.B") and sometimes stored/typed with a hyphen ("BRK-B").
-    # An LLM-generated ticker directive could use either form, so try the
-    # other separator before giving up — this is generic to ANY dotted/
-    # hyphenated ticker, not special-cased to one company.
     if cik is None and ("." in t or "-" in t):
         alt = t.replace(".", "-") if "." in t else t.replace("-", ".")
         cik = _TICKER_TO_CIK.get(alt)
@@ -515,6 +513,55 @@ async def _get_submissions(cik: str) -> Optional[dict]:
         return resp.json()
 
 
+async def _get_submission_file(name: str) -> dict:
+    url = EDGAR_SUBMISSIONS.format(name=name)
+    async with httpx.AsyncClient(timeout=15.0, headers=HEADERS) as client:
+        resp = await client.get(url)
+        resp.raise_for_status()
+        return resp.json()
+
+
+def _normalize_accession_number(accession_number: str) -> Optional[str]:
+    compact = str(accession_number).strip().replace("-", "")
+    if not re.fullmatch(r"\d{18}", compact):
+        return None
+    return f"{compact[:10]}-{compact[10:12]}-{compact[12:]}"
+
+
+def _find_accession_in_rows(rows: dict, accession_number: str) -> Optional[dict]:
+    accessions = rows.get("accessionNumber", [])
+    forms = rows.get("form", [])
+    dates = rows.get("filingDate", [])
+    for index, candidate in enumerate(accessions):
+        if _normalize_accession_number(str(candidate)) == accession_number:
+            return {
+                "accessionNumber": accession_number,
+                "filingDate": dates[index] if index < len(dates) else "",
+                "form": forms[index] if index < len(forms) else "",
+            }
+    return None
+
+
+async def _find_by_accession(
+    submissions: dict,
+    accession_number: str,
+) -> Optional[dict]:
+    filings = submissions.get("filings", {})
+    filing_meta = _find_accession_in_rows(filings.get("recent", {}), accession_number)
+    if filing_meta:
+        return filing_meta
+
+    for submission_file in filings.get("files", []):
+        name = submission_file.get("name")
+        if not name:
+            continue
+        historical_rows = await _get_submission_file(name)
+        filing_meta = _find_accession_in_rows(historical_rows, accession_number)
+        if filing_meta:
+            return filing_meta
+    return None
+
+
 def _find_latest(submissions: dict, form_type: str) -> Optional[dict]:
     recent  = submissions.get("filings", {}).get("recent", {})
     forms   = recent.get("form", [])
@@ -527,24 +574,7 @@ def _find_latest(submissions: dict, form_type: str) -> Optional[dict]:
 
 
 async def _fetch_text(cik: str, acc_dash: str, acc_nodash: str) -> str:
-    # EDGAR's Archives path uses the un-padded integer CIK, an accession-number
-    # *directory* WITHOUT dashes, and a full-submission *file* WITH dashes.
-    # Getting either wrong yields a 404 and silently empty section output.
-    #
-    # No truncation on the response text. The full-submission .txt file
-    # concatenates the main document with exhibits, the XBRL instance
-    # document, and other attachments — for a large filer (e.g. MSFT) this
-    # exceeds even 5 MB. Two earlier fixed caps (2M, then 5M chars) both
-    # cut the raw text off partway through the document's own table of
-    # contents / cover matter, before the real Item 1/2/1A narrative body
-    # was ever reached — confirmed via a direct diagnostic fetch each time
-    # (raw text hit the cap exactly, and the "mda" section extracted
-    # afterward was provably just the table of contents, not the actual
-    # MD&A body). This does NOT increase LLM token cost: every returned
-    # section is separately capped by max_chars (default 25000 chars) in
-    # _extract_sections below before it ever reaches an LLM — the only
-    # real cost of fetching more here is a bit more network/memory for
-    # this one request, which is negligible for a single filing document.
+
     cik_int = str(int(cik))
     url = f"{EDGAR_BASE}/Archives/edgar/data/{cik_int}/{acc_nodash}/{acc_dash}.txt"
     async with httpx.AsyncClient(timeout=60.0, headers=HEADERS, follow_redirects=True) as client:
@@ -563,12 +593,6 @@ def _html_to_text(raw: str) -> str:
     sit between e.g. 'Item 2.' and 'Management', breaking contiguous matches.
     """
     raw = re.sub(r"(?is)<(script|style).*?>.*?</\1>", " ", raw)
-    # Block/structural tags genuinely separate content -- replace with a space.
-    # Everything else (inline wrapper tags like <span>, <font>, <ix:nonFraction>,
-    # <a>, etc.) is frequently inserted MID-WORD by SEC's Inline XBRL tagging
-    # (e.g. "FINANC<ix:nonFraction ...>IAL</ix:nonFraction>" must become
-    # "FINANCIAL", not "FINANC IAL"). Stripping those with no space avoids
-    # splitting words apart and breaking the "item N. <heading>" regexes.
     raw = re.sub(r"(?is)</?(p|div|tr|td|th|table|br|hr|h[1-6]|li|ul|ol)[^>]*>", " ", raw)
     raw = re.sub(r"(?s)<[^>]+>", "", raw)          # drop remaining inline tags, no space
     raw = _html.unescape(raw)                      # &#160; &amp; &#8217; ...
@@ -576,10 +600,6 @@ def _html_to_text(raw: str) -> str:
     raw = re.sub(r"\s+", " ", raw)
     return raw
 
-
-# Item-header numbering differs by form type. A 10-Q's MD&A is "Item 2" and
-# its financial statements are "Item 1" (and it has no standalone "Business"
-# section), whereas a 10-K uses Item 1 / 1A / 7 / 8.
 _SECTION_PATTERNS = {
     "10-K": {
         "business":             r"item\s+1[.\s]+business",
@@ -594,46 +614,12 @@ _SECTION_PATTERNS = {
     },
 }
 
-
-# A real section body is always at least this long in practice (SEC's
-# shortest genuine MD&A/risk-factors sections still run several thousand
-# characters). A candidate match whose span falls short of this is almost
-# certainly a table-of-contents entry or a cross-reference, not the actual
-# section body — see MIN_SECTION_CHARS usage in _extract_sections below.
 MIN_SECTION_CHARS = 800
 
-# A bare "PART I" / "PART II" trailer left dangling at the very END of an
-# extracted section (immediately before the next real header starts) is
-# table-of-contents/section-break noise, not content -- strip it.
-#
-# NOTE: this must be a tail-only cleanup, NOT a general boundary used to cut
-# section spans. Real SEC filings repeat "PART I. FINANCIAL INFORMATION" /
-# "PART II. OTHER INFORMATION" as a running header on EVERY page. Treating
-# every occurrence as a hard boundary (an earlier version of this function
-# did) truncates real sections after their first page -- e.g. MD&A cut off
-# mid-sentence after ~700 chars instead of running its full multi-page
-# length. Only strip it when it's trailing noise, never use it to bound
-# extraction.
 _TRAILING_PART_MARKER = re.compile(
     r"(?i)\s*part\s+[ivx]+\.?(?:\s+[a-z][a-z'\-]*){0,4}\s*$"
 )
 
-# Generic boundary for ANY numbered item header ("ITEM 3.", "ITEM 4.",
-# "ITEM 1.", etc.) -- not just the 4 named sections we extract. Without
-# this, content from untracked items (e.g. Item 3 Quantitative Disclosures,
-# Item 4 Controls and Procedures, Part II Item 1 Legal Proceedings) gets
-# silently swallowed into the tail of whichever named section precedes it,
-# because only business/risk_factors/mda/financial_statements were ever
-# treated as boundaries.
-#
-# Deliberately CASE-SENSITIVE and requires the period right after the
-# number/letter. Real section headers appear as "ITEM 3. QUANTITATIVE...".
-# Real SEC filings ALSO repeat a short running header on every page, e.g.
-# "PART I Item 2" or "PART II Item 1A" (mixed case, no period) -- matching
-# those too would re-truncate sections after their first page, which is
-# exactly the regression that occurred with the earlier PART-only boundary.
-# Requiring "ITEM" in all caps + "." excludes those running-header stubs
-# while still catching every genuine header.
 _ITEM_BOUNDARY_PATTERN = re.compile(r"\bITEM\s+\d{1,2}[A-Z]?\.")
 
 
@@ -647,10 +633,6 @@ def _extract_sections(text: str, sections: list, max_chars: int,
     text_low = clean.lower()
     want_all = "all" in sections
 
-    # Collect ALL occurrences of every header (not just the last one) so we
-    # can search backward for one that actually yields a substantive span,
-    # and build one merged, sorted list of boundary points (from every
-    # pattern) to compute "where does this candidate section actually end".
     all_matches: dict[str, list[int]] = {}
     for name, pat in patterns.items():
         starts = [m.start() for m in re.finditer(pat, text_low)]
@@ -672,12 +654,7 @@ def _extract_sections(text: str, sections: list, max_chars: int,
             if pos > start:
                 return pos
         return len(clean)
-
-    # For each requested section, walk its own occurrences from LAST to
-    # FIRST and take the first one whose span is long enough to plausibly
-    # be the real body — not a table-of-contents stub. Falls back to the
-    # last occurrence (old behavior) if NONE meet the length bar, since a
-    # too-short real answer is still better than silently returning nothing.
+    
     chosen_start: dict[str, int] = {}
     for name, starts in all_matches.items():
         if not want_all and name not in sections:
@@ -695,16 +672,8 @@ def _extract_sections(text: str, sections: list, max_chars: int,
     result = {}
     for idx, (name, start) in enumerate(sorted_pos):
         next_requested = sorted_pos[idx + 1][1] if idx + 1 < len(sorted_pos) else len(clean)
-        # Cap at whichever comes first: the next requested section's start,
-        # or the nearest ITEM-header boundary (tracked or not). Without the
-        # second cap, an untracked item (Item 3, Item 4, Part II Item 1
-        # Legal Proceedings, ...) sitting between this section and the next
-        # *requested* section leaks into this section's tail.
         end = min(next_requested, _end_boundary_after(start))
         body = clean[start:end].strip()
-        # Strip a dangling "PART II" (etc.) that sits right before the next
-        # real header -- tail-only, so it never affects where real content
-        # gets cut.
         body = _TRAILING_PART_MARKER.sub("", body).strip()
         result[name] = body[:max_chars]
 

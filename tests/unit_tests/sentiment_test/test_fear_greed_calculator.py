@@ -174,17 +174,59 @@ class TestLabelBands:
 # ---------------------------------------------------------------------------
 
 class TestConfidenceAndDiagnostics:
-    def test_confidence_equals_absolute_score(self):
+    def test_direction_strength_equals_absolute_score(self):
         calc = FearGreedIndexCalculator()
         result = calc.calculate(
             make_finbert(bullish=0.0, bearish=0.5), make_vader(compound=-0.5)
         )
-        assert result.confidence == round(abs(result.score), 4)
+        assert result.direction_strength == round(abs(result.score), 4)
 
-    def test_confidence_zero_for_neutral_score(self):
+    def test_agreed_neutral_is_high_agreement_not_low_confidence(self):
         calc = FearGreedIndexCalculator()
-        result = calc.calculate(make_finbert(bullish=0.0, bearish=0.0), make_vader(compound=0.0))
+        result = calc.calculate(
+            make_finbert(bullish=0.1, bearish=0.1, neutral=0.8),
+            make_vader(compound=0.0, neutral_mean=1.0),
+        )
+        assert result.score == 0.0
+        assert result.direction_strength == 0.0
+        assert result.model_agreement_score == 1.0
+        assert result.confidence == 1.0
+
+    def test_opposing_models_have_zero_agreement_and_confidence(self):
+        calc = FearGreedIndexCalculator(finbert_weight=0.5, vader_weight=0.5)
+        result = calc.calculate(
+            make_finbert(bullish=1.0, bearish=0.0),
+            make_vader(compound=-1.0),
+        )
+        assert result.score == 0.0
+        assert result.direction_strength == 0.0
+        assert result.model_agreement_score == 0.0
         assert result.confidence == 0.0
+
+    def test_evidence_independence_scales_confidence_not_direction(self):
+        calc = FearGreedIndexCalculator()
+        result = calc.calculate(
+            make_finbert(bullish=0.6, bearish=0.1),
+            make_vader(compound=0.5),
+            evidence_independence=0.4,
+        )
+        assert result.score == 0.5
+        assert result.direction_strength == 0.5
+        assert result.model_agreement_score == 1.0
+        assert result.evidence_independence == 0.4
+        assert result.confidence == 0.4
+
+    def test_partial_model_coverage_preserves_direction_and_caps_confidence(self):
+        calc = FearGreedIndexCalculator()
+        result = calc.calculate(
+            make_finbert(bullish=None, bearish=None, neutral=None, total_chunks=0),
+            make_vader(compound=0.6, total_chunks=4),
+        )
+        assert result.score == 0.6
+        assert result.direction_strength == 0.6
+        assert result.model_agreement_score is None
+        assert result.confidence == 0.5
+        assert result.diagnostics["partial_model_coverage"] is True
 
     def test_diagnostics_contains_all_raw_inputs(self):
         calc = FearGreedIndexCalculator()
@@ -196,15 +238,14 @@ class TestConfidenceAndDiagnostics:
         assert result.diagnostics["vader_compound"] == 0.1
         assert result.diagnostics["vader_label"] == "Positive"
 
-    def test_zero_chunks_both_models_returns_neutral_not_crash(self):
-        """If both models analyzed zero chunks, calculator must still run and
-        default to a neutral 0.0 score rather than raising — per docstring."""
+    def test_zero_chunks_both_models_returns_no_data_not_neutral(self):
         calc = FearGreedIndexCalculator()
         fb = make_finbert(bullish=0.0, bearish=0.0, total_chunks=0)
         vd = make_vader(compound=0.0, total_chunks=0)
         result = calc.calculate(fb, vd)
-        assert result.score == 0.0
-        assert result.label == "Neutral"
+        assert result.score is None
+        assert result.label is None
+        assert result.status == "NO_DATA"
 
     def test_result_is_feargreedresult_instance(self):
         calc = FearGreedIndexCalculator()
@@ -237,19 +278,23 @@ class TestCalculateFromDict:
         assert result_from_dict.score == result_direct.score
         assert result_from_dict.label == result_direct.label
 
-    def test_missing_required_key_raises_keyerror(self):
+    def test_partial_dict_input_uses_available_model(self):
         calc = FearGreedIndexCalculator()
-        with pytest.raises(KeyError):
-            calc.calculate_from_dict({}, {"compound": 0.0})
+        result = calc.calculate_from_dict(
+            {}, {"compound": 0.4, "total_chunks": 2}
+        )
+        assert result.score == 0.4
+        assert result.model_agreement_score is None
+        assert result.confidence == 0.5
 
     def test_missing_optional_keys_use_defaults(self):
         calc = FearGreedIndexCalculator()
         finbert_dict = {"bullish_prob": 0.5, "bearish_prob": 0.1, "neutral_prob": 0.4}
         vader_dict = {"compound": 0.2}
         result = calc.calculate_from_dict(finbert_dict, vader_dict)
-        # label defaults to "Neutral", total_chunks defaults to 0 — should not raise
+        # Missing optional counts infer one analyzed input from supplied scores.
         assert result.diagnostics["finbert_label"] == "Neutral"
-        assert result.diagnostics["finbert_total_chunks"] == 0
+        assert result.diagnostics["finbert_total_chunks"] == 1
 
 
 # ---------------------------------------------------------------------------

@@ -187,16 +187,24 @@ SENTRY_DSN=...             # optional
 # With Docker Compose
 docker-compose up --build
 
-# Or directly
-uvicorn api.main:app --reload --port 8000
+# Full local startup: seeds RAG first, then starts FastAPI/Uvicorn
+python main.py
+
+# Developer startup: starts only FastAPI, without running the RAG seed
+uvicorn api.main:app --reload --port 3000
 ```
+
+Both local startup modes default to port `3000` with reload enabled. Override
+it with `API_HOST`, `API_PORT`, `API_RELOAD`, or set a comma-separated seed
+list with `RAG_SEED_TICKERS`. The direct Uvicorn command intentionally bypasses
+the repository-level launcher and therefore does not run `rag.seed`.
 
 ### 4. Query the API
 
 ```bash
-curl -X POST http://localhost:8000/analyze \
+curl -X POST http://localhost:3000/api/v1/analyze \
   -H "Content-Type: application/json" \
-  -d '{"task_query": "Is NVIDIA a good buy for Q1 2025?"}'
+  -d '{"query": "Analyze NVIDIA for Q1 2025", "ticker": "NVDA"}'
 ```
 
 ---

@@ -17,6 +17,7 @@ _SECTION_CHECKS = {
     "period_consistency": {"financial health", "financial performance", "research highlights"},
     "valuation_bridge_consistency": {"valuation", "dcf valuation", "scenario analysis"},
     "scenario_consistency": {"valuation", "dcf valuation", "scenario analysis"},
+    "reverse_dcf_semantics": {"valuation", "dcf valuation", "sentiment", "market sentiment"},
     "repeated_metric_consistency": {"financial health", "financial performance", "research highlights"},
 }
 
@@ -36,7 +37,7 @@ _RELIABILITY_SECTIONS = {
         "recommendation":True,
     },
     "Valuation": {
-        "checks":{"valuation_bridge_consistency":"WITHHELD","scenario_consistency":"WITHHELD","arithmetic_consistency":"LIMITED"},
+        "checks":{"valuation_bridge_consistency":"WITHHELD","scenario_consistency":"WITHHELD","reverse_dcf_semantics":"WITHHELD","arithmetic_consistency":"LIMITED"},
         "reason":"A material inconsistency was detected in valuation inputs, scenarios, or valuation arithmetic.",
         "supportable":"No directional valuation conclusion is treated as decision-grade until the discrepancy is resolved.",
         "recommendation":True,
@@ -48,7 +49,7 @@ _RELIABILITY_SECTIONS = {
         "recommendation":True,
     },
     "Sentiment": {
-        "checks":{"sentiment_evidence_fidelity":"LIMITED","low_confidence_sentiment_scope":"LIMITED"},
+        "checks":{"sentiment_evidence_fidelity":"LIMITED","low_confidence_sentiment_scope":"LIMITED","reverse_dcf_semantics":"WITHHELD"},
         "reason":"Sentiment evidence coverage, confidence, or claim scope is below decision-grade reliability.",
         "supportable":"Only evidence-bounded, sample-limited sentiment observations remain supportable.",
         "recommendation":True,
@@ -75,9 +76,45 @@ _RELIABILITY_SECTIONS = {
 
 _RELIABILITY_RANK={"RELIABLE":0,"LIMITED":1,"WITHHELD":2,"DATA_INSUFFICIENT":3}
 
+_SUCCESSFUL_PUBLICATION_STATUSES = {
+    "PUBLISHED", "PUBLISHED_WITH_WARNINGS", "BLOCKED_RECOMMENDATION",
+}
+
+
+def execution_status_from_publication(
+    publication_status: str | None,
+    *,
+    validation_passed: bool | None = None,
+    aborted: bool = False,
+) -> str:
+    """Map publication truth to the API's completed/failed execution status."""
+    if aborted or validation_passed is False:
+        return "failed"
+    return (
+        "completed"
+        if str(publication_status or "") in _SUCCESSFUL_PUBLICATION_STATUSES
+        else "failed"
+    )
+
+
+def _critical_findings(validation: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        x for x in validation.get("critical_findings", [])
+        if isinstance(x, dict)
+        and not (
+            x.get("check") in _WARNING_ONLY_CHECKS
+            and str(x.get("severity") or "WARNING").upper() != "CRITICAL"
+        )
+    ]
 
 def _findings(validation: dict[str, Any]) -> list[dict[str, Any]]:
-    return [x for x in validation.get("critical_findings", []) if isinstance(x, dict)]
+    # Warning-only checks still affect section reliability/disclosure, but must
+    # not be promoted back into publication blockers by the assembly layer.
+    return [
+        x for x in validation.get("critical_findings", []) if isinstance(x, dict)
+    ] + [
+        x for x in validation.get("warnings", []) if isinstance(x, dict)
+    ]
 
 
 def _data_insufficient(shared: dict[str, Any]) -> bool:
@@ -171,20 +208,28 @@ def _public_warnings(reliability: list[dict[str,Any]]) -> list[dict[str,Any]]:
 
 def assemble_publication(candidate: str, validation: dict[str,Any], shared: dict[str,Any]) -> dict[str,Any]:
     """Return a non-empty user report and graded publication metadata."""
-    findings=_findings(validation); gate=shared.get("recommendation_gate",{}) or {}
+    findings=_findings(validation); critical_findings=_critical_findings(validation); gate=shared.get("recommendation_gate",{}) or {}
     if _data_insufficient(shared):
         report=_diagnostic_report(shared,"Data insufficient for full analysis","Critical or broadly insufficient inputs prevent a reliable full report.")
         reliability=_section_reliability(findings,recommendation_blocked=True,data_insufficient=True)
         report=_append_disclosure(report,status="DATA_INSUFFICIENT",reliability=reliability)
-        return {"final_report":report,"publication_status":"DATA_INSUFFICIENT","publication_warnings":_public_warnings(reliability),"withheld_sections":["full analysis","actionable recommendation"],"section_reliability":reliability,"confidence":"INSUFFICIENT"}
+        return {
+            "final_report": report,
+            "publication_status": "DATA_INSUFFICIENT",
+            "publication_succeeded": False,
+            "publication_warnings": _public_warnings(reliability),
+            "withheld_sections": ["full analysis", "actionable recommendation"],
+            "section_reliability": reliability,
+            "confidence": "INSUFFICIENT",
+        }
 
-    section_checks={x.get("check") for x in findings if x.get("check") in _SECTION_CHECKS}
+    section_checks={x.get("check") for x in critical_findings if x.get("check") in _SECTION_CHECKS}
     withheld_tokens=set().union(*(_SECTION_CHECKS[x] for x in section_checks)) if section_checks else set()
     report,removed=_remove_sections(candidate or "",withheld_tokens)
     recommendation_blocked=not gate.get("actionable_recommendation_allowed",False)
     if recommendation_blocked: report=_suppress_actionable_language(report)
 
-    if section_checks:
+    if critical_findings:
         status="LIMITED_REPORT"; confidence="LOW"
     elif recommendation_blocked:
         status="BLOCKED_RECOMMENDATION"; confidence=str(gate.get("confidence_level","LOW"))
@@ -198,4 +243,12 @@ def assemble_publication(candidate: str, validation: dict[str,Any], shared: dict
         status="LIMITED_REPORT"; confidence="LOW"
     reliability=_section_reliability(findings,recommendation_blocked=recommendation_blocked)
     report=_append_disclosure(report,status=status,reliability=reliability)
-    return {"final_report":report,"publication_status":status,"publication_warnings":_public_warnings(reliability),"withheld_sections":removed or sorted(withheld_tokens),"section_reliability":reliability,"confidence":confidence}
+    return {
+        "final_report": report,
+        "publication_status": status,
+        "publication_succeeded": status in _SUCCESSFUL_PUBLICATION_STATUSES,
+        "publication_warnings": _public_warnings(reliability),
+        "withheld_sections": removed or sorted(withheld_tokens),
+        "section_reliability": reliability,
+        "confidence": confidence,
+    }

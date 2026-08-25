@@ -1,14 +1,15 @@
-"""Build the single authoritative input contract for Manager final synthesis.
 
-This module performs no analysis or calculation.  It selects, labels, and
-normalizes already-produced Phase 3-6 outputs so legacy prose cannot override
-validated structured data in the finaliser context.
-"""
 from __future__ import annotations
 
 from copy import deepcopy
 import re
 from typing import Any
+
+from evaluation.claim_contract import ClaimType, normalize_claim_type
+from evaluation.aspect_sentiment import (
+    supported_causal_aspects,
+    valid_causal_observations,
+)
 
 
 SOURCE_PRECEDENCE = (
@@ -23,6 +24,7 @@ _METRICS = {
     "pe_ratio": "pe_ratio",
     "roe": "roe_pct",
     "net_margin": "net_margin_pct",
+    "current_ratio": "current_ratio",
     "de_ratio": "de_ratio",
     "revenue_cagr": "cagr_pct",
     "net_debt_to_ebitda": "net_debt_to_ebitda",
@@ -73,7 +75,23 @@ def _financial_metrics(fm: dict[str, Any]) -> dict[str, Any]:
             "period_start": item.get("period_start", fact.get("period_start")),
             "period_end": item.get("period_end", fact.get("period_end")),
             "scope": item.get("metric_scope", fact.get("metric_scope")),
-            "source": item.get("source_url", fact.get("source_url")),
+            "source": (
+                item.get("source")
+                or item.get("source_url")
+                or fact.get("source")
+                or fact.get("source_url")
+            ),
+            "exact_period": item.get("exact_period", fact.get("exact_period")),
+            "formula": item.get("formula", fact.get("formula")),
+            "semantic_name": item.get("semantic_name", name),
+            "validation_status": item.get(
+                "validation_status", fact.get("validation_status")
+            ),
+            "fallback_reason": item.get("fallback_reason", fact.get("fallback_reason")),
+            "confidence": item.get("confidence", fact.get("confidence")),
+            "is_approximation": bool(
+                item.get("is_approximation", fact.get("is_approximation", False))
+            ),
             "authority": "validated_structured_output",
         }
     return result
@@ -129,16 +147,16 @@ def _canonical_claims(fm: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(claim, dict):
             continue
         row = deepcopy(claim)
-        kind = str(row.get("claim_type") or "FACT").upper()
-        if kind == "MANAGEMENT_STATEMENT":
+        kind = normalize_claim_type(row.get("claim_type"))
+        if kind == ClaimType.MANAGEMENT_STATEMENT:
             evidence = str(row.get("evidence_span") or "").strip()
             source = row.get("source_url") or row.get("accession_number")
             speaker = row.get("speaker") or row.get("attributable_entity")
             if not evidence:
                 continue
             if not (source and speaker):
-                kind = "INFERENCE"
-                row["claim_type"] = kind
+                kind = ClaimType.INFERENCE
+                row["claim_type"] = kind.value
                 row["direct_quote_allowed"] = False
                 row["downgrade_reason"] = "management attribution lacks source or attributable speaker/entity"
             else:
@@ -147,20 +165,87 @@ def _canonical_claims(fm: dict[str, Any]) -> list[dict[str, Any]]:
                 row["direct_quote_allowed"] = bool(quoted) and all(
                     " ".join(re.findall(r"[a-z0-9]+",q.lower())) in normalized_evidence for q in quoted
                 )
-        row["claim_type"] = kind
-        row["synthesis_wording_rule"] = rules.get(kind, "do not present as sourced fact")
+        row["claim_type"] = kind.value
+        row["synthesis_wording_rule"] = rules.get(
+            kind.value, "do not present as sourced fact"
+        )
         row["authority"] = "typed_structured_claim"
         result.append(row)
     return result
 
 
-def _canonical_sentiment(sm: dict[str, Any]) -> dict[str, Any]:
-    observations = sm.get("aspect_observations", [])
-    supported = [
-        deepcopy(row) for row in observations
-        if isinstance(row, dict) and row.get("aspect") and row.get("polarity")
-        and row.get("evidence_span") and (row.get("document_url") or row.get("document_title"))
+def _dcf_caveats(fm: dict[str, Any]) -> list[dict[str, str]]:
+    """Create narrative caveats only from the current validated valuation state."""
+    dcf = fm.get("dcf_valuation", {}) if isinstance(fm.get("dcf_valuation"), dict) else {}
+    scenarios = [
+        dcf.get(name, {}) for name in ("bear", "base", "bull")
+        if isinstance(dcf.get(name), dict) and dcf.get(name)
     ]
+    caveats: list[dict[str, str]] = []
+    if not scenarios:
+        return [{
+            "code": "DCF_UNAVAILABLE",
+            "text": "DCF output is unavailable and must not be narrated as a valuation result.",
+        }]
+
+    bridge_complete = all(x.get("equity_bridge_complete") is True for x in scenarios)
+    if bridge_complete:
+        caveats.append({
+            "code": "EQUITY_BRIDGE_COMPLETE",
+            "text": "Per-share values include the modeled EV-to-equity bridge for cash, debt, leases, minority interest, and diluted shares to the extent shown in each scenario's equity_bridge.",
+        })
+    else:
+        caveats.append({
+            "code": "EQUITY_BRIDGE_INCOMPLETE",
+            "text": "The EV-to-equity bridge is incomplete; do not publish or imply a decision-grade per-share intrinsic value.",
+        })
+
+    assessments = fm.get("valuation_input_assessments", {})
+    if isinstance(assessments, dict):
+        approximated = [
+            name for name, item in assessments.items()
+            if isinstance(item, dict) and (
+                item.get("is_approximation") is True
+                or str(item.get("status") or "").upper() in {"APPROXIMATION", "DEGRADED"}
+            )
+        ]
+        if approximated:
+            caveats.append({
+                "code": "APPROXIMATED_INPUTS",
+                "text": "The valuation uses approximated inputs for: " + ", ".join(sorted(approximated)) + ".",
+            })
+
+    fcf = fm.get("fcf_margin", {})
+    if isinstance(fcf, dict) and fcf.get("validation_status") in {"FALLBACK", "DEGRADED"}:
+        caveats.append({
+            "code": "FCF_INPUT_RECOVERY",
+            "text": str(fcf.get("fallback_reason") or "The FCF base uses a disclosed fallback or degraded input."),
+        })
+    return caveats
+
+
+def _canonical_reverse_dcf(fm: dict[str, Any]) -> dict[str, Any]:
+    reverse = deepcopy(fm.get("reverse_dcf", {}))
+    if not isinstance(reverse, dict) or not reverse:
+        return {}
+    reverse.update({
+        "claim_type": ClaimType.MODEL_OUTPUT.value,
+        "domain": "valuation",
+        "model_name": "reverse_dcf",
+        "classification": "valuation_model_inference",
+        "synthesis_wording_rule": (
+            "Present as a model-implied valuation inference under stated assumptions; "
+            "never classify it as sentiment or observed investor belief."
+        ),
+    })
+    return reverse
+
+
+def _canonical_sentiment(sm: dict[str, Any]) -> dict[str, Any]:
+    raw_observations = sm.get("aspect_observations", [])
+    observations = raw_observations if isinstance(raw_observations, list) else []
+    supported = deepcopy(valid_causal_observations(observations))
+    causal_aspects = supported_causal_aspects(observations)
     structured_available = bool(sm.get("status") or observations or sm.get("causal_aspects_supported"))
     confidence=sm.get("confidence", sm.get("fear_greed_confidence"))
     try: low_confidence=confidence is not None and float(confidence) < .20
@@ -172,7 +257,7 @@ def _canonical_sentiment(sm: dict[str, Any]) -> dict[str, Any]:
         "coverage": sm.get("coverage", sm.get("total_chunks_analyzed")),
         "evidence_diversity": deepcopy(sm.get("evidence_diversity", {})),
         "aspects": supported,
-        "causal_aspects_supported": sorted({row["aspect"] for row in supported}),
+        "causal_aspects_supported": causal_aspects,
         "aggregate_signals": {
             "fear_greed_score": sm.get("fear_greed_score"),
             "fear_greed_label": sm.get("fear_greed_label"),
@@ -253,7 +338,8 @@ def build_canonical_synthesis_payload(
             "current_price": fm.get("current_price"),
             "scenarios": scenarios,
             "forecast_assumptions": deepcopy((fm.get("forecast") or {}).get("assumptions", {})),
-            "reverse_dcf": deepcopy(fm.get("reverse_dcf", {})),
+            "reverse_dcf": _canonical_reverse_dcf(fm),
+            "required_narrative_caveats": _dcf_caveats(fm),
             "multi_factor_monte_carlo": deepcopy(fm.get("dcf_monte_carlo", {})),
         },
         "claims": _canonical_claims(fm),

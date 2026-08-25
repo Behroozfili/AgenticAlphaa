@@ -43,32 +43,14 @@ def extract_ticker(
     directives: dict[str, Any],
     financial_summary: dict[str, Any] | None = None,
 ) -> str | None:
-    """
-    Resolve the target ticker symbol from multiple context sources.
-
-    Resolution order (highest priority first):
-        1. ``manager_directives["ticker"]``            — explicit Manager override.
-        2. ``financial_metrics_summary["ticker"]``     — already resolved upstream
-           by the FinancialAnalystAgent (only checked when a summary is passed).
-        3. Regex scan of ``task_query`` for 1-5 uppercase-letter tokens,
-           filtering known stop-words.
-
-    Shared by FinancialAnalystAgent and SentimentAgent. The Financial Agent
-    calls it without ``financial_summary`` (that source doesn't exist yet at
-    its stage); the Sentiment Agent passes the summary so an already-resolved
-    ticker is reused rather than re-inferred.
-
-    Returns the uppercase ticker, or ``None`` if none can be inferred.
-    """
-    # Priority 1: explicit directive
+    
     if directives.get("ticker"):
         return str(directives["ticker"]).upper()
 
-    # Priority 2: already resolved by FinancialAnalystAgent (if provided)
     if financial_summary and financial_summary.get("ticker"):
         return str(financial_summary["ticker"]).upper()
 
-    # Priority 3: heuristic regex scan of task_query
+  
     candidates = re.findall(r"\b([A-Z]{1,5})\b", task_query)
     for candidate in candidates:
         if candidate not in _TICKER_STOP_WORDS:
@@ -79,30 +61,8 @@ def extract_ticker(
     return None
 
 
-# ---------------------------------------------------------------------------
-# Deterministic analysis layer -- confidence, consistency, data quality.
-#
-# All three functions below are pure rule-based post-processing over
-# already-computed ratios; none of them call an LLM or make a judgment call
-# about what a number MEANS for the business (that's the Manager Agent
-# finalizer's job, deliberately kept separate -- see the call site in run()
-# for the full rationale). They only: (1) formalize the approximation/period
-# signals this pipeline already tracks into a simple confidence label,
-# (2) compare numbers this pipeline already has to flag directional
-# agreement/disagreement, and (3) tally errors/approximations into one
-# score. Nothing here invents a number that wasn't already computed.
-# ---------------------------------------------------------------------------
-
 def confidence_for(period_tag: str | None, is_approximation: bool = False) -> str:
-    """
-    Classify a single ratio's reliability from signals this pipeline
-    already produces (its "_period" tag and "is_approximation" flag) --
-    NOT a new judgment, just formalizing what was already being computed
-    into one label so the Manager/finalizer doesn't have to re-derive it
-    from parsing "_period" strings itself.
-
-    Returns "high" | "medium" | "low" | "unknown".
-    """
+   
     if is_approximation:
         return "low"
     if not period_tag:
@@ -113,19 +73,20 @@ def confidence_for(period_tag: str | None, is_approximation: bool = False) -> st
 
 
 def annotate_confidence(calculated_ratios: dict[str, Any]) -> None:
-    """
-    Mutate calculated_ratios IN PLACE: add a "confidence" key to every
-    ratio dict that carries a "_period" tag. Safe/additive -- every
-    existing consumer (financial_metrics_summary construction above,
-    manager_agent.py's fin_summary extraction) reads specific named keys
-    and ignores keys it doesn't ask for, so this can't break anything
-    downstream; it just makes "confidence" available wherever a caller
-    wants it.
-    """
+    state_confidence = {
+        "VALID_PRIMARY": "high",
+        "FALLBACK": "medium",
+        "DEGRADED": "low",
+        "UNAVAILABLE": "none",
+    }
     for ratio in calculated_ratios.values():
         if isinstance(ratio, dict) and "_period" in ratio:
-            ratio["confidence"] = confidence_for(
-                ratio.get("_period"), ratio.get("is_approximation", False)
+            ratio.setdefault(
+                "confidence",
+                state_confidence.get(
+                    str(ratio.get("validation_status")),
+                    confidence_for(ratio.get("_period"), ratio.get("is_approximation", False)),
+                ),
             )
 
 
@@ -147,20 +108,10 @@ def direction(pct: float | None, flat_band_pct: float = 2.0) -> str:
 
 
 def build_consistency_checks(raw: dict[str, Any], calc: dict[str, Any]) -> dict[str, Any]:
-    """
-    Rule-based cross-checks over data this pipeline ALREADY has -- each
-    check either runs on real multi-period data or is explicitly marked
-    "insufficient_data" with a reason. Never fabricates a trend from a
-    single data point, and never claims a metric this pipeline has no
-    historical series for (e.g. there's no historical debt series here,
-    only a current snapshot -- so leverage is reported as a status, not a
-    trend, rather than mislabeled as "Debt Stable").
-
-    Returns a dict of {check_name: {"status": ..., "detail": ...}}.
-    """
+  
     checks: dict[str, dict[str, str]] = {}
 
-    # Revenue trend -- from raw.revenue_growth.annual_revenue (newest-first)
+
     annual_rev = raw.get("revenue_growth", {}).get("annual_revenue", [])
     if len(annual_rev) >= 2:
         pct = pct_change(annual_rev[1]["revenue"], annual_rev[0]["revenue"])
@@ -171,9 +122,6 @@ def build_consistency_checks(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
     else:
         checks["revenue_growth"] = {"status": "insufficient_data", "detail": "fewer than 2 years of annual revenue"}
 
-    # Net income trend -- proxy for earnings growth. Labeled "net_income",
-    # NOT "eps", since this pipeline has no historical shares-outstanding
-    # series to compute actual historical EPS.
     annual_ni = raw.get("revenue_growth", {}).get("annual_net_income", [])
     if len(annual_ni) >= 2:
         pct = pct_change(annual_ni[1]["net_income"], annual_ni[0]["net_income"])
@@ -184,8 +132,6 @@ def build_consistency_checks(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
     else:
         checks["net_income_growth"] = {"status": "insufficient_data", "detail": "fewer than 2 years of annual net income"}
 
-    # FCF trend -- from XBRL operating_cash_flow_annual − capex_annual,
-    # index-aligned (both series come from the same XBRL source/ordering).
     ocf_series = raw.get("xbrl_financials", {}).get("operating_cash_flow_annual", [])
     capex_series = raw.get("xbrl_financials", {}).get("capex_annual", [])
     if len(ocf_series) >= 2 and len(capex_series) >= 2:
@@ -199,11 +145,6 @@ def build_consistency_checks(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
     else:
         checks["fcf_growth"] = {"status": "insufficient_data", "detail": "fewer than 2 years of XBRL operating cash flow / capex"}
 
-    # Margin trend -- only computed when the two annual series actually
-    # share the same fiscal years at the same index positions; otherwise
-    # explicitly flagged rather than silently comparing mismatched periods
-    # (the exact class of bug this pipeline's period-fidelity rules exist
-    # to prevent).
     if (len(annual_rev) >= 2 and len(annual_ni) >= 2
             and annual_rev[0]["year"] == annual_ni[0]["year"]
             and annual_rev[1]["year"] == annual_ni[1]["year"]
@@ -227,8 +168,6 @@ def build_consistency_checks(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
             "detail": "revenue/net_income annual series don't share aligned fiscal years, or too few years",
         }
 
-    # Leverage -- a SNAPSHOT, not a trend (no historical debt series
-    # available here) -- deliberately named/worded to not imply "stable".
     ndte = calc.get("net_debt_to_ebitda", {})
     if ndte.get("interpretation") and ndte["interpretation"] != "unavailable":
         checks["leverage_snapshot"] = {
@@ -238,9 +177,6 @@ def build_consistency_checks(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
     else:
         checks["leverage_snapshot"] = {"status": "insufficient_data", "detail": "net_debt_to_ebitda unavailable"}
 
-    # Valuation vs. historical average -- explicitly NOT computed. This
-    # pipeline has no historical P/E series (only the current snapshot),
-    # so a "valuation vs. history" claim would have to be fabricated.
     checks["valuation_vs_history"] = {
         "status": "insufficient_data",
         "detail": "no historical P/E (or other multiple) series available in this pipeline -- only the current snapshot",
@@ -250,14 +186,7 @@ def build_consistency_checks(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
 
 
 def build_data_quality_score(raw: dict[str, Any], calc: dict[str, Any]) -> dict[str, Any]:
-    """
-    Aggregate this run's own error/approximation signals into one
-    reliability score -- a tally of what's ALREADY known (extraction
-    errors, unavailable ratios, low-confidence ratios), not a new
-    assessment. Downstream agents (Manager, Sentiment) can use this to
-    decide how much weight to put on this run's numbers without having to
-    re-derive it from scanning every individual ratio themselves.
-    """
+   
     sources_available = {
         "yahoo_finance": bool(raw.get("yahoo_ratios")) and not raw.get("yahoo_ratios", {}).get("error"),
         "sec_xbrl":       bool(raw.get("xbrl_financials")) and not raw.get("xbrl_financials", {}).get("error"),
@@ -267,14 +196,19 @@ def build_data_quality_score(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
 
     extraction_error_count = len(raw.get("extraction_errors", []))
     ratio_dicts = [v for v in calc.values() if isinstance(v, dict)]
-    unavailable_count = sum(1 for v in ratio_dicts if v.get("interpretation") == "unavailable")
+    unavailable_count = sum(
+        1 for v in ratio_dicts
+        if v.get("interpretation") == "unavailable" or v.get("validation_status") == "UNAVAILABLE"
+    )
+    fallback_count = sum(1 for v in ratio_dicts if v.get("validation_status") == "FALLBACK")
+    degraded_count = sum(1 for v in ratio_dicts if v.get("validation_status") == "DEGRADED")
     low_confidence_count = sum(1 for v in ratio_dicts if v.get("confidence") == "low")
 
-    # Simple, documented, deterministic formula -- not a statistical model,
-    # just a readable penalty tally so the number's meaning is inspectable.
     score = 100
     score -= extraction_error_count * 15
     score -= unavailable_count * 5
+    score -= fallback_count * 1
+    score -= degraded_count * 3
     score -= low_confidence_count * 3
     score -= sum(1 for ok in sources_available.values() if not ok) * 10
     score = max(0, min(100, score))
@@ -283,12 +217,15 @@ def build_data_quality_score(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
         "sources_available":          sources_available,
         "extraction_error_count":     extraction_error_count,
         "unavailable_metric_count":   unavailable_count,
+        "fallback_metric_count":      fallback_count,
+        "degraded_metric_count":      degraded_count,
         "low_confidence_metric_count": low_confidence_count,
         "total_metrics_computed":     len(ratio_dicts),
         "reliability_score_pct":      score,
         "formula": (
-            "100 − 15×extraction_errors − 5×unavailable_metrics "
-            "− 3×low_confidence_metrics − 10×unavailable_sources, floored at 0"
+            "100 - 15*extraction_errors - 5*unavailable_metrics "
+            "- 1*fallback_metrics - 3*degraded_metrics "
+            "- 3*low_confidence_metrics - 10*unavailable_sources, floored at 0"
         ),
     }
 
@@ -299,20 +236,7 @@ def build_data_quality_score(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
 
 
 def sanitize_nans(value: Any) -> Any:
-    """
-    Recursively replace any float NaN/Infinity in a nested dict/list
-    structure with None, so the result is always strict-JSON-safe
-    (RFC 8259 has no NaN/Infinity token; Python's json module allows it
-    by default, but downstream persistence clients — e.g. Supabase's
-    postgrest client — reject it with
-    "Out of range float values are not JSON compliant: nan").
-
-    This is a defensive last resort, not a substitute for fixing NaN at
-    its source (see _safe_float() in yahoo_finance.py and the
-    _is_valid_number() guard in the CAGR block above) — but it guarantees
-    financial_metrics_summary can never crash persistence regardless of
-    which upstream data source introduces a stray NaN in the future.
-    """
+   
     if isinstance(value, float) and math.isnan(value):
         return None
     if isinstance(value, float) and math.isinf(value):

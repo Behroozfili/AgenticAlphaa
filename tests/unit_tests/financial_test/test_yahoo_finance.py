@@ -14,6 +14,7 @@ from tools.financial_tools.yahoo_finance import (
     _safe_get,
     get_price_history,
     get_financial_ratios,
+    get_balance_sheet_snapshot,
     get_revenue_growth,
     get_peer_comparison,
 )
@@ -95,6 +96,27 @@ class TestGetPriceHistory:
 
 class TestGetFinancialRatios:
     @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
+    @patch("tools.financial_tools.yahoo_finance.get_balance_sheet_snapshot")
+    def test_lease_liabilities_falls_back_to_balance_sheet(self, mock_snapshot, mock_ticker_cls):
+        mock_ticker_cls.return_value.info = {}
+        mock_snapshot.return_value = {"capital_lease_obligations": 123.0}
+
+        result = get_financial_ratios("NVDA")
+
+        assert result["lease_liabilities"] == 123.0
+
+    @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
+    @patch("tools.financial_tools.yahoo_finance.get_balance_sheet_snapshot")
+    def test_info_lease_liabilities_takes_precedence(self, mock_snapshot, mock_ticker_cls):
+        mock_ticker_cls.return_value.info = {"capitalLeaseObligations": 456.0}
+        mock_snapshot.return_value = {"capital_lease_obligations": 123.0}
+
+        result = get_financial_ratios("NVDA")
+
+        assert result["lease_liabilities"] == 456.0
+        mock_snapshot.assert_not_called()
+
+    @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
     def test_happy_path_maps_all_fields(self, mock_ticker_cls):
         mock_ticker_cls.return_value.info = {
             "longName": "NVIDIA Corp",
@@ -125,6 +147,24 @@ class TestGetFinancialRatios:
         assert result["error"] is None
 
     @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
+    def test_recovery_fields_are_normalized_with_period_metadata(self, mock_ticker_cls):
+        mock_ticker_cls.return_value.info = {
+            "debtToEquity": 66.0,
+            "mostRecentQuarter": 1_767_139_200,
+            "freeCashflow": 500.0,
+            "operatingCashflow": 700.0,
+            "totalRevenue": 2_000.0,
+        }
+
+        result = get_financial_ratios("MSFT")
+
+        assert result["de_ratio"] == 0.66
+        assert result["financial_data_period_end"] == "2025-12-31"
+        assert result["free_cash_flow"] == 500.0
+        assert result["operating_cash_flow"] == 700.0
+        assert result["revenue_ttm"] == 2_000.0
+
+    @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
     def test_missing_fields_default_to_none_or_na(self, mock_ticker_cls):
         mock_ticker_cls.return_value.info = {}
 
@@ -146,6 +186,20 @@ class TestGetFinancialRatios:
         # no other keys — which differs from the happy-path schema. Callers
         # must check `error` before reading other fields.
         assert set(result.keys()) == {"ticker", "error"}
+
+
+class TestGetBalanceSheetSnapshot:
+    @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
+    def test_extracts_capital_lease_obligations(self, mock_ticker_cls):
+        period = pd.Timestamp("2025-01-31")
+        mock_ticker_cls.return_value.balance_sheet = pd.DataFrame(
+            {period: {"Capital Lease Obligations": 123.0}}
+        )
+        mock_ticker_cls.return_value.financials = pd.DataFrame()
+
+        result = get_balance_sheet_snapshot("NVDA")
+
+        assert result["capital_lease_obligations"] == 123.0
 
 
 # ---------------------------------------------------------------------------

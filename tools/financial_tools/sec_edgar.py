@@ -284,6 +284,7 @@ def list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
         accessions = recent.get("accessionNumber", [])
         fil_dates  = recent.get("filingDate", [])
         rep_dates  = recent.get("reportDate", [])
+        primary_docs = recent.get("primaryDocument", [])
 
         cik_int = str(int(cik))  # un-padded for Archives URLs
         filings: list[dict] = []
@@ -307,6 +308,7 @@ def list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
                 "accession_number": accession,
                 "filing_date":      fil_dates[i] if i < len(fil_dates) else None,
                 "report_date":      rep_dates[i] if i < len(rep_dates) else None,
+                "primary_document": primary_docs[i] if i < len(primary_docs) else None,
                 "document_url":     document_url,
             })
 
@@ -326,7 +328,98 @@ def list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
                 "filings": [], "error": str(exc)}
 
 
-def get_filing_text(accession_number: str, cik: str) -> dict:
+_FILING_MIN_WORDS = {
+    "10-K": 500, "10-K/A": 500,
+    "10-Q": 250, "10-Q/A": 250,
+    "8-K": 100, "8-K/A": 100,
+}
+
+
+def _looks_like_exhibit(filename: str) -> bool:
+    """Identify common exhibit, XBRL resource, and consent filenames."""
+    stem = filename.lower().rsplit("/", 1)[-1]
+    return bool(
+        re.match(r"^(ex(?:hibit)?[-_\d.]|r\d+|.*-index)", stem)
+        or any(token in stem for token in (
+            "auditorconsent", "consentletter", "exhibit", "graphic",
+        ))
+    )
+
+
+def _filing_document_candidates(
+    items: list[dict[str, Any]],
+    *,
+    primary_document: str | None,
+    form_type: str | None,
+    accession_number: str,
+) -> list[str]:
+    """Rank document candidates using filing metadata, filename, and size."""
+    html_items = [
+        item for item in items
+        if str(item.get("name", "")).lower().endswith((".htm", ".html"))
+    ]
+    available = {str(item.get("name")): item for item in html_items}
+    candidates: list[str] = []
+
+    primary = (primary_document or "").strip().rsplit("/", 1)[-1]
+    if primary and primary in available and not _looks_like_exhibit(primary):
+        candidates.append(primary)
+
+    form_token = re.sub(r"[^a-z0-9]", "", (form_type or "").lower())
+
+    def score(item: dict[str, Any]) -> tuple[int, int, str]:
+        name = str(item.get("name", ""))
+        compact_name = re.sub(r"[^a-z0-9]", "", name.lower())
+        try:
+            size = int(item.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        return (int(bool(form_token and form_token in compact_name)), size, name)
+
+    ranked = sorted(
+        (item for item in html_items if not _looks_like_exhibit(str(item.get("name", "")))),
+        key=score,
+        reverse=True,
+    )
+    for item in ranked:
+        name = str(item.get("name", ""))
+        if name and name not in candidates:
+            candidates.append(name)
+
+    # The complete submission is a final recovery candidate, not an
+    # automatic success: it must pass the same content validation.
+    candidates.append(f"{accession_number}.txt")
+    return candidates
+
+
+def _validate_filing_text(text: str, form_type: str | None) -> tuple[bool, list[str]]:
+    """Check that a candidate is substantial and resembles the requested form."""
+    normalized_form = (form_type or "").upper().strip()
+    word_count = len(text.split())
+    minimum = _FILING_MIN_WORDS.get(normalized_form, 100)
+    reasons: list[str] = []
+    if word_count < minimum:
+        reasons.append(f"word_count_below_{minimum}")
+
+    lowered = re.sub(r"\s+", " ", text.lower())
+    markers: tuple[str, ...] = ()
+    if normalized_form.startswith("10-K"):
+        markers = ("form 10-k", "annual report", "item 1", "business")
+    elif normalized_form.startswith("10-Q"):
+        markers = ("form 10-q", "quarterly report", "financial statements", "item 1")
+    elif normalized_form.startswith("8-K"):
+        markers = ("form 8-k", "current report", "item 1.01", "item 2.02")
+    if markers and not any(marker in lowered for marker in markers):
+        reasons.append("missing_expected_form_markers")
+    return not reasons, reasons
+
+
+def get_filing_text(
+    accession_number: str,
+    cik: str,
+    primary_document: str | None = None,
+    form_type: str | None = None,
+) -> dict:
     """
     Download and extract the plain-text content of a specific SEC filing.
 
@@ -362,39 +455,58 @@ def get_filing_text(accession_number: str, cik: str) -> dict:
         index = _get(f"{base}/index.json", host="www.sec.gov")
         items = index.get("directory", {}).get("item", [])
 
-        # Prefer the main HTML document; skip XBRL/exhibit/graphic files.
-        candidate = None
-        htm_files = [it["name"] for it in items
-                     if it.get("name", "").lower().endswith((".htm", ".html"))]
-        # Heuristic: the primary doc usually contains the form id or is the
-        # largest .htm that is not an exhibit ("ex" / "R" XBRL viewer pages).
-        preferred = [n for n in htm_files
-                     if not re.match(r"(?i)^(ex|r\d|.*-index)", n)]
-        if preferred:
-            candidate = preferred[0]
-        elif htm_files:
-            candidate = htm_files[0]
-        else:
-            # Fall back to the full submission .txt file.
-            candidate = f"{acc}.txt"
-
-        doc_url = f"{base}/{candidate}"
-        raw = _get(doc_url, host="www.sec.gov", as_json=False)
-
-        text = _strip_html(raw)
-        word_count = len(text.split())
+        candidates = _filing_document_candidates(
+            items,
+            primary_document=primary_document,
+            form_type=form_type,
+            accession_number=acc,
+        )
+        attempts: list[dict[str, Any]] = []
+        for candidate in candidates:
+            try:
+                raw = _get(f"{base}/{candidate}", host="www.sec.gov", as_json=False)
+                text = _strip_html(raw)
+                valid, reasons = _validate_filing_text(text, form_type)
+                attempts.append({
+                    "document": candidate,
+                    "word_count": len(text.split()),
+                    "valid": valid,
+                    "reasons": reasons,
+                })
+                if not valid:
+                    continue
+                return {
+                    "accession_number": acc,
+                    "cik": cik_padded,
+                    "text": text,
+                    "word_count": len(text.split()),
+                    "selected_document": candidate,
+                    "validation_status": "VALID",
+                    "attempted_documents": attempts,
+                    "error": None,
+                }
+            except Exception as candidate_exc:
+                attempts.append({
+                    "document": candidate,
+                    "valid": False,
+                    "reasons": [f"fetch_failed: {candidate_exc}"],
+                })
 
         return {
             "accession_number": acc,
-            "cik":              cik_padded,
-            "text":             text,
-            "word_count":       word_count,
-            "error":            None,
+            "cik": cik_padded,
+            "text": None,
+            "word_count": 0,
+            "selected_document": None,
+            "validation_status": "INVALID",
+            "attempted_documents": attempts,
+            "error": "No candidate document passed filing validation.",
         }
 
     except Exception as exc:
         return {"accession_number": acc, "cik": str(cik),
-                "text": None, "word_count": 0, "error": str(exc)}
+                "text": None, "word_count": 0,
+                "validation_status": "INVALID", "error": str(exc)}
 
 
 # Candidate XBRL concept tags, in priority order, per metric. Companies
@@ -407,6 +519,15 @@ _REVENUE_TAGS = [
 ]
 _NET_INCOME_TAGS = ["NetIncomeLoss", "ProfitLoss"]
 _OPERATING_INCOME_TAGS = ["OperatingIncomeLoss"]
+# Cost of revenue — required to compute gross margin. Companies tag this
+# under several concepts depending on whether they sell goods, services, or
+# both; _extract_annual tries each in order and uses the first with data.
+_COST_OF_REVENUE_TAGS = [
+    "CostOfRevenue",
+    "CostOfGoodsAndServicesSold",
+    "CostOfGoodsSold",
+    "CostOfServices",
+]
 _PRETAX_INCOME_TAGS = ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest", "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments", "IncomeLossFromContinuingOperationsBeforeIncomeTaxes"]
 _INCOME_TAX_TAGS = ["IncomeTaxExpenseBenefit"]
 _OTHER_INCOME_TAGS = ["NonoperatingIncomeExpense", "OtherNonoperatingIncomeExpense", "InterestAndOtherNet"]
@@ -439,7 +560,7 @@ _BUYBACKS_TAGS = [
 ]
 
 
-def _extract_annual(facts: dict, tags: list[str]) -> list[dict]:
+def _extract_annual_legacy(facts: dict, tags: list[str]) -> list[dict]:
     """
     From a companyfacts payload, extract annual (10-K, full-year) USD values
     for the first tag in *tags* that has data.
@@ -509,6 +630,112 @@ def _extract_annual(facts: dict, tags: list[str]) -> list[dict]:
     return []
 
 
+def _extract_annual(
+    facts: dict,
+    tags: list[str],
+    metric_scope: str = "duration",
+) -> list[dict]:
+    """Select the strongest annual facts after evaluating every candidate concept."""
+    us_gaap = facts.get("facts", {}).get("us-gaap", {})
+    candidates: list[dict[str, Any]] = []
+
+    for concept_priority, tag in enumerate(tags):
+        concept = us_gaap.get(tag)
+        if not concept:
+            continue
+        for unit_key, rows in concept.get("units", {}).items():
+            for row in rows:
+                form = str(row.get("form") or "").upper()
+                end = row.get("end")
+                start = row.get("start")
+                val = row.get("val")
+                if form not in {"10-K", "10-K/A"} or end is None or val is None:
+                    continue
+                if row.get("segment") or row.get("dimensions"):
+                    continue
+
+                duration_days: int | None = None
+                try:
+                    end_date = date.fromisoformat(str(end))
+                    if start:
+                        duration_days = (end_date - date.fromisoformat(str(start))).days
+                except (TypeError, ValueError):
+                    continue
+
+                if metric_scope == "duration":
+                    # 10-K documents contain quarterly comparative facts too.
+                    if duration_days is None or not 300 <= duration_days <= 430:
+                        continue
+                elif metric_scope == "instant":
+                    if start is not None:
+                        continue
+                else:
+                    raise ValueError(f"Unsupported metric_scope: {metric_scope}")
+
+                candidates.append({
+                    "period_end": str(end),
+                    "period_start": str(start) if start is not None else None,
+                    "duration_months": (
+                        round(duration_days / 30.4375) if duration_days is not None else None
+                    ),
+                    "value": float(val),
+                    "unit": unit_key,
+                    "fiscal_year": row.get("fy"),
+                    "fiscal_quarter": row.get("fp"),
+                    "filing_type": form,
+                    "accession_number": row.get("accn"),
+                    "filed_at": row.get("filed"),
+                    "metric_scope": metric_scope,
+                    "gaap_status": "GAAP",
+                    "xbrl_concept": tag,
+                    "validation_status": "VALID",
+                    "_concept_priority": concept_priority,
+                })
+
+    def candidate_rank(row: dict[str, Any]) -> tuple[int, int, str, int, str, int]:
+        return (
+            int(row.get("unit") == "USD"),
+            int(row.get("fiscal_quarter") == "FY"),
+            str(row.get("filed_at") or ""),
+            int(row.get("filing_type") == "10-K/A"),
+            str(row.get("accession_number") or ""),
+            -int(row.get("_concept_priority", 0)),
+        )
+
+    # Select per exact period across all concepts. Recent periods are sorted
+    # only after semantic/unit/restatement ranking has chosen each fact.
+    by_period: dict[tuple[str | None, str], dict[str, Any]] = {}
+    for row in candidates:
+        key = (row.get("period_start"), row["period_end"])
+        current = by_period.get(key)
+        if current is None or candidate_rank(row) > candidate_rank(current):
+            by_period[key] = row
+
+    ordered = sorted(
+        by_period.values(),
+        key=lambda row: (row["period_end"], candidate_rank(row)),
+        reverse=True,
+    )
+    for row in ordered:
+        concept_priority = int(row.get("_concept_priority", 0))
+        row["validation_status"] = "VALID_PRIMARY" if concept_priority == 0 else "FALLBACK"
+        row["source"] = "sec_xbrl"
+        row["selected_source"] = f"sec_xbrl:{row.get('xbrl_concept')}"
+        row["exact_period"] = {
+            "basis": metric_scope,
+            "period_start": row.get("period_start"),
+            "period_end": row.get("period_end"),
+        }
+        row["fallback_reason"] = (
+            None if concept_priority == 0
+            else f"Preferred concept {tags[0]} had no eligible fact for this exact period; selected {row.get('xbrl_concept')}."
+        )
+        row["confidence"] = "high" if concept_priority == 0 else "medium"
+        row["is_approximation"] = False
+        row.pop("_concept_priority", None)
+    return ordered[:10]
+
+
 def get_xbrl_financials(ticker: str) -> dict:
     """
     Retrieve structured financial statement data from the SEC EDGAR XBRL API.
@@ -546,7 +773,8 @@ def get_xbrl_financials(ticker: str) -> dict:
 
     empty_series = {
         "revenue_annual": [], "net_income_annual": [],
-        "operating_income_annual": [], "pretax_income_annual": [],
+        "operating_income_annual": [], "cost_of_revenue_annual": [],
+        "pretax_income_annual": [],
         "income_tax_annual": [], "other_income_annual": [], "unusual_items_annual": [],
         "total_assets": [], "total_liabilities": [],
         "operating_cash_flow_annual": [], "capex_annual": [],
@@ -570,12 +798,13 @@ def get_xbrl_financials(ticker: str) -> dict:
             "revenue_annual":             _extract_annual(facts, _REVENUE_TAGS),
             "net_income_annual":          _extract_annual(facts, _NET_INCOME_TAGS),
             "operating_income_annual":    _extract_annual(facts, _OPERATING_INCOME_TAGS),
+            "cost_of_revenue_annual":     _extract_annual(facts, _COST_OF_REVENUE_TAGS),
             "pretax_income_annual":       _extract_annual(facts, _PRETAX_INCOME_TAGS),
             "income_tax_annual":          _extract_annual(facts, _INCOME_TAX_TAGS),
             "other_income_annual":        _extract_annual(facts, _OTHER_INCOME_TAGS),
             "unusual_items_annual":       _extract_annual(facts, _UNUSUAL_ITEMS_TAGS),
-            "total_assets":               _extract_annual(facts, _ASSETS_TAGS),
-            "total_liabilities":          _extract_annual(facts, _LIABILITIES_TAGS),
+            "total_assets":               _extract_annual(facts, _ASSETS_TAGS, "instant"),
+            "total_liabilities":          _extract_annual(facts, _LIABILITIES_TAGS, "instant"),
             "operating_cash_flow_annual": _extract_annual(facts, _OPERATING_CASH_FLOW_TAGS),
             "capex_annual":               _extract_annual(facts, _CAPEX_TAGS),
             "dividends_paid_annual":      _extract_annual(facts, _DIVIDENDS_PAID_TAGS),

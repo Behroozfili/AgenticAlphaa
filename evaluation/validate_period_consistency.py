@@ -244,7 +244,7 @@ ANNUAL_MARKERS = re.compile(
     re.IGNORECASE,
 )
 
-CONTEXT_WINDOW = 160  # chars of surrounding text to inspect for period cues
+CONTEXT_WINDOW = 160  # retained for backward-compatible direct callers
 
 
 def _find_value_context(report_text: str, value: float, window: int = CONTEXT_WINDOW) -> list[str]:
@@ -279,6 +279,50 @@ def _find_value_context(report_text: str, value: float, window: int = CONTEXT_WI
     return contexts
 
 
+def _display_matches_value(token: str, expected: float) -> bool:
+    """Match a displayed/rounded token without allowing bare-number collisions."""
+    try:
+        actual = float(token.replace(",", ""))
+    except (TypeError, ValueError):
+        return False
+    decimals = len(token.split(".", 1)[1]) if "." in token else 0
+    display_tolerance = 0.5 * (10 ** (-decimals))
+    # Percentage points need display-precision matching, not a broad relative
+    # tolerance. 67.94 displayed to one decimal is 67.9, never 68.1; the old
+    # 0.5% relative tolerance incorrectly treated both as the same value.
+    tolerance = max(display_tolerance + 1e-9, 0.005)
+    return abs(actual - expected) <= tolerance
+
+
+def _find_metric_value_contexts(
+    report_text: str,
+    value: float,
+    metric_label: re.Pattern[str],
+) -> list[str]:
+    """Return sentence/bullet-local contexts containing both label and value.
+
+    The former fixed 160-character window could pull a Q1 marker from the next
+    sentence and attach it to an annual metric. Requiring the metric label and
+    a rounding-compatible value in the same local segment removes that false
+    positive while still accepting displays such as 30.24% -> about 30.2%.
+    """
+    segments: list[str] = []
+    for line in report_text.splitlines():
+        # Do not split at the decimal point in values such as 55.6%.
+        segments.extend(re.split(
+            r"(?<=[!?])\s+|(?<=%)\.\s+|(?<=[A-Za-z)])\.\s+|[;,]\s+",
+            line,
+        ))
+    contexts: list[str] = []
+    for segment in segments:
+        if not metric_label.search(segment):
+            continue
+        tokens = re.findall(r"(?<![\d.])-?\d[\d,]*(?:\.\d+)?(?![\d.])", segment)
+        if any(_display_matches_value(token, float(value)) for token in tokens):
+            contexts.append(segment.strip())
+    return contexts
+
+
 def check_narration_vs_period(final_report: str, financial_metrics_summary: dict) -> list[dict]:
     """
     For every ratio in financial_metrics_summary that carries a '_period'
@@ -294,9 +338,16 @@ def check_narration_vs_period(final_report: str, financial_metrics_summary: dict
     the report mixed the former's margin with the latter's raw numbers).
     """
     findings = []
-    value_field_by_metric = {
-        "net_margin": "net_margin_pct", "roe": "roe_pct", "pe_ratio": "pe_ratio",
-        "de_ratio": "de_ratio", "revenue_cagr": "cagr_pct",
+    metric_contract = {
+        "net_margin": ("net_margin_pct", re.compile(r"\bnet (?:profit )?margin\b", re.I)),
+        "gross_margin": ("gross_margin_pct", re.compile(r"\bgross margin\b", re.I)),
+        "operating_margin": ("operating_margin_pct", re.compile(r"\boperating margin\b", re.I)),
+        "roe": ("roe_pct", re.compile(r"\b(?:ROE|return on equity)\b", re.I)),
+        "pe_ratio": ("pe_ratio", re.compile(r"\b(?:P/E|price[- ]to[- ]earnings)\b", re.I)),
+        "de_ratio": ("de_ratio", re.compile(r"\b(?:D/E|debt[- ]to[- ]equity)\b", re.I)),
+        "revenue_cagr": ("cagr_pct", re.compile(r"\b(?:revenue )?CAGR\b", re.I)),
+        "fcf_margin": ("fcf_margin_pct", re.compile(r"\b(?:FCF|free cash flow) margin\b", re.I)),
+        "ocf_ratio": ("ocf_ratio", re.compile(r"\b(?:OCF|operating cash flow) coverage\b", re.I)),
     }
     tag_prefix_to_category = {"quarterly:": "quarterly", "annual:": "annual"}
     category_markers = {
@@ -305,7 +356,7 @@ def check_narration_vs_period(final_report: str, financial_metrics_summary: dict
         "annual":    ANNUAL_MARKERS,
     }
 
-    for metric_key, value_field in value_field_by_metric.items():
+    for metric_key, (value_field, metric_label) in metric_contract.items():
         entry = financial_metrics_summary.get(metric_key, {})
         if not isinstance(entry, dict):
             continue
@@ -321,7 +372,7 @@ def check_narration_vs_period(final_report: str, financial_metrics_summary: dict
         if tagged_category is None:
             continue  # "ttm"/"mrq"/"mixed"/"derived:..." aren't quarter/interim/annual claims
 
-        for ctx in _find_value_context(final_report, value):
+        for ctx in _find_metric_value_contexts(final_report, value, metric_label):
             present = {cat for cat, pattern in category_markers.items() if pattern.search(ctx)}
             if not present or tagged_category in present:
                 continue  # no period language nearby, or it agrees with the tag

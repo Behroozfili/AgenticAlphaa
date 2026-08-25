@@ -1,49 +1,6 @@
 """
 agents/manager_agent.py
 ------------------------
-Production-grade ManagerAgent — Central Orchestration Layer for the
-Alpha-Agent Node platform.
-
-Architecture
-------------
-
-    ┌────────────────────────────────────────────────────────────────┐
-    │                   ManagerAgent — StateGraph                    │
-    │                                                                │
-    │  NODES (LangGraph)                                             │
-    │    node: hydrate       → _node_hydrate()                       │
-    │    node: brain_route   → _node_brain_route()                   │
-    │    node: dispatch      → _node_dispatch()                      │
-    │    node: evaluate      → _node_evaluate()                      │
-    │    node: persist       → _node_persist()                       │
-    │    node: finalise      → _node_finalise()                      │
-    │    node: abort         → _node_abort()                         │
-    │                                                                │
-    │  EDGES                                                         │
-    │    START → hydrate → brain_route                               │
-    │    brain_route →(conditional)→ dispatch | finalise | abort     │
-    │    dispatch → evaluate → persist                               │
-    │    persist  →(conditional)→ brain_route | dispatch | abort     │
-    │                                                                │
-    │  GUARDRAIL: max_routing_loops (default: 8)                     │
-    └────────────────────────────────────────────────────────────────┘
-
-Routing Actions (Brain vocabulary)
------------------------------------
-    "run_research"     → dispatch ResearchAgent
-    "run_financial"    → dispatch FinancialAnalystAgent
-    "run_sentiment"    → dispatch SentimentAgent
-    "rerun_research"   → re-dispatch ResearchAgent (with updated directives)
-    "rerun_financial"  → re-dispatch FinancialAnalystAgent
-    "rerun_sentiment"  → re-dispatch SentimentAgent
-    "finalise"         → synthesise final report and exit loop
-    "abort"            → exit loop with error state (guardrail hit)
-
-State contract
---------------
-    Input  : task_query (str), manager_directives (dict), user_preferences (dict)
-    Output : SharedManagerState with final_report populated
-
 
 """
 
@@ -51,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 import uuid
 from datetime import datetime, timezone
@@ -81,74 +39,149 @@ from memory.manager_memory import EvaluationFeedback, ManagerMemory
 from core.error_handler import add_breadcrumb, capture_exception, capture_message
 from core.progress_bus import publish as _publish_progress
 from agents.prompts.promt_manager_agent import (ROUTER_SYSTEM_PROMPT ,EVALUATOR_SYSTEM_PROMPT,FINALISER_SYSTEM_PROMPT,VALID_ACTIONS,ACTION_DESCRIPTIONS)
-# QA / validation — checks final_report narration against the period
-# provenance tags financial_agent.py attaches to each calculated ratio
-# (e.g. catches an annual net_margin narrated as if it described the
-# current quarter). Non-blocking: see its usage in _node_finalise below.
-# Adjust this import path to wherever validate_period_consistency.py
-# actually lives in your project layout (e.g. validation/, tools/qa/).
 from evaluation.validate_period_consistency import (
     check_narration_vs_period, detect_material_period_conflicts,
 )
 from evaluation.recommendation_gate import build_recommendation_gate, contains_actionable_recommendation
 from evaluation.canonical_synthesis import build_canonical_synthesis_payload
-from evaluation.publication_policy import assemble_publication
-from evaluation.final_publication import validate_final_publication
+from evaluation.publication_policy import (
+    assemble_publication,
+    execution_status_from_publication,
+)
+from evaluation.final_publication import (
+    normalize_validation_aware_narrative,
+    validate_final_publication,
+)
 from evaluation.financial_sanity import evaluate_financial_sanity
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-# NOTE: logging.basicConfig() must NOT be called in library/agent code —
-# it hijacks the root logger for the entire process. Configuration belongs
-# exclusively in the entry point (api/main.py or __main__ blocks).
+
+# Backward-compatible public aliases retained for existing consumers/tests.
+_extract_chunk_text = extract_chunk_text
+_feedback_to_snapshot = feedback_to_snapshot
+_infer_result_keys = infer_result_keys
+
+
 log = logging.getLogger("manager-agent")
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
-_DEFAULT_MODEL             = "claude-haiku-4-5"
+_DEFAULT_MODEL = "claude-haiku-4-5"
 _DEFAULT_MAX_ROUTING_LOOPS = 8
+
+_TRANSIENT_ERROR_MARKERS = (
+    "timeout", "timed out", "rate limit", "429", "connection reset",
+    "connection refused", "temporarily unavailable", "temporary failure",
+    "service unavailable", "gateway timeout", "502", "503", "504",
+)
+
+
+def sentiment_result_quality_passed(summary: dict[str, Any]) -> bool:
+    """Validate sentiment quality independently of agent execution success."""
+    if isinstance(summary.get("fear_greed_score"), bool):
+        return False
+    try:
+        score = float(summary.get("fear_greed_score"))
+        unique_documents = int(summary.get("unique_document_count") or 0)
+        unique_domains = int(summary.get("unique_domain_count") or 0)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return bool(
+        summary.get("status") == "VALID"
+        and summary.get("quality_passed") is True
+        and math.isfinite(score)
+        and -1.0 <= score <= 1.0
+        and unique_documents >= SentimentAgent._MIN_UNIQUE_DOCUMENTS
+        and unique_domains >= SentimentAgent._MIN_UNIQUE_DOMAINS
+        and not summary.get("extraction_errors")
+        and not summary.get("causal_mismatch_detected")
+    )
+
+
+def is_transient_failure(value: Any) -> bool:
+    """Return true only for retryable transport/service failures."""
+    if isinstance(value, dict):
+        return any(is_transient_failure(item) for item in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return any(is_transient_failure(item) for item in value)
+    text = str(value or "").lower()
+    return any(marker in text for marker in _TRANSIENT_ERROR_MARKERS)
+
+
+def agent_result_is_valid(agent_key: str, state: dict[str, Any]) -> bool:
+    """Determine whether a previously produced agent result can be reused."""
+    if agent_key == "research":
+        return len(state.get("aggregated_research_context", [])) >= 3
+    if agent_key == "financial":
+        fm = state.get("financial_metrics_summary", {}) or {}
+        sanity = fm.get("financial_sanity", {}) or {}
+        return bool(fm) and fm.get("validation_passed") is True and sanity.get("passed", True) is not False
+    if agent_key == "sentiment":
+        sm = state.get("sentiment_analysis_summary", {}) or {}
+        return sentiment_result_quality_passed(sm)
+    return False
+
+
+def _agent_was_attempted(agent_key: str, state: dict[str, Any]) -> bool:
+    class_name = {
+        "research": "ResearchAgent",
+        "financial": "FinancialAnalystAgent",
+        "sentiment": "SentimentAgent",
+    }.get(agent_key)
+    return any(
+        isinstance(row, dict) and row.get("agent_name") == class_name
+        for row in state.get("agent_execution_history", [])
+    )
+
+
+def _agent_failure_context(agent_key: str, state: dict[str, Any]) -> list[Any]:
+    context: list[Any] = []
+    class_name = {
+        "research": "ResearchAgent",
+        "financial": "FinancialAnalystAgent",
+        "sentiment": "SentimentAgent",
+    }.get(agent_key)
+    context.extend(
+        row.get("error_message") for row in state.get("agent_execution_history", [])
+        if isinstance(row, dict) and row.get("agent_name") == class_name
+    )
+    if agent_key == "financial":
+        context.extend((state.get("financial_metrics_summary", {}) or {}).get("extraction_errors", []))
+    elif agent_key == "sentiment":
+        sm = state.get("sentiment_analysis_summary", {}) or {}
+        context.extend(sm.get("extraction_errors", []))
+        context.extend(sm.get("prior_attempt_errors", []))
+    return context
+
+
+def next_pipeline_action(agent_key: str, state: dict[str, Any]) -> str:
+    """Advance without rerunning an already attempted non-transient failure."""
+    if agent_key == "research":
+        return "run_financial"
+    if agent_key == "financial":
+        return (
+            "run_sentiment"
+            if state.get("manager_directives", {}).get("include_sentiment", True)
+            else "finalise"
+        )
+    return "finalise"
+
+
+def normalize_route_action(action: str, state: dict[str, Any]) -> str:
+    if not (action.startswith("run_") or action.startswith("rerun_")):
+        return action
+    agent_key = action.removeprefix("rerun_").removeprefix("run_")
+    if agent_result_is_valid(agent_key, state):
+        return next_pipeline_action(agent_key, state)
+    if _agent_was_attempted(agent_key, state) and not is_transient_failure(
+        _agent_failure_context(agent_key, state)
+    ):
+        return next_pipeline_action(agent_key, state)
+    return action
 
 
 
 
 class ManagerAgent:
-    """
-    Central Orchestration Layer for the Alpha-Agent Node platform.
-
-    The ManagerAgent is the top-level entry point for all analysis tasks.
-    It owns the SharedManagerState lifecycle, drives the specialist agent
-    pipeline, maintains cognitive memory across steps, and synthesises
-    the final report.
-
-    Responsibilities
-    ----------------
-    1. Ingest the user's task query and hydrate a fresh SharedManagerState.
-    2. Query ManagerMemory for relevant short-term and long-term context.
-    3. Consult the Brain (Claude) to decide the next routing action.
-    4. Dispatch the chosen specialist agent and await its result.
-    5. Evaluate the agent's output quality via a second Brain call.
-    6. Persist execution milestones and insights back into ManagerMemory.
-    7. Loop until all agents complete or the guardrail is hit.
-    8. Synthesise the final investment analysis report.
-
-    Parameters
-    ----------
-    research_agent : ResearchAgent
-        Instantiated ResearchAgent (LangGraph-based).
-    financial_agent : FinancialAnalystAgent
-        Instantiated FinancialAnalystAgent (MCP-based).
-    sentiment_agent : SentimentAgent
-        Instantiated SentimentAgent (MCP-based).
-    memory : ManagerMemory
-        Injected ManagerMemory instance (short + long term).
-    model : str
-        Anthropic model identifier for Brain calls.
-    max_routing_loops : int
-        Hard limit on Brain→Dispatch iterations. Default: 8.
-    """
+   
 
     def __init__(
         self,
@@ -160,9 +193,7 @@ class ManagerAgent:
         max_routing_loops: int = _DEFAULT_MAX_ROUTING_LOOPS,
         llm_client:        anthropic.AsyncAnthropic | None = None,
     ) -> None:
-        # Use AsyncAnthropic so Brain calls never block the event loop.
-        # Accept an injected client so tests can pass a mock without
-        # making real API calls.
+        
         self._llm               = llm_client or anthropic.AsyncAnthropic()
         self._model             = model
         self._max_routing_loops = max_routing_loops
@@ -190,10 +221,7 @@ class ManagerAgent:
         task_query:         str,
         manager_directives: dict[str, Any],
     ) -> SharedManagerState:
-        """
-        Initialise a fresh SharedManagerState with all required fields.
-        Called once at the start of every ``run()``.
-        """
+        
         state: SharedManagerState = {
             "task_query":                  task_query,
             "manager_directives":          manager_directives,
@@ -212,7 +240,7 @@ class ManagerAgent:
     # =========================================================================
 
     def _recall(self, ticker: str | None) -> dict[str, Any]:
-        """Pull relevant context from ManagerMemory (short-term + long-term)."""
+       
         recall = self._memory.recall(ticker=ticker)
         log.info(
             "[Recall] agents_run=%s heuristics=%d ticker_cached=%s",
@@ -232,11 +260,7 @@ class ManagerAgent:
         memory_recall: dict[str, Any],
         loop_counter:  int,
     ) -> dict[str, Any]:
-        """
-        BRAIN PASS 1 — Routing Decision (async).
-
-        Uses AsyncAnthropic so the event loop is never blocked.
-        """
+      
         research_chunks = len(state.get("aggregated_research_context", []))
         fin_score       = state.get("financial_metrics_summary", {}).get(
                               "composite_score", {}).get("score")
@@ -287,6 +311,14 @@ class ManagerAgent:
             if action not in VALID_ACTIONS:
                 log.warning("[Brain-Route] Invalid action '%s' — defaulting to abort.", action)
                 decision["action"] = "abort"
+            else:
+                normalized_action = normalize_route_action(action, state)
+                if normalized_action != action:
+                    decision["action"] = normalized_action
+                    decision["reasoning"] = (
+                        f"{decision.get('reasoning', '')} Reused an existing valid "
+                        "result or avoided a non-transient retry."
+                    ).strip()
 
             log.info(
                 "[Brain-Route] Decision: action=%s reasoning='%s'",
@@ -307,6 +339,7 @@ class ManagerAgent:
                 fallback_action = "run_sentiment"
             else:
                 fallback_action = "finalise"
+            fallback_action = normalize_route_action(fallback_action, state)
             log.warning("[Brain-Route] Falling back to action='%s'.", fallback_action)
             return {
                 "action":            fallback_action,
@@ -320,13 +353,7 @@ class ManagerAgent:
         state:       SharedManagerState,
         memory_ctx:  dict[str, Any],
     ) -> EvaluationFeedback:
-        """
-        BRAIN PASS 2 — Output Quality Evaluation (async).
-
-        Grades the agent's output and recommends a next routing action.
-        Does NOT call memory.add_evaluation() — that is the sole
-        responsibility of _node_persist() to avoid double-writing.
-        """
+    
         if agent_name == "ResearchAgent":
             output_summary = {
                 "chunks_count": len(state.get("aggregated_research_context", [])),
@@ -335,6 +362,13 @@ class ManagerAgent:
                     for c in state.get("aggregated_research_context", [])[:2]
                 ],
             }
+            if output_summary["chunks_count"] < 3:
+                issue = "Research output contains fewer than 3 validated chunks."
+                return EvaluationFeedback(
+                    step="research", timestamp=time.time(), passed=False,
+                    score=30, issues=[issue], next_action="rerun_research",
+                    raw_verdict=json.dumps({"passed": False, "issues": [issue]}),
+                )
         elif agent_name == "FinancialAnalystAgent":
             fm = state.get("financial_metrics_summary", {})
             deterministic_validation = fm.get("financial_sanity") or evaluate_financial_sanity(fm)
@@ -368,8 +402,12 @@ class ManagerAgent:
         else:
             sm = state.get("sentiment_analysis_summary", {})
             sentiment_status = sm.get("status", "ERROR")
+            deterministic_quality_passed = sentiment_result_quality_passed(sm)
             output_summary = {
                 "status":            sentiment_status,
+                "execution_success": sm.get("execution_success"),
+                "quality_passed":    deterministic_quality_passed,
+                "quality_failures":  sm.get("quality_failures", []),
                 "polarity":          sm.get("polarity"),
                 "fear_greed_score":  sm.get("fear_greed_score"),
                 "fear_greed_label":  sm.get("fear_greed_label"),
@@ -380,12 +418,20 @@ class ManagerAgent:
                 "prior_attempt_errors": sm.get("prior_attempt_errors", []),
                 "attempts":          sm.get("attempts", []),
             }
-            if sentiment_status != "VALID":
-                issue = f"Sentiment status is {sentiment_status}; only VALID may advance as successful sentiment."
+            if not deterministic_quality_passed:
+                detail = "; ".join(str(item) for item in sm.get("quality_failures", []))
+                issue = (
+                    f"Sentiment quality failed (status={sentiment_status})"
+                    + (f": {detail}" if detail else ".")
+                )
                 verdict = {
                     "passed": False, "score": 40 if sentiment_status == "LOW_COVERAGE" else 0,
                     "issues": [issue], "next_action": "rerun_sentiment",
-                    "reasoning": "Missing, errored, or low-coverage input cannot be treated as neutral sentiment.",
+                    "reasoning": (
+                        "Execution completion is separate from quality: missing score, "
+                        "critical errors, causal mismatch, or insufficient independent "
+                        "sources cannot pass sentiment quality."
+                    ),
                 }
                 return EvaluationFeedback(
                     step="sentiment", timestamp=time.time(), passed=False,
@@ -421,19 +467,23 @@ class ManagerAgent:
         except Exception as exc:
             log.exception("[Brain-Evaluate] Evaluation failed: %s", exc)
             capture_exception("brain_evaluate", exc, tags={"agent_name": agent_name})
-            financial_failure = agent_name == "FinancialAnalystAgent"
+            step_key = {
+                "ResearchAgent": "research",
+                "FinancialAnalystAgent": "financial",
+                "SentimentAgent": "sentiment",
+            }.get(agent_name, "")
+            reusable = agent_result_is_valid(step_key, state)
             verdict = {
-                "passed":      False if financial_failure else True,
-                "score":       0 if financial_failure else 50,
+                "passed":      reusable,
+                "score":       50 if reusable else 0,
                 "issues":      [f"Evaluation API call failed: {exc}"],
                 "next_action": (
-                    "run_financial" if agent_name == "ResearchAgent"
-                    else ("rerun_financial" if financial_failure
-                          else "finalise")
+                    next_pipeline_action(step_key, state)
+                    if reusable else f"rerun_{step_key}"
                 ),
                 "reasoning": (
-                    "Critical financial evaluation failed closed; valuation cannot advance."
-                    if financial_failure else "Evaluation failed; assuming partial pass."
+                    "The evaluator failed, but the existing deterministic result contract is valid and was reused."
+                    if reusable else "The evaluator failed and no valid reusable result exists."
                 ),
             }
 
@@ -458,43 +508,9 @@ class ManagerAgent:
         return feedback
 
     async def _brain_finalise(self, state: SharedManagerState, regeneration_context: list[dict] | None = None) -> str:
-        """
-        BRAIN PASS 3 — Final Report Synthesis (async).
-
-        Synthesises all agent outputs into a single investment analysis report.
-        """
-        # Prioritize SEC filing chunks (sec_edgar_filing / sec_edgar_search)
-        # ahead of news/rag chunks. A flat [:3] + [:200 chars] truncation
-        # (the original behavior) cut every chunk off after ~200
-        # characters — nowhere near enough to reach mda/risk_factors text.
-        # A later fix gave filing chunks a flat 8000-char budget instead,
-        # but that still wasn't enough once financial_statements (often
-        # tens of thousands of characters) was requested ALONGSIDE mda in
-        # the same call: financial_statements comes first in the JSON
-        # (document order) and alone consumed the entire flat budget,
-        # so mda never reached the finalizer prompt even though it was
-        # successfully fetched (confirmed via direct tool-output
-        # inspection). _format_filing_chunk_fairly() now parses the JSON
-        # and gives each requested section its OWN budget, so one large
-        # section can no longer starve another. Non-filing chunks
-        # (news/rag) stay at a smaller flat budget since they're already
-        # short, individual article snippets rather than large structured
-        # documents.
+        
         all_chunks = state.get("aggregated_research_context", [])
-
-        # If ResearchAgent successfully produced a synthesized summary
-        # (see tools/research_tools/context_synthesizer.py), PREFER it
-        # alone over the raw chunks — this is where the actual volume
-        # reduction happens. The raw chunks are still present in
-        # aggregated_research_context (never removed — see that module's
-        # docstring on why), so nothing here is lost for downstream
-        # consumers that need the raw data (e.g. a numeric faithfulness
-        # validator reading the full trace directly); this only changes
-        # what the FINALIZER PROMPT itself is built from. Falls back to
-        # the previous fair-budgeted raw-chunk selection if no synthesis
-        # chunk is present (e.g. synthesis failed and returned None
-        # upstream) — so a synthesis failure degrades gracefully instead
-        # of losing research content from the report entirely.
+        
         synthesis_chunks = [
             c for c in all_chunks
             if "[SYNTHESIZED RESEARCH SUMMARY" in extract_chunk_text(c)[:60]
@@ -506,9 +522,6 @@ class ManagerAgent:
                 "(%d chunk(s), skipping raw filing/news fair-budgeting entirely)",
                 len(synthesis_chunks),
             )
-            # Generous budget: this is already a dense, LLM-compressed
-            # summary of everything gathered, not raw source text, so it
-            # can afford a larger allowance than any single raw chunk.
             research_lines = "\n".join(
                 f"  - {extract_chunk_text(c)[:6000]}" for c in synthesis_chunks
             )
@@ -517,23 +530,7 @@ class ManagerAgent:
                 "_brain_finalise: no synthesis chunk found — falling back to "
                 "raw filing/news chunk fair-budgeting"
             )
-            # Prioritize SEC filing chunks (sec_edgar_filing / sec_edgar_search)
-            # ahead of news/rag chunks. A flat [:3] + [:200 chars] truncation
-            # (the original behavior) cut every chunk off after ~200
-            # characters — nowhere near enough to reach mda/risk_factors text.
-            # A later fix gave filing chunks a flat 8000-char budget instead,
-            # but that still wasn't enough once financial_statements (often
-            # tens of thousands of characters) was requested ALONGSIDE mda in
-            # the same call: financial_statements comes first in the JSON
-            # (document order) and alone consumed the entire flat budget,
-            # so mda never reached the finalizer prompt even though it was
-            # successfully fetched (confirmed via direct tool-output
-            # inspection). _format_filing_chunk_fairly() now parses the JSON
-            # and gives each requested section its OWN budget, so one large
-            # section can no longer starve another. Non-filing chunks
-            # (news/rag) stay at a smaller flat budget since they're already
-            # short, individual article snippets rather than large structured
-            # documents.
+            
             filing_chunks = [
                 c for c in all_chunks
                 if "[TOOL: sec_edgar_filing]" in extract_chunk_text(c)[:150]
@@ -554,6 +551,16 @@ class ManagerAgent:
         fm = state.get("financial_metrics_summary", {})
         sm = state.get("sentiment_analysis_summary", {})
 
+        current_ratio_metric = fm.get("current_ratio", {})
+        if not isinstance(current_ratio_metric, dict):
+            current_ratio_metric = {"current_ratio": current_ratio_metric}
+        de_ratio_metric = fm.get("de_ratio", {})
+        if not isinstance(de_ratio_metric, dict):
+            de_ratio_metric = {"de_ratio": de_ratio_metric}
+        ocf_coverage_metric = fm.get("ocf_ratio", {})
+        if not isinstance(ocf_coverage_metric, dict):
+            ocf_coverage_metric = {"ocf_ratio": ocf_coverage_metric}
+
         fin_summary = {
             "ticker":            fm.get("ticker"),
             "company_name":      fm.get("company_name"),
@@ -566,36 +573,14 @@ class ManagerAgent:
             "roe":               fm.get("roe", {}).get("roe_pct"),
             "roe_period":        fm.get("roe", {}).get("_period"),
             "net_margin":        fm.get("net_margin", {}).get("net_margin_pct"),
-            # PERIOD TAGS — do not drop these. Each ratio's "_period" states
-            # which reporting period its own inputs actually came from (see
-            # financial_agent.py's _call() helper) — e.g. net_margin may be
-            # "quarterly:2026-Q1" (a single 3-month quarter) while roe is
-            # "annual:2025" (this pipeline has no quarterly balance-sheet
-            # source). Passing the bare numbers without these tags is what
-            # let a real bug through previously: a quarterly-only net_margin
-            # got narrated in the same sentence as *nine-month* cumulative
-            # revenue/income figures pulled from raw filing text in
-            # RESEARCH HIGHLIGHTS, which use YET ANOTHER period (a 10-Q
-            # typically reports both a 3-month-standalone column and a
-            # 9-month-year-to-date column) — three different period bases
-            # silently merged into one paragraph. See the numeric-fidelity
-            # guidance below for the rule this data enables.
             "net_margin_period": fm.get("net_margin", {}).get("_period"),
-            # NOTE: current_ratio/de_ratio were previously OMITTED here while
-            # every other ratio got its raw value extracted. That left
-            # "current_ratio" and "de_ratio" only reachable via
-            # composite_score["sub_scores"] — which holds 0-10 NORMALISED
-            # contributions to the composite score, not the raw ratios — but
-            # under the SAME key names. The finaliser LLM had no raw value to
-            # cite for these two metrics, so it pulled the normalised
-            # sub-scores instead (e.g. reporting "current ratio of 3.57"
-            # when the actual ratio was 1.07, and "debt-to-equity of 0.0"
-            # when the actual ratio was 3.87 / "high_leverage"). Providing
-            # the raw values explicitly, under unambiguous keys, removes the
-            # only path by which that misattribution could happen.
-            "current_ratio":     fm.get("current_ratio"),
-            "de_ratio":          fm.get("de_ratio", {}).get("de_ratio"),
-            "de_ratio_period":   fm.get("de_ratio", {}).get("_period"),
+            # Preserve legacy scalars while forwarding the complete additive
+            # recovery contract for newer consumers.
+            "current_ratio":     current_ratio_metric.get("current_ratio"),
+            "current_ratio_metric": current_ratio_metric,
+            "de_ratio":          de_ratio_metric.get("de_ratio"),
+            "de_ratio_period":   de_ratio_metric.get("_period"),
+            "de_ratio_metric":   de_ratio_metric,
             "revenue_cagr":      fm.get("revenue_cagr", {}).get("cagr_pct"),
             "revenue_cagr_period": fm.get("revenue_cagr", {}).get("_period"),
             "forward_pe":        fm.get("forward_pe"),
@@ -609,27 +594,16 @@ class ManagerAgent:
             "financial_facts":    fm.get("financial_facts", []),
             "financial_sanity":   fm.get("financial_sanity", {}),
             "validation_passed": fm.get("validation_passed"),
-
-            # Phase 1/2 ratios. Simple single-number ratios follow the same
-            # raw-value + "_period" pattern as roe/net_margin/de_ratio above;
-            # reverse_dcf and altman_z_score have several fields worth
-            # keeping together (assumptions/converged; zone/caveat) so they're
-            # passed through whole, same as dcf_valuation/composite_score.
             "net_debt_to_ebitda":        fm.get("net_debt_to_ebitda", {}).get("net_debt_to_ebitda"),
             "net_debt_to_ebitda_period": fm.get("net_debt_to_ebitda", {}).get("_period"),
             "fcf_margin":                fm.get("fcf_margin", {}).get("fcf_margin_pct"),
             "fcf_margin_period":         fm.get("fcf_margin", {}).get("_period"),
             "fcf_yield":                 fm.get("fcf_yield", {}).get("fcf_yield_pct"),
             "fcf_yield_period":          fm.get("fcf_yield", {}).get("_period"),
-            "ocf_ratio":                 fm.get("ocf_ratio", {}).get("ocf_ratio"),
-            "ocf_ratio_period":          fm.get("ocf_ratio", {}).get("_period"),
+            "ocf_ratio":                 ocf_coverage_metric.get("ocf_ratio"),
+            "ocf_ratio_period":          ocf_coverage_metric.get("_period"),
+            "ocf_coverage_metric":       ocf_coverage_metric,
             "reverse_dcf":               fm.get("reverse_dcf", {}),
-            # roic is a documented APPROXIMATION -- see its "note" field
-            # (tax_rate_pct is a 21% statutory placeholder, not this
-            # company's actual effective rate). Pass "is_approximation" and
-            # "note" through explicitly so the finaliser can't cite it as a
-            # precise figure the way it must not cite composite_score
-            # sub_scores as raw ratios (see numeric-fidelity guidance above).
             "roic":                      fm.get("roic", {}).get("roic_pct"),
             "roic_period":               fm.get("roic", {}).get("_period"),
             "roic_is_approximation":     fm.get("roic", {}).get("is_approximation"),
@@ -642,11 +616,6 @@ class ManagerAgent:
             "equity_ratio_period":       fm.get("equity_ratio", {}).get("_period"),
             "altman_z_score":            fm.get("altman_z_score", {}),
 
-            # Deterministic analysis layer from FinancialAnalystAgent (rule-
-            # based, no LLM on its side -- see financial_agent.py's
-            # _build_consistency_checks/_build_data_quality_score). The
-            # finaliser can use these directly instead of re-deriving trend
-            # direction or a reliability read from the raw ratios itself.
             "consistency_checks": fm.get("consistency_checks", {}),
             "data_quality":       fm.get("data_quality", {}),
         }
@@ -667,8 +636,7 @@ class ManagerAgent:
             state,
             research_evidence=research_lines,
         )
-        # Persist the exact factual contract used by both the first synthesis
-        # and any regeneration so traces/tests can audit source selection.
+       
         state["canonical_synthesis_payload"] = canonical_payload
 
         user_content = (
@@ -687,7 +655,7 @@ class ManagerAgent:
         try:
             response = await self._llm.messages.create(
                 model=self._model,
-                max_tokens=3584,
+                max_tokens=6144,
                 temperature=0.0,
                 system=FINALISER_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": user_content}],
@@ -695,6 +663,7 @@ class ManagerAgent:
             report = response.content[0].text.strip()
             if response.stop_reason == "max_tokens":
                 log.warning("[Brain-Finalise] Report may be truncated by max_tokens (%d chars).", len(report))
+                report += "\n\n[REPORT TRUNCATED BEFORE VALIDATED COMPLETION]"
             log.info("[Brain-Finalise] Report generated (%d chars).", len(report))
             return report
 
@@ -716,10 +685,7 @@ class ManagerAgent:
         action: str,
         state:  SharedManagerState,
     ) -> SharedManagerState:
-        """
-        Route SharedManagerState to the correct specialist agent and await
-        its ``run()`` method. Records execution time and outcome.
-        """
+       
         agent_key  = action.removeprefix("rerun_").removeprefix("run_")
         agent      = self._agents.get(agent_key)
 
@@ -762,6 +728,13 @@ class ManagerAgent:
             elapsed = round(time.time() - t0, 2)
 
             result_keys = infer_result_keys(agent_key, state)
+            quality_passed = (
+                sentiment_result_quality_passed(
+                    state.get("sentiment_analysis_summary", {}) or {}
+                )
+                if agent_key == "sentiment"
+                else None
+            )
 
             record.outcome     = "success"
             record.duration_s  = elapsed
@@ -771,6 +744,8 @@ class ManagerAgent:
                 "agent_name":    agent_class,
                 "dispatched_at": record.dispatched_at,
                 "outcome":       "success",
+                "execution_success": True,
+                "quality_passed": quality_passed,
                 "duration_s":    elapsed,
                 "result_keys":   result_keys,
                 "error_message": None,
@@ -783,7 +758,13 @@ class ManagerAgent:
             _publish_progress(
                 session_id, "dispatch_end", agent=agent_key,
                 message=f"{friendly} completed successfully ({elapsed}s) — returning to Manager",
-                detail={"outcome": "success", "duration_s": elapsed, "result_keys": result_keys},
+                detail={
+                    "outcome": "success",
+                    "execution_success": True,
+                    "quality_passed": quality_passed,
+                    "duration_s": elapsed,
+                    "result_keys": result_keys,
+                },
             )
 
         except Exception as exc:
@@ -799,6 +780,8 @@ class ManagerAgent:
                 "agent_name":    agent_class,
                 "dispatched_at": record.dispatched_at,
                 "outcome":       "error",
+                "execution_success": False,
+                "quality_passed": False if agent_key == "sentiment" else None,
                 "duration_s":    elapsed,
                 "result_keys":   [],
                 "error_message": str(exc),
@@ -811,7 +794,13 @@ class ManagerAgent:
             _publish_progress(
                 session_id, "dispatch_end", agent=agent_key,
                 message=f"{friendly} failed — returning to Manager",
-                detail={"outcome": "error", "duration_s": elapsed, "error": str(exc)},
+                detail={
+                    "outcome": "error",
+                    "execution_success": False,
+                    "quality_passed": False if agent_key == "sentiment" else None,
+                    "duration_s": elapsed,
+                    "error": str(exc),
+                },
             )
 
         return state
@@ -826,13 +815,7 @@ class ManagerAgent:
         state:      SharedManagerState,
         evaluation: EvaluationFeedback,
     ) -> None:
-        """
-        Write execution milestones into ManagerMemory.
-
-        Stores evaluation feedback and extracts salient facts into long-term
-        memory. Does NOT call add_evaluation() — that was already done in
-        _node_evaluate() to avoid double-writing.
-        """
+       
         directives = state.get("manager_directives", {})
         ticker     = directives.get("ticker")
 
@@ -872,11 +855,7 @@ class ManagerAgent:
 
     @traceable(name="hydrate", run_type="chain")
     async def _node_hydrate(self, g: ManagerGraphState) -> dict:
-        """
-        NODE: hydrate — Session Setup & State Initialisation.
-
-        Applies long-term memory preferences to directives.
-        """
+    
         shared     = g["shared_state"]
         directives = dict(shared.get("manager_directives", {}))
 
@@ -897,12 +876,7 @@ class ManagerAgent:
 
     @traceable(name="brain_route", run_type="chain")
     async def _node_brain_route(self, g: ManagerGraphState) -> dict:
-        """
-        NODE: brain_route — Routing Decision.
-
-        Increments loop_counter, recalls memory, awaits _brain_route()
-        to get the next action, and merges any directive_updates.
-        """
+        
         new_counter = g["loop_counter"] + 1
         shared      = g["shared_state"]
         ticker      = g["ticker"]
@@ -943,28 +917,25 @@ class ManagerAgent:
 
     @traceable(name="dispatch", run_type="chain")
     async def _node_dispatch(self, g: ManagerGraphState) -> dict:
-        """
-        NODE: dispatch — Specialist Agent Execution.
-
-        Maps last_action to the correct specialist agent and awaits agent.run().
-        """
+      
         action    = g["last_action"]
         shared    = g["shared_state"]
         agent_key = action.removeprefix("rerun_").removeprefix("run_")
 
         log.info("[Node:Dispatch] action=%s agent_key=%s", action, agent_key)
+        if agent_result_is_valid(agent_key, shared):
+            shared["orchestrator_logs"].append(
+                f"[{datetime.now(timezone.utc).isoformat()}] [REUSE] "
+                f"Skipped {agent_key}; a valid result is already present."
+            )
+            return {"shared_state": shared, "last_agent_key": agent_key}
         shared = await self._dispatch(action=action, state=shared)
 
         return {"shared_state": shared, "last_agent_key": agent_key}
 
     @traceable(name="evaluate", run_type="chain")
     async def _node_evaluate(self, g: ManagerGraphState) -> dict:
-        """
-        NODE: evaluate — Brain Quality Assessment.
-
-        Awaits _brain_evaluate(), stores the EvaluationFeedback in memory
-        exactly once, and snapshots it into graph state for routing.
-        """
+      
         agent_key  = g["last_agent_key"]
         shared     = g["shared_state"]
         ticker     = g["ticker"]
@@ -1012,29 +983,14 @@ class ManagerAgent:
 
     @traceable(name="persist", run_type="chain")
     async def _node_persist(self, g: ManagerGraphState) -> dict:
-        """
-        NODE: persist — Memory Storage.
-
-        Reads last_evaluation directly from graph state (not memory layer)
-        so routing is deterministic regardless of memory availability.
-
-        When evaluation failed, the next action is only forced to a
-        rerun_* action if the evaluator's own next_action targets the SAME
-        agent that just failed (i.e. it genuinely is a retry). If the
-        evaluator instead recommends advancing to a different, not-yet-run
-        agent despite the failure, that agent's action keeps its original
-        run_/rerun_ label as recommended — it is not force-relabelled as a
-        rerun, since it never ran before. See DC-5 below for why this
-        distinction matters.
-        """
+       
         agent_key = g["last_agent_key"]
         shared    = g["shared_state"]
 
         snapshot: EvaluationSnapshot | None = g.get("last_evaluation")
 
         if snapshot is not None:
-            # Reconstruct a minimal EvaluationFeedback for _persist()
-            # _persist() only reads step/score/issues — no add_evaluation() call
+            
             fb = EvaluationFeedback(
                 step=        snapshot["step"],
                 timestamp=   time.time(),
@@ -1053,32 +1009,14 @@ class ManagerAgent:
             next_agent_key = next_action.removeprefix("rerun_").removeprefix("run_")
 
             if next_agent_key == agent_key:
-                # The evaluator wants THIS SAME agent retried — that is a
-                # genuine rerun, so force the rerun_* prefix regardless of
-                # whether the evaluator's raw next_action already said
-                # "rerun_X" or (loosely) "run_X" — this is the one case the
-                # original unconditional rewrite was actually meant for.
+            
                 updated_action = "rerun_" + next_agent_key
                 log.info(
                     "[Node:Persist] Eval failed — retrying same agent '%s', "
                     "action='%s'", agent_key, updated_action,
                 )
             else:
-                # The evaluator wants to move on to a DIFFERENT agent
-                # despite this failure (e.g. "financial data is incomplete,
-                # but proceed to sentiment anyway"). That is a genuine
-                # first-time dispatch of that other agent, not a rerun.
-                #
-                # DC-5: the previous version unconditionally rewrote next_action
-                # to a rerun_* action on any evaluation failure, which mislabeled
-                # this case in orchestrator_logs as "action=rerun_sentiment" even
-                # though SentimentAgent had never run before — corrupting the
-                # audit trail this logging exists to provide, even though the
-                # actual dispatch still worked (agent_key is re-derived from
-                # the action string via removeprefix on both "run_" and
-                # "rerun_", so the wrong label never affected which agent was
-                # actually called). Preserve the evaluator's own action here
-                # instead of forcing a rerun_* prefix onto it.
+             
                 updated_action = next_action
                 log.info(
                     "[Node:Persist] Eval failed on '%s' — evaluator recommends "
@@ -1087,17 +1025,22 @@ class ManagerAgent:
                     agent_key, updated_action,
                 )
 
+        if updated_action.startswith("rerun_") and not is_transient_failure([
+            snapshot.get("issues", []) if snapshot else [],
+            _agent_failure_context(agent_key, shared),
+        ]):
+            updated_action = next_pipeline_action(agent_key, shared)
+            log.info(
+                "[Node:Persist] Suppressed non-transient retry for '%s'; advancing as '%s'.",
+                agent_key, updated_action,
+            )
+
         log.info("[Node:Persist] Memory persisted for agent_key=%s", agent_key)
         return {"last_action": updated_action}
 
     @traceable(name="finalise", run_type="chain")
     async def _node_finalise(self, g: ManagerGraphState) -> dict:
-        """
-        NODE: finalise — Final Report Synthesis.
-
-        Awaits _brain_finalise(), writes the report into shared_state,
-        and persists long-term memory to disk.
-        """
+    
         shared     = g["shared_state"]
         ticker     = g["ticker"]
         session_id = g["session_id"]
@@ -1117,17 +1060,27 @@ class ManagerAgent:
             shared["final_publication_validation"] = validation
             outcome = assemble_publication("", validation, shared)
             shared.update(outcome)
+            shared["execution_status"] = execution_status_from_publication(
+                shared.get("publication_status"), validation_passed=False
+            )
             log.error("[Node:Finalise] Material period conflict limited publication: %s", structured_findings)
             return {"shared_state": shared}
 
         shared["recommendation_gate"] = build_recommendation_gate(shared)
+        shared["enforce_report_sections"] = True
         final_report = await self._brain_finalise(shared)
+        final_report = normalize_validation_aware_narrative(
+            final_report, shared.get("financial_metrics_summary", {})
+        )
         validation = validate_final_publication(final_report, shared)
         shared["final_publication_validation"] = validation
         shared["publication_validation_attempts"] = [{"attempt": 1, "validation": validation}]
         if not validation["passed"]:
             first_candidate = final_report
             final_report = await self._brain_finalise(shared, validation["required_regeneration_context"])
+            final_report = normalize_validation_aware_narrative(
+                final_report, shared.get("financial_metrics_summary", {})
+            )
             second = validate_final_publication(final_report, shared)
             shared["final_publication_validation"] = second
             shared["publication_validation_attempts"].append({"attempt": 2, "validation": second})
@@ -1135,22 +1088,12 @@ class ManagerAgent:
                 shared["blocked_final_report"] = final_report
                 shared["first_blocked_final_report"] = first_candidate
                 shared.update(assemble_publication(final_report, second, shared))
+                shared["execution_status"] = execution_status_from_publication(
+                    shared.get("publication_status"), validation_passed=False
+                )
                 return {"shared_state": shared}
 
-        # -- QA: period-consistency check (non-blocking) ----------------------
-        # Cross-checks each ratio's "_period" provenance tag (set by
-        # financial_agent.py — e.g. "annual:2026" vs "quarterly:2026-Q2")
-        # against how final_report actually narrates that number (quarterly
-        # vs annual language nearby). This is what would have caught the
-        # NVDA net_margin bug (a FY2026-annual 55.6% net margin narrated
-        # next to Q1 FY2027 quarterly figures) automatically, on every run,
-        # without needing a human to notice the mismatch after the fact.
-        #
-        # Deliberately non-blocking: a false positive here (e.g. an annual
-        # figure that happens to sit near an unrelated "quarterly" mention)
-        # should not prevent the user from getting their report. Findings
-        # are logged, attached to shared_state for downstream inspection/
-        # dashboards, and optionally sent to Sentry — nothing more.
+     
         try:
             period_findings = check_narration_vs_period(
                 final_report,
@@ -1184,11 +1127,16 @@ class ManagerAgent:
             shared["blocked_final_report"] = final_report
             extra=[{"check":"period_consistency","message":str(x)} for x in blocking_narration_findings]
             validation={**shared.get("final_publication_validation",{}),"passed":False}
+            validation["publication_status"] = "REGENERATION_REQUIRED"
             validation["critical_findings"]=[*validation.get("critical_findings",[]),*extra]
             validation["required_regeneration_context"]=validation["critical_findings"]
             shared["final_publication_validation"]=validation
             log.error("[Node:Finalise] Material period conflict limited report publication.")
         shared.update(assemble_publication(final_report, shared.get("final_publication_validation",validation), shared))
+        shared["execution_status"] = execution_status_from_publication(
+            shared.get("publication_status"),
+            validation_passed=shared.get("final_publication_validation", {}).get("passed"),
+        )
         # -- end QA: period-consistency check ----------------------------------
 
         if ticker:
@@ -1237,6 +1185,22 @@ class ManagerAgent:
             "[Node:Abort] Orchestration aborted at loop %d / %d.",
             loop, self._max_routing_loops,
         )
+        validation = {
+            "passed": False,
+            "critical_findings": [{
+                "check": "orchestration_status",
+                "message": "The orchestration aborted before successful publication.",
+            }],
+            "warnings": [],
+            "required_regeneration_context": [],
+            "publication_status": "ABORTED",
+            "checks": {},
+        }
+        shared["final_publication_validation"] = validation
+        shared.update(assemble_publication(shared.get("final_report", ""), validation, shared))
+        shared["execution_status"] = execution_status_from_publication(
+            shared.get("publication_status"), validation_passed=False, aborted=True
+        )
         return {"shared_state": shared}
 
     # =========================================================================
@@ -1276,19 +1240,7 @@ class ManagerAgent:
         return "abort"
 
     def _should_continue_after_persist(self, g: ManagerGraphState) -> str:
-        """
-        CONDITIONAL EDGE — Route after persist node.
-
-        Reads last_action which was already overridden by _node_persist()
-        to a rerun_* action when evaluation failed. This makes routing
-        deterministic — no ambiguity between run_* and rerun_*.
-
-        Returns
-        -------
-        "brain_route"  evaluation passed — advance to next Brain decision
-        "dispatch"     evaluation failed — rerun the same agent directly
-        "abort"        guardrail hit
-        """
+        
         if g["loop_counter"] >= self._max_routing_loops:
             return "abort"
 
@@ -1307,26 +1259,7 @@ class ManagerAgent:
     # =========================================================================
 
     def _build_graph(self):
-        """
-        Build and compile the ManagerAgent LangGraph StateGraph.
-
-        Graph topology
-        --------------
-        START → hydrate → brain_route
-                              │
-                  ┌───────────┼──────────────┐
-                  ▼           ▼              ▼
-              dispatch     finalise        abort
-                  │            │              │
-              evaluate        END            END
-                  │
-              persist
-                  │
-          ┌───────┴───────────┐
-          ▼                   ▼
-      brain_route          dispatch
-      (eval passed)        (eval failed → rerun)
-        """
+        
         builder = StateGraph(ManagerGraphState)
 
         builder.add_node("hydrate",     self._node_hydrate)
@@ -1379,42 +1312,11 @@ class ManagerAgent:
         user_preferences:   dict[str, Any] | None = None,
         client_session_id:  str | None = None,
     ) -> SharedManagerState:
-        """
-        PRIMARY ENTRY POINT — Invoke the compiled LangGraph StateGraph.
-
-        Parameters
-        ----------
-        task_query : str
-            The user's natural-language analysis objective.
-        manager_directives : dict[str, Any] | None
-            Initial configuration hints: ticker, max_loops, search_depth,
-            days_back, peers.
-        user_preferences : dict[str, Any] | None
-            Cross-session preferences stored in long-term memory.
-        client_session_id : str | None
-            If the caller (e.g. the API route) already generated a
-            session_id — typically because the frontend needs to know it
-            BEFORE the analysis starts, in order to open an SSE progress
-            stream (see core/progress_bus.py) without racing the first
-            events — that id is used verbatim instead of generating a new
-            one. Falls back to a fresh UUID if not provided, so existing
-            callers are unaffected.
-
-        Returns
-        -------
-        SharedManagerState
-            Fully populated state with ``final_report`` and all specialist
-            agent outputs committed.
-        """
+        
         session_id  = client_session_id or str(uuid.uuid4())[:8]
         directives  = dict(manager_directives or {})
         preferences = dict(user_preferences or {})
 
-        # Propagate the session id to specialist agents via manager_directives
-        # (the one free-form channel that's part of the public SharedManagerState
-        # contract) so their internal Brain/Executor/Checker layers can publish
-        # their own progress events under the same session, via
-        # state["shared_manager_ref"]["manager_directives"]["_progress_session_id"].
         directives["_progress_session_id"] = session_id
 
         self._memory.new_session(session_id=session_id, task_query=task_query)

@@ -22,8 +22,67 @@ def _money_value(raw: str, scale: str | None) -> float:
     value=float(raw.replace(",","")); unit=(scale or "").lower()
     return value * {"thousand":1e3,"million":1e6,"billion":1e9,"trillion":1e12}.get(unit,1.0)
 
-def _materially_equal(actual: float, expected: float) -> bool:
-    return abs(actual-expected) <= max(.02, abs(expected)*.005)
+def _display_rounding_tolerance(raw: str, scale: str | None = None) -> float:
+    """Return the half-unit implied by the number as displayed in the narrative.
+
+    Example: ``$4.3 billion`` represents values rounded to the nearest $0.1B,
+    so any canonical value within $0.05B is consistent with that display.
+    """
+    token = raw.replace(",", "").strip()
+    decimals = len(token.split(".", 1)[1]) if "." in token else 0
+    scale_factor = {
+        "thousand": 1e3, "million": 1e6, "billion": 1e9, "trillion": 1e12
+    }.get((scale or "").lower(), 1.0)
+    return 0.5 * (10 ** (-decimals)) * scale_factor
+
+def _materially_equal(
+    actual: float, expected: float, *, display_tolerance: float | None = None
+) -> bool:
+    # Preserve the existing 0.5% materiality tolerance, but also respect the
+    # precision explicitly chosen by the report writer. This prevents a valid
+    # rounded display such as $4.3B from contradicting $4.276B.
+    tolerance = max(.02, abs(expected) * .005, display_tolerance or 0.0)
+    return abs(actual - expected) <= tolerance
+
+
+def normalize_validation_aware_narrative(report: str, fm: dict[str, Any]) -> str:
+    """Remove stale valuation caveats that contradict the validated DCF state."""
+    dcf = fm.get("dcf_valuation", {}) if isinstance(fm.get("dcf_valuation"), dict) else {}
+    scenarios = [
+        dcf.get(name) for name in ("bear", "base", "bull")
+        if isinstance(dcf.get(name), dict)
+        and (
+            dcf[name].get("equity_value_per_share") is not None
+            or dcf[name].get("intrinsic_value_per_share") is not None
+        )
+    ]
+    if not scenarios or not all(x.get("equity_bridge_complete") is True for x in scenarios):
+        return report
+    replacement = "includes the modeled EV-to-equity bridge for cash and debt"
+    patterns = (
+        r"(?:does not|doesn't)\s+(?:adjust|account)\s+for\s+(?:net debt|cash|debt)",
+        r"(?:has\s+)?no\s+(?:net[-\s]?debt|equity[-\s]?bridge)\s+adjustment",
+        r"without\s+(?:a\s+)?(?:net[-\s]?debt|equity[-\s]?bridge)\s+adjustment",
+    )
+    normalized = report
+    for pattern in patterns:
+        normalized = re.sub(pattern, replacement, normalized, flags=re.I)
+    return normalized
+
+
+def _represented_number(report: str, value: Any, *, percent: bool = False) -> bool:
+    expected = _as_float(value)
+    if expected is None:
+        return False
+    suffix = r"\s*%" if percent else ""
+    for match in re.finditer(rf"(?<![\d.])(-?\d[\d,]*(?:\.\d+)?){suffix}(?![\d.])", report):
+        raw = match.group(1)
+        actual = float(raw.replace(",", ""))
+        if _materially_equal(
+            actual, expected, display_tolerance=_display_rounding_tolerance(raw)
+        ):
+            return True
+    return False
 
 def _extract_metric_mentions(report: str) -> dict[str,list[dict[str,Any]]]:
     """Extract explicitly labelled material metrics without cross-paragraph guessing."""
@@ -43,9 +102,17 @@ def _extract_metric_mentions(report: str) -> dict[str,list[dict[str,Any]]]:
         for m in pattern.finditer(report):
             numeric=m.group(1); scale=m.group(2) if name in {"cash","debt","capex","operating_cash_flow","current_price"} else None
             pct=m.group(3) if name in {"cash","debt","capex","operating_cash_flow","current_price"} else m.group(2)
-            parsed=_money_value(numeric,scale) if name in {"cash","debt","capex","operating_cash_flow","current_price"} else float(numeric.replace(",",""))
-            if name=="de_ratio" and pct: parsed/=100.0
-            found[name].append({"value":parsed,"percentage":bool(pct),"matched_text":m.group(0),"source_section":_scenario_section(report,m.start())})
+            is_money = name in {"cash","debt","capex","operating_cash_flow","current_price"}
+            parsed=_money_value(numeric,scale) if is_money else float(numeric.replace(",",""))
+            display_tolerance = _display_rounding_tolerance(numeric, scale if is_money else None)
+            if name=="de_ratio" and pct:
+                parsed/=100.0
+                display_tolerance/=100.0
+            found[name].append({
+                "value":parsed, "percentage":bool(pct), "matched_text":m.group(0),
+                "source_section":_scenario_section(report,m.start()),
+                "display_tolerance":display_tolerance,
+            })
     return found
 
 def _capital_value(fm: dict, name: str) -> float | None:
@@ -77,18 +144,40 @@ def _check_repeated_metrics(report: str, fm: dict) -> list[str]:
     for name,items in mentions.items():
         target=expected.get(name)
         if target is None: continue
-        bad=[x for x in items if not _materially_equal(x["value"],target)]
+        bad=[x for x in items if not _materially_equal(
+            x["value"], target, display_tolerance=x.get("display_tolerance")
+        )]
         if bad: errors.append(f"Repeated {labels[name]} value contradicts canonical structured value {target}: {bad[0]['matched_text']}.")
     return errors
 
 def _normalize_quote(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+",text.lower()))
 
+def _extract_management_quotes(report: str) -> list[str]:
+    """Extract only quotes explicitly attributed to company management.
+
+    Attribution requires a speech/reporting verb. Generic capitalized phrases
+    are not treated as speakers, which prevents names such as "Coatue
+    Management" from being mistaken for the issuer's management.
+    """
+    verb = r"(?:said|stated|noted|described|called|explained|added|commented|highlighted|characterized)"
+    generic = r"(?:management(?!['’]s)|the company|executives?)"
+    titled = r"(?:(?:CEO|CFO|CTO|COO|Chair(?:man|woman|person)?)\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)"
+    named = r"(?!(?:[A-Z][a-z]+\s+)?Management\b)(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,2})"
+    patterns = (
+        re.compile(rf"\b{generic}\b[^\n\"“]{{0,70}}?\b{verb}\b[^\n\"“]{{0,50}}?[\"“]([^\"”]+)[\"”]", re.I),
+        re.compile(rf"[\"“]([^\"”]+)[\"”][^\n]{{0,50}}?\b{verb}\b[^\n]{{0,40}}?\b{generic}\b", re.I),
+        re.compile(rf"\b(?:{titled}|{named})\b[^\n\"“]{{0,35}}?\b{verb}\b[^\n\"“]{{0,35}}?[\"“]([^\"”]+)[\"”]"),
+        re.compile(rf"[\"“]([^\"”]+)[\"”][^\n]{{0,35}}?\b{verb}\b[^\n]{{0,35}}?\b(?:{titled}|{named})\b"),
+    )
+    quotes: list[str] = []
+    for pattern in patterns:
+        quotes.extend(m.group(1) for m in pattern.finditer(report))
+    return list(dict.fromkeys(quotes))
+
 def _check_management_quotes(report: str, fm: dict) -> list[str]:
     claims=fm.get("typed_claims",fm.get("financial_facts",[])); errors=[]
-    patterns=(r"(?:management|the company|executives?|[A-Z][a-z]+\s+(?:said|stated|noted|described))[^\n]{0,100}?[\"“]([^\"”]+)[\"”]",r"[\"“]([^\"”]+)[\"”][^\n]{0,100}?(?:management|the company|executives?\s+(?:said|stated|noted))")
-    quotes=[m.group(1) for p in patterns for m in re.finditer(p,report,re.I)]
-    for quote in quotes:
+    for quote in _extract_management_quotes(report):
         normalized=_normalize_quote(quote)
         supported=False
         for claim in claims:
@@ -109,7 +198,7 @@ def _check_earnings(report: str, fm: dict) -> list[str]:
     if material:
         gaap, normalized = eq.get("gaap_net_margin_pct"), eq.get("normalized_net_margin_pct")
         def represented(value: Any) -> bool:
-            return value is not None and bool(re.search(rf"(?<!\d){re.escape(str(value))}\s*%", report))
+            return _represented_number(report, value, percent=True)
         if not represented(gaap) or (normalized is not None and not represented(normalized)):
             return ["Material earnings-quality margins are not numerically traceable to both structured GAAP and normalized outputs."]
     if eq.get("status") == "PARTIAL" and not any(x in report.lower() for x in ("partial", "uncertain", "unavailable")):
@@ -134,6 +223,30 @@ def _check_bridge(report: str, fm: dict) -> list[str]:
     if has_per_share and re.search(r"does not (?:adjust|account) for (?:net debt|cash|debt)|no (?:net debt|equity bridge) adjustment", report, re.I): return ["Narrative contradicts the completed EV-to-equity bridge."]
     if re.search(r"net cash .*lower(?:s|ing)? (?:the )?wacc", report, re.I): return ["Narrative incorrectly assigns net cash to WACC rather than the equity bridge."]
     return []
+
+
+def _check_reverse_dcf_semantics(report: str, fm: dict) -> list[str]:
+    reverse = fm.get("reverse_dcf", {})
+    if not isinstance(reverse, dict) or not reverse or reverse.get("error"):
+        return []
+    errors: list[str] = []
+    if re.search(
+        r"reverse\s+dcf[^\n.!?]{0,100}(?:sentiment|investor belief|market mood)|"
+        r"(?:sentiment|investor belief|market mood)[^\n.!?]{0,100}reverse\s+dcf",
+        report,
+        re.I,
+    ):
+        errors.append("Reverse DCF is a valuation-model inference, not sentiment or observed investor belief.")
+
+    headings = list(re.finditer(r"(?m)^#{1,6}\s+(.+?)\s*$", report))
+    for index, heading in enumerate(headings):
+        if "sentiment" not in heading.group(1).lower():
+            continue
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(report)
+        if re.search(r"\breverse\s+dcf\b", report[heading.end():end], re.I):
+            errors.append("Reverse DCF appears inside the sentiment section instead of valuation/model inference.")
+            break
+    return errors
 
 def _scenario_section(report: str, offset: int) -> str:
     """Return the nearest Markdown heading for diagnostic extraction metadata."""
@@ -160,6 +273,7 @@ def _extract_scenario_prices(report: str) -> dict[str, list[dict[str, Any]]]:
             "source_section": _scenario_section(report, match.start()),
             "matched_text": match.group(0),
             "source": source,
+            "display_tolerance": _display_rounding_tolerance(value),
         })
 
     number = r"(-?\d[\d,]*(?:\.\d+)?)"
@@ -201,9 +315,21 @@ def _check_scenarios(report: str, fm: dict) -> list[str]:
         structured=dcf.get(name,{})
         expected=structured.get("equity_value_per_share",structured.get("intrinsic_value_per_share"))
         if expected is None: continue
-        cited=[item["value"] for item in extracted[name]]
-        if any(abs(value-float(expected))>.02 for value in cited): errors.append(f"{name} scenario price contradicts structured valuation {expected}.")
-        if len({round(value,2) for value in cited})>1: errors.append(f"{name} scenario price is inconsistent across report sections.")
+        cited=extracted[name]
+        if any(not _materially_equal(
+            item["value"], float(expected), display_tolerance=item.get("display_tolerance")
+        ) for item in cited):
+            errors.append(f"{name} scenario price contradicts structured valuation {expected}.")
+        if cited:
+            anchor = cited[0]
+            if any(not _materially_equal(
+                item["value"], anchor["value"],
+                display_tolerance=max(
+                    item.get("display_tolerance") or 0.0,
+                    anchor.get("display_tolerance") or 0.0,
+                ),
+            ) for item in cited[1:]):
+                errors.append(f"{name} scenario price is inconsistent across report sections.")
     return errors
 
 def _check_arithmetic(report: str, fm: dict) -> list[str]:
@@ -233,7 +359,16 @@ def _check_sentiment(report: str, sm: dict) -> list[str]:
     supported=set(sm.get("causal_aspects_supported",[])); errors=[]
     causal={"valuation":r"(?:market|investors?).{0,50}(?:priced in|valuation)","ai_demand":r"(?:market|investors?).{0,50}ai demand","competition":r"(?:market|investors?).{0,50}competition","geopolitical":r"(?:market|investors?).{0,50}(?:geopolitical|regulatory)"}
     for aspect,pattern in causal.items():
-        if re.search(pattern,report,re.I) and aspect not in supported: errors.append(f"Causal sentiment claim for {aspect} lacks document-aspect-polarity evidence.")
+        for match in re.finditer(pattern, report, re.I):
+            section = _scenario_section(report, match.start()).lower()
+            # A DCF/current-price implication is valuation-model inference,
+            # not observed sentiment. Evidence-linked sentiment checks apply
+            # in the sentiment section (or to legacy unsectioned reports).
+            if section != "document" and "sentiment" not in section:
+                continue
+            if aspect not in supported:
+                errors.append(f"Causal sentiment claim for {aspect} lacks document-aspect-polarity evidence.")
+                break
     if sm.get("status")=="LOW_COVERAGE" and "low coverage" not in report.lower(): errors.append("LOW_COVERAGE sentiment is not disclosed.")
     return errors
 
@@ -245,6 +380,9 @@ def _check_low_confidence_market_claims(report: str, sm: dict) -> list[str]:
     qualifier=re.compile(r"(?:limited available evidence|within (?:the )?analy[sz]ed sample|weak signal|low confidence|low coverage|cannot support|does not support|may|might|suggests?|appears?|could)",re.I)
     errors=[]
     for match in broad.finditer(report):
+        section = _scenario_section(report, match.start()).lower()
+        if section != "document" and "sentiment" not in section:
+            continue
         start=max(report.rfind(".",0,match.start())+1,report.rfind("\n",0,match.start())+1)
         ends=[x for x in (report.find(".",match.end()),report.find("\n",match.end())) if x>=0]
         end=min(ends) if ends else min(len(report),match.end()+180)
@@ -255,18 +393,58 @@ def _check_low_confidence_market_claims(report: str, sm: dict) -> list[str]:
             errors.append(f"Low-confidence sentiment cannot support unqualified market-wide claim: '{sentence.strip()}'.")
     return errors
 
+
+def _check_required_report_structure(report: str, enforce: bool) -> list[str]:
+    if not enforce:
+        return []
+    errors = []
+    required = (
+        "Executive Summary", "Financial Health", "Market Sentiment",
+        "Research Highlights", "Risk Factors", "Scenario Analysis",
+        "Management Commentary Assessment", "Conclusion & Outlook",
+    )
+    missing = [heading for heading in required if heading.lower() not in report.lower()]
+    if missing:
+        errors.append(f"Final report is missing required sections: {', '.join(missing)}.")
+    if "[REPORT TRUNCATED BEFORE VALIDATED COMPLETION]" in report:
+        errors.append("Final report generation stopped at the model token limit.")
+    return errors
+
 def validate_final_publication(report: str, shared: dict[str,Any]) -> dict[str,Any]:
-    names=("earnings_quality_consistency","period_consistency","valuation_bridge_consistency","scenario_consistency","arithmetic_consistency","typed_claim_fidelity","sentiment_evidence_fidelity","recommendation_gate_consistency","repeated_metric_consistency","management_quote_fidelity","low_confidence_sentiment_scope")
+    names=("earnings_quality_consistency","period_consistency","valuation_bridge_consistency","scenario_consistency","arithmetic_consistency","typed_claim_fidelity","sentiment_evidence_fidelity","recommendation_gate_consistency","repeated_metric_consistency","management_quote_fidelity","low_confidence_sentiment_scope","reverse_dcf_semantics","required_report_structure")
     try:
         fm=shared.get("financial_metrics_summary",{}); sm=shared.get("sentiment_analysis_summary",{}); gate=shared.get("recommendation_gate",{})
         checks={
             names[0]:_check_earnings(report,fm), names[1]:_check_capital_allocation(report,fm)+[x.get("message",str(x)) for x in check_narration_vs_period(report,fm) if x.get("severity")=="HIGH"],
             names[2]:_check_bridge(report,fm), names[3]:_check_scenarios(report,fm), names[4]:_check_arithmetic(report,fm), names[5]:_check_claims(report,fm), names[6]:_check_sentiment(report,sm),
             names[7]:["Actionable recommendation violates recommendation-confidence gate."] if not gate.get("actionable_recommendation_allowed",False) and contains_actionable_recommendation(report) else [],
-            names[8]:_check_repeated_metrics(report,fm), names[9]:_check_management_quotes(report,fm), names[10]:_check_low_confidence_market_claims(report,sm),
+            names[8]:_check_repeated_metrics(report,fm), names[9]:_check_management_quotes(report,fm), names[10]:_check_low_confidence_market_claims(report,sm), names[11]:_check_reverse_dcf_semantics(report,fm), names[12]:_check_required_report_structure(report, bool(shared.get("enforce_report_sections"))),
         }
-        critical=[{"check":k,"message":msg} for k,items in checks.items() for msg in items]
-        return {"passed":not critical,"critical_findings":critical,"warnings":[],"required_regeneration_context":critical,"publication_status":"PUBLISHED" if not critical else "REGENERATION_REQUIRED","checks":{k:{"passed":not v,"findings":v} for k,v in checks.items()}}
+        warning_only=set()
+        critical=[]; warnings=[]
+        for check, items in checks.items():
+            target = warnings if check in warning_only else critical
+            severity = "WARNING" if check in warning_only else "CRITICAL"
+            target.extend({"check":check,"message":msg,"severity":severity} for msg in items)
+        status = (
+            "REGENERATION_REQUIRED" if critical
+            else "PUBLISHED_WITH_WARNINGS" if warnings
+            else "PUBLISHED"
+        )
+        return {
+            "passed":not critical,
+            "critical_findings":critical,
+            "warnings":warnings,
+            "required_regeneration_context":critical,
+            "publication_status":status,
+            "checks":{
+                k:{
+                    "passed":not v,
+                    "findings":v,
+                    "severity":"WARNING" if k in warning_only else "CRITICAL",
+                } for k,v in checks.items()
+            },
+        }
     except Exception as exc:
         finding={"check":"validator_exception","message":f"Final publication validation failed closed: {exc}"}
         return {"passed":False,"critical_findings":[finding],"warnings":[],"required_regeneration_context":[finding],"publication_status":"BLOCKED_PUBLICATION_VALIDATION_ERROR","checks":{}}

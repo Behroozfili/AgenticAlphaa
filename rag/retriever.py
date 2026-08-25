@@ -56,24 +56,8 @@ class AlphaRetriever:
         apply_diversity_filter: bool = True,
         apply_token_budget: bool = True,
     ) -> None:
-        # apply_freshness_rerank : if False, skip Stage 2 (no top-N slice by
-        #     recency) — candidates keep their raw hybrid_search order.
-        # apply_diversity_filter : if False, skip Stage 3 (no per-URL /
-        #     per-source_type caps). Use for consumers that need maximum
-        #     sample size (e.g. sentiment scoring over many chunks) rather
-        #     than a small, source-diverse set for LLM context.
-        # apply_token_budget     : if False, skip Stage 4 (no character cap).
-        #     Only disable for non-LLM consumers (e.g. FinBERT/VADER batch
-        #     scoring) since the budget exists to protect prompt windows.
-        # All three default to True, preserving existing behaviour for any
-        # current caller. Set them False for pipelines (like sentiment
-        # scoring) that want raw hybrid-search breadth instead of a small,
-        # LLM-context-optimised set.
+        
         self.store    = vector_store
-        # WARNING: if embedder=None, get_embedder() is called here which
-        # loads the ~200 MB BAAI/bge-small-en-v1.5 model on first use.
-        # In tests, always inject a mock embedder to avoid this side effect:
-        #   retriever = AlphaRetriever(store, embedder=MockEmbedder())
         self.embedder = embedder or get_embedder()
         self.decay_half_life_hours = decay_half_life_hours
         self.stage1_k              = stage1_k
@@ -103,7 +87,7 @@ class AlphaRetriever:
         """
         budgeted = self._run_pipeline(query, ticker, days_back, score_threshold)
 
-        # Stage 5 — Format
+        
         return self._format_context(budgeted)
 
     def retrieve_raw(
@@ -139,7 +123,6 @@ class AlphaRetriever:
         period_end: Optional[str] = None,
         metric_scope: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        # Stage 1 — Hybrid Search (always runs — this is the actual retrieval)
         query_vec = self.embedder.embed_query(query)
         candidates = self.store.hybrid_search(
             query_embedding=query_vec,
@@ -156,7 +139,6 @@ class AlphaRetriever:
         )
         logger.info("Stage 1 candidates: %d", len(candidates))
 
-        # Stage 2 — Freshness Reranking (optional)
         if self.apply_freshness_rerank:
             reranked = self._rerank_by_freshness(candidates)[: self.stage2_k]
             logger.info("Stage 2 after reranking: %d", len(reranked))
@@ -164,20 +146,14 @@ class AlphaRetriever:
             reranked = candidates
             logger.info("Stage 2 skipped (apply_freshness_rerank=False): %d", len(reranked))
 
-        # Stage 3 — Source Diversity (optional)
         if self.apply_diversity_filter:
             diverse = self._diversity_filter(reranked)
             logger.info("Stage 3 after diversity filter: %d", len(diverse))
         else:
-            # No per-URL/per-source_type caps AND no extra slicing here —
-            # the count is already bounded by stage1_k (hybrid_search) and,
-            # if enabled, stage2_k (freshness rerank). Re-applying stage3_k
-            # here would silently reintroduce a cap (its default is 5) even
-            # when the caller explicitly asked to bypass narrowing.
+            
             diverse = reranked
             logger.info("Stage 3 skipped (apply_diversity_filter=False): %d", len(diverse))
 
-        # Stage 4 — Context Budget (optional)
         if self.apply_token_budget:
             budgeted = self._apply_token_budget(diverse)
             logger.info("Stage 4 after token budget: %d chunks", len(budgeted))

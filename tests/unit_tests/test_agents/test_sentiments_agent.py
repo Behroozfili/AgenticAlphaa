@@ -44,11 +44,18 @@ def make_shared_state(task_query="Analyze NVDA sentiment", **kw):
 
 
 def make_agent_state(shared=None, **overrides):
+    shared = shared or make_shared_state()
     state = {
         "messages": [], "retrieved_chunks": [], "sources_metadata": [],
         "finbert_result": {}, "vader_result": {}, "fear_greed_result": {},
         "brain_reasoning": "", "loop_counter": 0, "extraction_errors": [],
-        "shared_manager_ref": shared or make_shared_state(),
+        "prior_attempt_errors": [], "attempts": [],
+        "sentiment_status": "VALID", "sentiment_polarity": "NEUTRAL",
+        "task_query": shared.get("task_query", ""),
+        "manager_directives": shared.get("manager_directives", {}),
+        "financial_metrics_summary": shared.get("financial_metrics_summary", {}),
+        "aggregated_research_context": shared.get("aggregated_research_context", []),
+        "current_plan": {}, "shared_manager_ref": shared,
     }
     state.update(overrides)
     return state
@@ -149,7 +156,7 @@ class TestBrainPlan:
         plan = await agent._brain_plan(state)
 
         assert "NVDA" in plan["retrieval_query"]
-        assert plan["days_back"] == 7
+        assert plan["days_back"] == 30
         assert "Default plan" in plan["reasoning"]
 
     @pytest.mark.asyncio
@@ -204,6 +211,18 @@ class TestBrainAnalyze:
         await agent._brain_analyze(state)
         sent_content = llm.messages.create.call_args.kwargs["messages"][0]["content"]
         assert "CHUNK COUNT ANALYSED: 3" in sent_content
+
+    @pytest.mark.asyncio
+    async def test_prompt_enforces_strict_causal_flag_contract(self):
+        llm = MagicMock()
+        llm.messages.create.return_value = make_llm_response(
+            '{"overall_sentiment": "Neutral", "causal_aspects_used": []}'
+        )
+        agent = make_agent(llm=llm)
+        await agent._brain_analyze(make_agent_state(retrieved_chunks=["valuation mentioned"]))
+        sent_content = llm.messages.create.call_args.kwargs["messages"][0]["content"]
+        assert "ONLY when that exact observation has causal_language_supported=True" in sent_content
+        assert "may only be described as 'mentioned in evidence'" in sent_content
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +279,7 @@ class TestExecuteSentimentPipeline:
 
         await agent._execute_sentiment_pipeline(session, state, plan)
 
-        call_args = session.call_tool.call_args_list[0][1]["arguments"]
+        call_args = session.call_tool.call_args_list[0].args[1]
         assert "ticker" not in call_args
 
     @pytest.mark.asyncio
@@ -280,7 +299,7 @@ class TestExecuteSentimentPipeline:
 
         await agent._execute_sentiment_pipeline(session, state, plan)
 
-        fg_call_args = session.call_tool.call_args_list[3][1]["arguments"]
+        fg_call_args = session.call_tool.call_args_list[3].args[1]
         assert fg_call_args["finbert_weight"] == 0.8
         assert fg_call_args["vader_weight"] == 0.2
 
@@ -327,6 +346,101 @@ class TestExecuteSentimentPipeline:
         assert state["fear_greed_result"]["score"] == 0.2
         assert session.call_tool.call_count == 4
 
+    @pytest.mark.asyncio
+    async def test_missing_composite_score_cannot_be_valid(self):
+        agent = make_agent()
+        session = AsyncMock()
+        session.call_tool.side_effect = [
+            make_tool_result({
+                "chunks": ["a", "b", "c"],
+                "sources_metadata": [
+                    {"url": "https://one.example/a"},
+                    {"url": "https://two.example/b"},
+                    {"url": "https://three.example/c"},
+                ],
+                "unique_document_count": 3,
+                "unique_domain_count": 3,
+            }),
+            make_tool_result({"total_chunks": 3}),
+            make_tool_result({"total_chunks": 3}),
+            make_tool_result({"score": None, "status": "NO_DATA"}),
+        ]
+        state = make_agent_state()
+
+        await agent._execute_sentiment_pipeline(
+            session,
+            state,
+            {"retrieval_query": "q", "ticker": "NVDA", "days_back": 7},
+        )
+
+        assert state["sentiment_status"] == "ERROR"
+        assert state["attempts"][0]["quality_passed"] is False
+        assert "missing or invalid composite sentiment score" in state["attempts"][0]["quality_failures"]
+
+
+class TestAttemptSelectionAndCausalAudit:
+    def test_low_coverage_retries_while_budget_remains(self):
+        agent = make_agent(max_loops=2)
+        state = make_agent_state(
+            loop_counter=1,
+            sentiment_status="LOW_COVERAGE",
+            retrieved_chunks=["one document"],
+        )
+        assert agent._should_continue(state) == "brain_plan"
+
+    def test_causal_mismatch_is_detected_fail_safe(self):
+        audit = SentimentAgent._causal_audit(
+            {"causal_aspects_used": ["valuation", "competition"]},
+            ["ai_demand"],
+        )
+        assert audit["causal_mismatch_detected"] is True
+        assert audit["unsupported_causal_aspects"] == ["competition", "valuation"]
+
+    def test_best_attempt_selection_does_not_assume_last_is_best(self):
+        agent = make_agent()
+        state = make_agent_state(attempts=[
+            {
+                "attempt_number": 1,
+                "status": "LOW_COVERAGE",
+                "execution_success": True,
+                "quality_passed": False,
+                "quality_failures": ["unique document coverage 2 is below 3"],
+                "polarity": "BULLISH",
+                "retrieval_stats": {"unique_documents": 2, "unique_domains": 2},
+                "retrieval": {
+                    "chunks": ["strong first", "independent first"],
+                    "sources_metadata": [],
+                },
+                "model_outputs": {
+                    "finbert": {"total_chunks": 2},
+                    "vader": {"total_chunks": 2},
+                    "fear_greed": {"score": 0.4, "confidence": 0.8},
+                },
+                "errors": [],
+            },
+            {
+                "attempt_number": 2,
+                "status": "NO_DATA",
+                "execution_success": True,
+                "quality_passed": False,
+                "quality_failures": ["no sentiment documents retrieved"],
+                "polarity": None,
+                "retrieval_stats": {"unique_documents": 0, "unique_domains": 0},
+                "retrieval": {"chunks": [], "sources_metadata": []},
+                "model_outputs": {
+                    "finbert": {}, "vader": {},
+                    "fear_greed": {"score": None, "confidence": 0.0},
+                },
+                "errors": [],
+            },
+        ])
+
+        selected = agent._select_best_attempt(state)
+
+        assert selected["attempt_number"] == 1
+        assert state["retrieved_chunks"] == ["strong first", "independent first"]
+        assert state["fear_greed_result"]["selected_attempt_number"] == 1
+
 
 # ---------------------------------------------------------------------------
 # run() — full pipeline
@@ -341,17 +455,32 @@ class TestRunFullPipeline:
             make_llm_response(json.dumps({
                 "overall_sentiment": "Bullish", "conviction_level": "High",
                 "key_signals": [], "model_agreement": "Strong", "narrative": "Good news",
-                "risk_flags": [], "data_quality_note": "",
+                "risk_flags": [], "data_quality_note": "", "causal_aspects_used": [],
             })),
         ]
         agent = make_agent(llm=llm, max_loops=2)
 
         mock_session = AsyncMock()
         mock_session.call_tool.side_effect = [
-            make_tool_result({"chunks": ["chunk1"], "sources": []}),
-            make_tool_result({"total_chunks": 1, "label": "Bullish"}),
-            make_tool_result({"total_chunks": 1, "label": "Bullish"}),
-            make_tool_result({"score": 0.5, "label": "Greed"}),
+            make_tool_result({
+                "chunks": ["chunk1", "chunk2", "chunk3"],
+                "sources_metadata": [
+                    {"url": "https://one.example/a"},
+                    {"url": "https://two.example/b"},
+                    {"url": "https://one.example/c"},
+                ],
+                "raw_chunk_count": 4,
+                "unique_document_count": 3,
+                "unique_domain_count": 2,
+                "evidence_independence": 0.6667,
+            }),
+            make_tool_result({"total_chunks": 3, "label": "Bullish"}),
+            make_tool_result({"total_chunks": 3, "label": "Bullish"}),
+            make_tool_result({
+                "score": 0.5, "label": "Greed", "confidence": 0.8,
+                "direction_strength": 0.5, "model_agreement_score": 0.9,
+                "evidence_independence": 0.6667,
+            }),
         ]
 
         with patch("agents.sentiment_agent.ClientSession") as mock_session_cls, \
@@ -366,7 +495,11 @@ class TestRunFullPipeline:
         summary = result["sentiment_analysis_summary"]
         assert summary["overall_sentiment"] == "Bullish"
         assert summary["loop_iterations_used"] == 1
-        assert summary["total_chunks_analyzed"] == 1
+        assert summary["total_chunks_analyzed"] == 3
+        assert summary["quality_passed"] is True
+        assert summary["execution_success"] is True
+        assert summary["unique_document_count"] == 3
+        assert summary["unique_domain_count"] == 2
 
     @pytest.mark.asyncio
     async def test_retries_once_when_zero_chunks_on_first_pass(self):
@@ -399,6 +532,9 @@ class TestRunFullPipeline:
         summary = result["sentiment_analysis_summary"]
         assert summary["loop_iterations_used"] == 2
         assert summary["total_chunks_analyzed"] == 1
+        assert summary["status"] == "LOW_COVERAGE"
+        assert summary["quality_passed"] is False
+        assert summary["execution_success"] is True
 
     @pytest.mark.asyncio
     async def test_malformed_brain_analysis_json_falls_back_gracefully(self):
@@ -410,7 +546,21 @@ class TestRunFullPipeline:
         agent = make_agent(llm=llm, max_loops=1)
 
         mock_session = AsyncMock()
-        mock_session.call_tool.return_value = make_tool_result({"chunks": [], "sources": []})
+        mock_session.call_tool.side_effect = [
+            make_tool_result({
+                "chunks": ["a", "b", "c"],
+                "sources_metadata": [
+                    {"url": "https://one.example/a"},
+                    {"url": "https://two.example/b"},
+                    {"url": "https://three.example/c"},
+                ],
+                "unique_document_count": 3,
+                "unique_domain_count": 3,
+            }),
+            make_tool_result({"total_chunks": 3, "label": "Neutral"}),
+            make_tool_result({"total_chunks": 3, "label": "Neutral"}),
+            make_tool_result({"score": 0.0, "label": "Neutral", "confidence": 1.0}),
+        ]
 
         with patch("agents.sentiment_agent.ClientSession") as mock_session_cls, \
              patch("agents.sentiment_agent.stdio_client") as mock_stdio:
@@ -424,6 +574,7 @@ class TestRunFullPipeline:
         summary = result["sentiment_analysis_summary"]
         assert summary["overall_sentiment"] == "Neutral"
         assert "Brain analysis JSON parse failed" in summary["risk_flags"]
+        assert summary["quality_passed"] is False
 
     @pytest.mark.asyncio
     async def test_ticker_in_summary_resolved_via_extract_ticker(self):

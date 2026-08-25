@@ -94,6 +94,9 @@ class TestAnalyzeEndpointHappyPath:
         manager_agent = AsyncMock()
         manager_agent.run.return_value = {
             "final_report": "Buy recommendation.",
+            "publication_status": "PUBLISHED",
+            "execution_status": "completed",
+            "final_publication_validation": {"passed": True},
             "financial_metrics_summary": {"pe": 20},
             "sentiment_analysis_summary": {"label": "Bullish"},
             "aggregated_research_context": ["a", "b", "c"],
@@ -128,6 +131,8 @@ class TestAnalyzeEndpointHappyPath:
 
         assert resp.status_code == 200
         body = resp.json()
+        assert body["status"] == "failed"
+        assert body["publication_status"] == "LIMITED_REPORT"
         assert body["final_report"] == "# Limited report\nValidated sections remain visible."
         assert "A complete but invalid candidate." not in body.values()
 

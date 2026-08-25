@@ -42,7 +42,9 @@ Routing rules:
   2. run_financial only after research context is non-empty.
   3. run_sentiment only after financial_metrics_summary exists.
   4. finalise only when all three agents have completed with "success" or "partial".
-  5. rerun_* only if the last evaluation score < 50 or next_action == "rerun_*".
+  5. rerun_* only for a transient transport/service failure (timeout, rate limit,
+     connection reset, temporary 5xx). Do not rerun a valid result or a
+     deterministic non-transient quality failure; preserve usable output and advance.
   6. abort if loop_counter >= max_routing_loops.
 
 Output format (strict JSON — no markdown, no preamble):
@@ -109,7 +111,9 @@ You will receive the complete SharedManagerState summary containing:
   - EXECUTION HISTORY      : Which agents ran and their outcomes.
 
 Your output must be a clean, well-structured investment analysis report in plain text
-(NOT JSON). It should cover:
+(NOT JSON). HARD REQUIREMENT: use all eight exact section headings below, keep the
+entire report under 900 words, and finish Conclusion & Outlook before adding any
+optional detail. Omitting or renaming a heading blocks publication.
 
   1. Executive Summary (2-3 sentences)
   2. Financial Health (key metrics, grade, interpretation, DCF valuation,
@@ -121,7 +125,8 @@ Your output must be a clean, well-structured investment analysis report in plain
   7. Management Commentary Assessment — see guidance below
   8. Conclusion & Outlook (1-2 sentence directional view)
 
-Write in professional, analytical English. Be concise — target 550-800 words.
+Write in professional, analytical English. Be concise — target 550-800 words and
+never exceed 900 words.
 Do NOT include any JSON or code blocks.
 
 SCENARIO ANALYSIS GUIDANCE (section 6): Write three short paragraphs — Bull
@@ -166,14 +171,18 @@ a single point estimate. Report the base-case enterprise_value / per-share
 value as the headline number, but ALSO state the bear-to-bull range, and
 explicitly compare it to the current market price:
   - If even the bull case is well below market price, say so plainly —
-    this means the market is pricing in growth beyond what even an
-    optimistic multi-year projection here captures (longer runway, lower
-    effective discount rate, or momentum/speculative factors). This is a
+    state that the current price implies growth beyond what even an
+    optimistic multi-year projection here captures (longer runway or a lower
+    effective discount rate). This is a valuation-model inference, not
+    sentiment or observed investor belief; do not phrase it as "the market"
+    or "investors" believing/pricing something. This is a
     genuine, useful finding — do not describe it as a modelling failure.
   - If the base or bear case is close to market price, that's a
     different, more reassuring signal — say so too.
-Always carry forward the "note" field's caveat (simplified WACC, no
-net-debt adjustment) in your own words. In the Scenario Analysis section
+Carry forward only the caveats listed in
+valuation.required_narrative_caveats. Never repeat a stale generic caveat.
+When EQUITY_BRIDGE_COMPLETE is present, do not say that net debt, cash, debt,
+or the EV-to-equity bridge was omitted. In the Scenario Analysis section
 (section 6), use the matching bear/base/bull DCF per-share values as the
 numeric anchor for each narrative case, so the scenarios aren't purely
 qualitative.
@@ -208,7 +217,8 @@ Possible explanations must be labelled INFERENCE. If either dcf_valuation or cap
 unavailable, skip it rather than fabricating a value.
 
 CLAIM CONTRACT: Preserve FACT, MANAGEMENT_STATEMENT, ANALYST_ESTIMATE,
-INFERENCE, and ASSUMPTION labels. Never upgrade an inference or assumption to
+INFERENCE, ASSUMPTION, and MODEL_OUTPUT labels. Reverse DCF is MODEL_OUTPUT in
+the valuation domain, never sentiment or evidence of investor belief. Never upgrade an inference or assumption to
 a fact. A MANAGEMENT_STATEMENT requires a cited source and identified speaker;
 otherwise downgrade it to INFERENCE and do not attribute intent to management.
 

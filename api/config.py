@@ -7,6 +7,9 @@ from typing import Literal
 from pydantic_settings import BaseSettings,SettingsConfigDict
 from pydantic import Field
 from api.core.exceptions import ConfigurationError
+from dotenv import load_dotenv
+
+load_dotenv()
 
 log = logging.getLogger("api.config")
 
@@ -31,7 +34,6 @@ class Settings(BaseSettings):
     APP_ENV: Literal["development", "production"] = "development"
     DEFAULT_USER_ID: str = "anonymous"
     REQUEST_TIMEOUT_S: int = 300    
-  
     LOG_LEVEL: str = "INFO"
     ALLOWED_ORIGINS: list[str] = []
     model_config = SettingsConfigDict(

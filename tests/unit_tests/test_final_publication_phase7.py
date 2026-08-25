@@ -102,7 +102,13 @@ def manager():
 
 @pytest.mark.asyncio
 async def test_invalid_first_synthesis_regenerates_once_and_publishes_corrected():
-    mgr=manager(); mgr._brain_finalise=AsyncMock(side_effect=["$89 is 154% below $225.75.","$89 is about 60.6% below $225.75."])
+    corrected=("$89 is about 60.6% below $225.75.\n"
+        "## Executive Summary\nSummary.\n## Financial Health\nHealth.\n"
+        "## Market Sentiment\nSentiment.\n## Research Highlights\nHighlights.\n"
+        "## Risk Factors\nRisks.\n## Scenario Analysis\nScenarios.\n"
+        "## Management Commentary Assessment\nNot available.\n"
+        "## Conclusion & Outlook\nConclusion.")
+    mgr=manager(); mgr._brain_finalise=AsyncMock(side_effect=["$89 is 154% below $225.75.",corrected])
     shared=base_state(); shared.update({"task_query":"NVDA","agent_execution_history":[]})
     result=await mgr._node_finalise({"shared_state":shared,"ticker":"NVDA","session_id":"s","loop_counter":1})
     out=result["shared_state"]
@@ -118,7 +124,8 @@ async def test_two_invalid_syntheses_block_and_preserve_candidate():
     shared=base_state(); shared.update({"task_query":"NVDA","agent_execution_history":[]})
     result=await mgr._node_finalise({"shared_state":shared,"ticker":"NVDA","session_id":"s","loop_counter":1})
     out=result["shared_state"]
-    assert out["publication_status"]=="PUBLISHED_WITH_WARNINGS"
+    assert out["publication_status"]=="LIMITED_REPORT"
+    assert out["execution_status"]=="failed"
     assert out["final_report"]
     assert "Financial Performance Reliability: LIMITED" in out["final_report"]
     assert "Numeric ordering contradiction" not in out["final_report"]

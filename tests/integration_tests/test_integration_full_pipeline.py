@@ -50,7 +50,28 @@ async def test_full_pipeline_produces_complete_report(known_ticker, manager_agen
         "Conclusion",
     ]
     missing_sections = [s for s in expected_sections if s not in report]
-    assert not missing_sections, f"final_report missing sections: {missing_sections}"
+    diagnostics = {
+        "publication_status": result.get("publication_status"),
+        "execution_status": result.get("execution_status"),
+        "critical_findings": result.get("final_publication_validation", {}).get(
+            "critical_findings", []
+        ),
+    }
+    if result.get("publication_status") in {"PUBLISHED", "PUBLISHED_WITH_WARNINGS"}:
+        assert not missing_sections, (
+            f"published final_report missing sections: {missing_sections}; "
+            f"publication diagnostics: {diagnostics}"
+        )
+        assert result.get("execution_status") == "completed"
+    else:
+        # Stage 3 is fail-closed: an unsafe LLM candidate is retained for
+        # diagnostics, while the user receives a reliability report and the
+        # top-level execution must not claim success.
+        assert result.get("execution_status") == "failed", diagnostics
+        assert result.get("final_publication_validation", {}).get("critical_findings")
+        assert result.get("blocked_final_report")
+        assert result.get("final_report") != result.get("blocked_final_report")
+        assert "Section Reliability" in result.get("final_report", "")
 
     # The three data sources that must all feed the report (see the
     # RAGAS faithfulness investigation — this was the root cause of the

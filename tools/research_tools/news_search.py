@@ -41,15 +41,7 @@ _RELATIVE_TIME_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
-# Generic finance vocabulary that appears in nearly EVERY article about a
-# company's stock, regardless of what actually happened — these words
-# describe the *category* of content ("this is stock-related, price-
-# related, sentiment-related") rather than the specific topic. OR-ing them
-# in (as an earlier version of this function did) made queries match
-# almost any article mentioning the company at all, which is too broad —
-# e.g. "Apple stock price movement analyst ratings sentiment" would match
-# literally any Apple stock article. They're dropped entirely rather than
-# OR'd, so only genuinely distinguishing terms drive the match.
+
 _GENERIC_FILLER_WORDS = {
     "stock", "stocks", "share", "shares", "price", "prices", "market",
     "markets", "movement", "movements", "sentiment", "analysis",
@@ -58,18 +50,6 @@ _GENERIC_FILLER_WORDS = {
     "latest", "current",
 }
 
-# NOTE: an earlier version of this function tried to auto-drop a
-# "redundant ticker" token immediately after the company name (e.g. "AAPL"
-# in "Apple AAPL earnings"). That heuristic was removed: it can't reliably
-# distinguish a genuinely redundant ticker from a real short keyword in
-# the same position — e.g. "Apple AI strategy" got mangled into
-# "Apple AND strategy" because "AI" matched the same "1-5 uppercase
-# letters right after the company name" pattern as a ticker would. Wrongly
-# discarding a real keyword is worse than the minor cost of occasionally
-# keeping a redundant ticker as an extra AND term (which usually still
-# matches fine, since financial articles commonly mention the ticker
-# alongside the company name anyway). So ticker-looking tokens are now
-# just treated like any other term.
 
 
 def _extract_terms(query: str) -> list[str]:
@@ -122,26 +102,14 @@ def _restructure_query(query: str) -> str:
     return _build_boolean_query(terms) or query
 
 
-# NewsAPI's own relevancy matching can be looser than the boolean query
-# implies — an AND'd term can technically satisfy the query by appearing
-# once, in passing, in a long article that isn't really ABOUT that topic
-# (e.g. a broad market-wrap article that mentions the company once while
-# covering several others). The boolean query controls what CAN come
-# back; this local filter controls what's actually TRUSTED as relevant,
-# by requiring a minimum number of the query's own terms to show up in
-# the article's title/description specifically (not just somewhere in the
-# full body NewsAPI indexed) — title/description are a much stronger
-# relevance signal than "appears somewhere in the article text".
+
 def _count_term_matches(article: dict, terms: list[str]) -> list[str]:
     haystack = f"{article.get('title', '')} {article.get('description', '')}".lower()
     return [t for t in terms if t.lower() in haystack]
 
 
 def _min_required_matches(n_terms: int) -> int:
-    # Always require the anchor (first term) plus at least one more
-    # distinguishing term when there is one — a single-term match (often
-    # just the company name) isn't enough to trust an article as
-    # genuinely on-topic when the original query had more to it.
+   
     return min(2, n_terms)
 
 
@@ -227,12 +195,7 @@ async def news_search(
         if a.get("title") != "[Removed]"
     ]
 
-    # Local relevance filter: NewsAPI's boolean match can be satisfied by
-    # a term appearing once, anywhere in the full article body — including
-    # broad market-wrap pieces that mention the company only in passing.
-    # Require a minimum number of the query's own terms to actually show
-    # up in title/description (a much stronger signal than "somewhere in
-    # the full text") before trusting an article as genuinely relevant.
+
     min_matches = _min_required_matches(len(terms))
     filtered_articles = []
     for article in raw_articles:
@@ -245,9 +208,7 @@ async def news_search(
     if filtered_articles:
         articles = filtered_articles
     else:
-        # Don't silently return nothing just because title/description
-        # were terse — fall back to the unfiltered set rather than hiding
-        # results the caller could still find useful, but flag it.
+    
         articles = raw_articles
 
     total_results = data.get("totalResults", 0)
@@ -278,10 +239,7 @@ async def news_search(
             "carefully before treating these as strongly on-topic."
         )
 
-    # Surface low-confidence results explicitly rather than silently
-    # returning a single weak match as if it were a solid hit. Callers
-    # (agents/LLMs consuming this tool) can use this to decide whether to
-    # retry with a narrower/shorter query or fall back to another tool.
+   
     if total_results <= 1 or len(articles) <= 1:
         result["low_confidence"] = True
         result["warning"] = (

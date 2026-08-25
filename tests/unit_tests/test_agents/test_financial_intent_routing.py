@@ -86,12 +86,31 @@ def make_raw(ticker="AMD"):
             "revenue_growth_ttm": 0.36,
         },
         "xbrl_financials": {
-            "total_assets": [{"value": 69_226_000_000.0, "period_end": "2024-12-28"}],
-            "total_liabilities": [{"value": 12_800_000_000.0, "period_end": "2024-12-28"}],
-            "revenue_annual": [{"value": 25_785_000_000.0}],
-            "operating_income_annual": [{"value": 1_900_000_000.0}],
-            "operating_cash_flow_annual": [{"value": 3_041_000_000.0}],
-            "capex_annual": [{"value": 636_000_000.0}],
+            "total_assets": [{
+                "value": 69_226_000_000.0, "period_end": "2024-12-28",
+                "period_start": None, "unit": "USD", "metric_scope": "instant",
+            }],
+            "total_liabilities": [{
+                "value": 12_800_000_000.0, "period_end": "2024-12-28",
+                "period_start": None, "unit": "USD", "metric_scope": "instant",
+            }],
+            "revenue_annual": [{
+                "value": 25_785_000_000.0, "period_start": "2023-12-31",
+                "period_end": "2024-12-28", "fiscal_year": 2024,
+                "unit": "USD", "metric_scope": "duration",
+            }],
+            "operating_income_annual": [{
+                "value": 1_900_000_000.0, "period_start": "2023-12-31",
+                "period_end": "2024-12-28", "unit": "USD", "metric_scope": "duration",
+            }],
+            "operating_cash_flow_annual": [{
+                "value": 3_041_000_000.0, "period_start": "2023-12-31",
+                "period_end": "2024-12-28", "unit": "USD", "metric_scope": "duration",
+            }],
+            "capex_annual": [{
+                "value": 636_000_000.0, "period_start": "2023-12-31",
+                "period_end": "2024-12-28", "unit": "USD", "metric_scope": "duration",
+            }],
         },
         "balance_sheet_snapshot": {
             "period_end": "2024-12-28", "ebit": 1_900_000_000.0,
