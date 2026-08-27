@@ -1,0 +1,21 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "05",
+  "stage_revision": 1,
+  "accepted_attempt": 1,
+  "primary_agent": "financial",
+  "implementation_status": "IMPLEMENTED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "implementation": "stage-05-rev-1-attempt-1-implementation.json",
+    "observability": "stage-05-rev-1-attempt-1-observability.json",
+    "qa": "stage-05-rev-1-attempt-1-qa.json",
+    "review": "stage-05-rev-1-attempt-1-review.json"
+  },
+  "supersedes": null,
+  "created_at": "2000-01-01T00:00:00Z"
+}

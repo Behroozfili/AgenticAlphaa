@@ -1,0 +1,40 @@
+{
+  "schema_version": "1.0",
+  "status": "INCOMPLETE",
+  "captured_at": null,
+  "repository_head": null,
+  "working_tree_status_artifact": null,
+  "items": {
+    "validation_trace": {
+      "path": "validation_MSFT_full_report_20260826_161633.json",
+      "status": "MISSING",
+      "resolution": "Recover the exact file and redact secrets/oversized raw payloads, or explicitly create and approve a replacement baseline during Stage 00. Never fabricate historical latency or quality numbers."
+    },
+    "legacy_supabase_migration": {
+      "path": "supabase_phase5_provenance_migration.sql",
+      "status": "MISSING",
+      "resolution": "Recover the exact migration or formally retarget tests to an existing versioned migration after reviewing their assertions. Do not recreate the legacy SQL from memory."
+    },
+    "python_test_runner": {
+      "status": "UNVERIFIED",
+      "interpreter": null,
+      "collect_only_artifact": null,
+      "offline_baseline_artifact": null,
+      "resolution": "Stage 00 must identify a runnable interpreter, run collection, and record pre-existing failures separately from refactor regressions."
+    },
+    "database_backup_inventory": {
+      "status": "UNVERIFIED",
+      "supabase": null,
+      "neo4j": null,
+      "restore_evidence": null,
+      "resolution": "Read-only inventory is allowed in Stage 00. No backup or restore claim may be marked PASS without evidence and any required external authorization."
+    }
+  },
+  "stage_00_close_policy": {
+    "test_collection_must_run": true,
+    "pre_existing_failures_may_be_documented": true,
+    "pre_existing_failures_must_not_be_hidden": true,
+    "missing_baseline_must_have_an_approved_disposition": true,
+    "external_database_writes_required": false
+  }
+}

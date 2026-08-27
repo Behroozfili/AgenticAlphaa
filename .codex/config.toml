@@ -1,0 +1,2 @@
+# Project-scoped custom agents are loaded from .codex/agents/.
+# Multi-agent support is enabled by default; concurrency inherits the Codex runtime default.

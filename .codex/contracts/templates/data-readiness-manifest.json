@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "status": "NOT_EVALUATED",
+  "run_id": null,
+  "universe_version": null,
+  "universe_manifest_hash": null,
+  "dataset_version": null,
+  "feature_version": null,
+  "cutoff_policy_version": "monthly_last_session_v1",
+  "source_coverage": {},
+  "ticker_count": 0,
+  "monthly_cutoff_count": 0,
+  "eligible_forecast_count": 0,
+  "feature_missingness": {},
+  "news_coverage": null,
+  "filing_coverage": null,
+  "graph_coverage": null,
+  "excluded_rows_by_reason": {},
+  "content_hashes": {},
+  "scientific_report_level": "PRELIMINARY",
+  "blocking_issues": []
+}

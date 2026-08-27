@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "universe_version": "UNSET",
+  "source": "UNSET",
+  "created_at": null,
+  "constituents": [
+    {
+      "ticker": "MSFT",
+      "effective_from": null,
+      "effective_to": null,
+      "benchmark": "SPY",
+      "source_ref": "UNSET"
+    }
+  ],
+  "manifest_hash": null,
+  "limitations": ["Template only; MSFT alone is a demo fixture, not a scientific universe."]
+}

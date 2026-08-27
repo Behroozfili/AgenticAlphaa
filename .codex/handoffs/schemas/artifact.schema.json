@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "agenticalpha-refactor-artifact-v1",
+  "title": "AgenticAlpha refactor artifact",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["schema_version", "artifact_type", "stage", "stage_revision", "created_at"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "artifact_type": {"enum": ["draft_ready", "implementation", "observability", "qa", "review", "handoff", "final_qa", "final_review", "change_request", "milestone"]},
+    "stage": {"enum": ["00", "01", "02", "03", "04A", "04B", "05", "06", "07", "08", "09", "10A", "10B", "11", "FINAL_QA", "FINAL_REVIEW"]},
+    "stage_revision": {"type": "integer", "minimum": 1},
+    "attempt": {"type": "integer", "minimum": 1},
+    "agent": {"type": "string", "minLength": 1},
+    "status": {"type": "string", "minLength": 1},
+    "changed_files": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "ready_for_observability": {"type": "boolean"},
+    "self_tests_run": {"type": "array"},
+    "rollback_documented": {"type": "boolean"},
+    "implementation_ready": {"type": "boolean"},
+    "requested_primary_changes": {"type": "array"},
+    "privacy_checks": {"type": "array"},
+    "latency_instrumentation_status": {"type": "string", "minLength": 1},
+    "qa_status": {"enum": ["PASS", "FAIL", "BLOCKED"]},
+    "tests_run": {"type": "array"},
+    "environment_blockers": {"type": "array"},
+    "review_status": {"enum": ["APPROVED", "REJECTED", "BLOCKED"]},
+    "blocking_findings": {"type": "array"},
+    "ownership_violations": {"type": "array"},
+    "scope_violations": {"type": "array"},
+    "accepted_attempt": {"type": "integer", "minimum": 1},
+    "primary_agent": {"type": "string", "minLength": 1},
+    "implementation_status": {"enum": ["IMPLEMENTED", "REVALIDATION_ONLY"]},
+    "closed_stages_verified": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "acceptance_gate_verified": {"type": "boolean"},
+    "target_agent": {"type": "string", "minLength": 1},
+    "requested_paths": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+    "reason": {"type": "string", "minLength": 1},
+    "blocking": {"type": "boolean"},
+    "evidence": {"type": "array"},
+    "blocking_issues": {"type": "array"},
+    "supersedes": {"type": ["string", "null"]},
+    "created_at": {"type": "string", "format": "date-time"}
+    ,"artifacts": {
+      "type": "object",
+      "required": ["implementation", "qa", "review"],
+      "properties": {
+        "draft_ready": {"type": ["string", "null"]},
+        "implementation": {"type": "string", "minLength": 1},
+        "observability": {"type": ["string", "null"]},
+        "qa": {"type": "string", "minLength": 1},
+        "review": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "milestone_name": {"type": "string", "minLength": 1},
+    "milestone_status": {"enum": ["PASS", "FAIL", "BLOCKED"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"artifact_type": {"enum": ["draft_ready", "implementation", "observability", "qa", "review", "change_request", "milestone"]}}},
+      "then": {"required": ["attempt", "agent"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "draft_ready"}}},
+      "then": {"required": ["changed_files", "ready_for_observability", "blocking_issues"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "implementation"}}},
+      "then": {"required": ["status", "changed_files", "self_tests_run", "blocking_issues", "rollback_documented", "implementation_ready"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "observability"}}},
+      "then": {"required": ["status", "changed_files", "requested_primary_changes", "privacy_checks", "latency_instrumentation_status"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "qa"}}},
+      "then": {"required": ["qa_status", "tests_run", "blocking_issues", "environment_blockers"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "review"}}},
+      "then": {"required": ["review_status", "blocking_findings", "ownership_violations", "scope_violations"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "handoff"}}},
+      "then": {"required": ["accepted_attempt", "primary_agent", "implementation_status", "qa_status", "review_status", "rollback_documented", "status", "artifacts"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "final_qa"}}},
+      "then": {"required": ["qa_status", "closed_stages_verified", "blocking_issues"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "final_review"}}},
+      "then": {"required": ["review_status", "acceptance_gate_verified", "blocking_findings"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "change_request"}}},
+      "then": {"required": ["target_agent", "requested_paths", "reason", "blocking"]}
+    },
+    {
+      "if": {"properties": {"artifact_type": {"const": "milestone"}}},
+      "then": {"required": ["milestone_name", "milestone_status", "evidence"]}
+    }
+  ]
+}

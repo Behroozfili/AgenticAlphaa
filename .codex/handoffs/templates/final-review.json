@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "final_review",
+  "stage": "FINAL_REVIEW",
+  "stage_revision": 1,
+  "review_status": "BLOCKED",
+  "blocking_findings": [],
+  "cross_stage_findings": [],
+  "acceptance_gate_verified": false,
+  "created_at": "2000-01-01T00:00:00Z"
+}

@@ -1,0 +1,13 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "milestone",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "quant",
+  "milestone_name": "DATA_READINESS",
+  "milestone_status": "BLOCKED",
+  "evidence": [],
+  "blocking_issues": [],
+  "created_at": "2000-01-01T00:00:00Z"
+}

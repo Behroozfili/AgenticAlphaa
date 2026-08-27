@@ -1,0 +1,88 @@
+{
+  "schema_version": "2.1",
+  "control_revision": 2,
+  "execution_enabled": false,
+  "status": "BLOCKED",
+  "active_stage": null,
+  "active_phase": null,
+  "next_stage": "00",
+  "stage_revision": 0,
+  "attempt": 0,
+  "final_cycle_revision": 0,
+  "primary_agent": null,
+  "allowed_support_agents": [],
+  "write_locks": {},
+  "lock_history": [],
+  "stale_stages": [],
+  "invalidated_by": null,
+  "canonical_plan": "list.md",
+  "orchestration_spec": "codex_agents_refactor_orchestration_EN.md",
+  "contracts": {
+    "control_plane": ".codex/contracts/control-plane.md",
+    "monthly_backtest": ".codex/contracts/monthly-backtest-contract.md",
+    "data_schema": ".codex/contracts/data-schema-contract.md",
+    "artifact_schema": ".codex/handoffs/schemas/artifact.schema.json"
+  },
+  "workspace_baseline": {
+    "git_ref": "HEAD",
+    "preexisting_untracked": [
+      {"path": "dfc.md", "sha256": "79b6345d56269bd7659d77877b4dba3ccc39d6d690f1c1982114f5ea2e9c076b"}
+    ]
+  },
+  "permanent_write_owners": {
+    ".codex/refactor-state.json": "orchestrator"
+  },
+  "protected_path_schedule": {
+    "agents/__init__.py": {"01": "core", "08": "integration"},
+    "agents/prompts/__init__.py": {"04B": "research", "05": "financial", "06": "sentiment", "08": "integration"},
+    "tools/__init__.py": {"04B": "research", "05": "financial", "06": "sentiment", "07": "quant"},
+    "rag/__init__.py": {"03": "data_rag", "04A": "data_rag"},
+    "main.py": {"03": "data_rag", "10A": "core"},
+    "pyproject.toml": {"00": "core", "02": "core", "03": "core", "04A": "core", "04B": "core", "05": "core", "06": "core", "07": "core", "08": "core", "09": "core", "10A": "core", "11": "cleanup"},
+    "requirements.txt": {"00": "core", "02": "core", "03": "core", "04A": "core", "04B": "core", "05": "core", "06": "core", "07": "core", "08": "core", "09": "core", "10A": "core", "11": "cleanup"},
+    "uv.lock": {"00": "core", "02": "core", "03": "core", "04A": "core", "04B": "core", "05": "core", "06": "core", "07": "core", "08": "core", "09": "core", "10A": "core", "11": "cleanup"},
+    "api/main.py": {"10A": "core"},
+    "api/dependencies.py": {"10A": "core"},
+    "core/observability.py": {"*": "observability"},
+    "core/progress_bus.py": {"*": "observability"},
+    "langsmith_trace.py": {"*": "observability"}
+  },
+  "authorization": {
+    "apply_database_migrations": false,
+    "delete_legacy_data": false,
+    "external_network_or_bulk_download": false,
+    "seed_external_or_production_data": false,
+    "deploy": false,
+    "commit_or_push": false
+  },
+  "authorization_audit": [
+    {
+      "scope": "control_plane_baseline_commit",
+      "status": "AUTHORIZED_AND_CONSUMED",
+      "source": "User requested the reported pre-execution corrections after being told a local control-only commit was required.",
+      "included_paths": [".codex/", "list.md", "codex_agents_refactor_orchestration_EN.md"],
+      "excluded_paths": ["dfc.md", "product code", "push"]
+    }
+  ],
+  "baseline": {"manifest": ".codex/baseline-manifest.json", "status": "INCOMPLETE"},
+  "stages": {
+    "00": {"status": "BLOCKED", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "core", "dependencies": [], "observability_required": false, "milestones": {"BASELINE_READY": {"status": "PENDING", "artifact": null}}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": "Execution is disabled; baseline trace, legacy migration disposition, and test runner evidence are unresolved."},
+    "01": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "core", "dependencies": ["00"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "02": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "data_rag", "dependencies": ["01"], "observability_required": false, "milestones": {"SCHEMA_CONTRACT_FROZEN": {"status": "PENDING", "artifact": null}}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "03": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "data_rag", "dependencies": ["02"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "04A": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "data_rag", "dependencies": ["03"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "04B": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "research", "dependencies": ["04A"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "05": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "financial", "dependencies": ["04B"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "06": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "sentiment", "dependencies": ["05"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "07": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "quant", "dependencies": ["04B", "05", "06"], "observability_required": true, "milestones": {"DATA_READINESS": {"status": "PENDING", "artifact": null}, "MODEL_READY": {"status": "PENDING", "artifact": null}}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "08": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "integration", "dependencies": ["01", "04B", "05", "06", "07"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "09": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "quant", "dependencies": ["08"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "10A": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "core", "dependencies": ["09"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "10B": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "integration", "dependencies": ["10A"], "observability_required": true, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "11": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "cleanup", "dependencies": ["10B"], "observability_required": false, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "FINAL_QA": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "qa", "dependencies": ["11"], "observability_required": false, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null},
+    "FINAL_REVIEW": {"status": "PENDING", "phase": "NOT_STARTED", "revision": 0, "attempt": 0, "primary_agent": "reviewer", "dependencies": ["FINAL_QA"], "observability_required": false, "milestones": {}, "accepted_attempt": null, "accepted_artifacts": {}, "supersedes_handoff": null, "invalidated_by": null, "block_reason": null}
+  },
+  "transition_history": [],
+  "block_reason": "Control plane is prepared, but Stage 00 execution still requires a separate explicit start instruction and its baseline prerequisites remain incomplete."
+}

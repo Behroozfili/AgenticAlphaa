@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "05",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [],
+  "requested_primary_changes": [],
+  "privacy_checks": [],
+  "latency_instrumentation_status": "NOT_APPLICABLE",
+  "blocking_issues": [],
+  "created_at": "2000-01-01T00:00:00Z"
+}
