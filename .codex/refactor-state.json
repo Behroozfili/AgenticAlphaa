@@ -24,7 +24,7 @@
     "artifact_schema": ".codex/handoffs/schemas/artifact.schema.json"
   },
   "workspace_baseline": {
-    "git_ref": "HEAD",
+    "git_ref": "c2385b3a3a648c002a8a6023f7a040c1c438f29c",
     "preexisting_untracked": [
       {"path": "dfc.md", "sha256": "79b6345d56269bd7659d77877b4dba3ccc39d6d690f1c1982114f5ea2e9c076b"}
     ]
