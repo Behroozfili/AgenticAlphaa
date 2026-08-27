@@ -246,6 +246,24 @@ def validate_state(root: Path, state: dict[str, Any]) -> list[str]:
                 expected = schedule[path].get(current, schedule[path].get("*"))
                 if expected != owner:
                     errors.append(f"protected path {path} lock owner {owner!r} != scheduled {expected!r} for {current}")
+    for index, item in enumerate(state.get("lock_history", [])):
+        if not isinstance(item, dict):
+            errors.append(f"lock_history[{index}] must be an object")
+            continue
+        required = {"path", "owner", "stage", "revision", "attempt", "status", "content_sha256"}
+        missing = required - set(item)
+        if missing:
+            errors.append(f"lock_history[{index}] missing {sorted(missing)}")
+            continue
+        try:
+            normalize_relative(item["path"])
+        except ValueError as exc:
+            errors.append(str(exc))
+        if item["owner"] not in registered or item["stage"] not in stages or item["status"] != "ACCEPTED":
+            errors.append(f"lock_history[{index}] has invalid owner/stage/status")
+        digest = item["content_sha256"]
+        if digest != "DELETED" and not re.fullmatch(r"[0-9a-f]{64}", str(digest)):
+            errors.append(f"lock_history[{index}] has invalid content_sha256")
     return errors
 
 
@@ -335,11 +353,16 @@ def git_changed_files(root: Path, state: dict[str, Any]) -> set[str]:
     return changed
 
 
-def ownership_map(state: dict[str, Any]) -> dict[str, str]:
+def ownership_map(root: Path, state: dict[str, Any]) -> dict[str, str]:
     owners: dict[str, str] = {}
     for item in state.get("lock_history", []):
         if item.get("status") == "ACCEPTED":
-            owners[normalize_relative(item["path"])] = item["owner"]
+            path = normalize_relative(item["path"])
+            full = root / path
+            accepted_hash = item.get("content_sha256")
+            current_hash = sha256_file(full) if full.is_file() else "DELETED"
+            if accepted_hash == current_hash:
+                owners[path] = item["owner"]
     owners.update({normalize_relative(k): v for k, v in state.get("write_locks", {}).items()})
     owners.update({normalize_relative(k): v for k, v in state.get("permanent_write_owners", {}).items()})
     return owners
@@ -351,15 +374,15 @@ def validate_git_locks(root: Path, state: dict[str, Any]) -> list[str]:
         changed = git_changed_files(root, state)
     except (RuntimeError, ValueError) as exc:
         return [f"unable to derive Git changes: {exc}"]
-    owners = ownership_map(state)
+    owners = ownership_map(root, state)
     for path in sorted(changed):
         if path not in owners:
             errors.append(f"{path}: real Git change has no current/permanent/accepted lock owner")
     return errors
 
 
-def validate_explicit_locks(state: dict[str, Any], agent: str, changed_files: list[str]) -> list[str]:
-    owners = ownership_map(state)
+def validate_explicit_locks(root: Path, state: dict[str, Any], agent: str, changed_files: list[str]) -> list[str]:
+    owners = ownership_map(root, state)
     errors: list[str] = []
     for raw in changed_files:
         try:
@@ -407,14 +430,14 @@ def main() -> int:
             data = load_json(path)
             errors.extend(validate_artifact(path, data, schema))
             if data.get("changed_files") and data.get("agent"):
-                errors.extend(validate_explicit_locks(state, data["agent"], data["changed_files"]))
+                errors.extend(validate_explicit_locks(root, state, data["agent"], data["changed_files"]))
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             errors.append(f"{path}: {exc}")
     if args.changed_files:
         if not args.agent:
             errors.append("--agent is required with --changed-files")
         else:
-            errors.extend(validate_explicit_locks(state, args.agent, args.changed_files))
+            errors.extend(validate_explicit_locks(root, state, args.agent, args.changed_files))
 
     if errors:
         print("CONTROL INVALID", file=sys.stderr)

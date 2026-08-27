@@ -44,7 +44,7 @@ Artifact rules:
 - Final artifacts are revisioned, for example `final-qa-rev-N.json` and `final-review-rev-N.json`; never overwrite superseded final artifacts.
 - Final artifact `N` is `final_cycle_revision`; increment it whenever a prior final cycle is invalidated.
 - Each artifact has one writer only.
-- Protected shared files must match the active Stage owner in `protected_path_schedule` and still receive exact locks. Record accepted path/owner/stage/revision/attempt entries in immutable `lock_history`.
+- Protected shared files must match the active Stage owner in `protected_path_schedule` and still receive exact locks. Record accepted path/owner/stage/revision/attempt plus accepted content SHA-256 (or `DELETED`) in immutable `lock_history`; never reuse a historical lock after content changes.
 - An observability support pass, when used, writes `stage-XX-rev-N-attempt-M-observability.json`. The primary agent writes its final implementation artifact only after that pass and a final self-check.
 - Artifact contents must validate against `.codex/handoffs/schemas/artifact.schema.json`; templates are examples, not evidence and must never be accepted as completed artifacts.
 
