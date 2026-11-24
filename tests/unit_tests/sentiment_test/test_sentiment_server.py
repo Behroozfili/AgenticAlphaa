@@ -15,12 +15,28 @@ import json
 import dataclasses
 from unittest.mock import patch, MagicMock
 import pytest
+from core.forecast_contract import AnalysisMode, ForecastContext
 
 from tools.sentiment_tools.sentiment_server import (
     call_tool,
+    list_tools,
     _retrieve_social_data,
     _to_dict,
 )
+
+
+TEST_FORECAST_CONTEXT = ForecastContext(
+    ticker="NVDA",
+    as_of="2026-06-30T20:00:00Z",
+    schema_version="2.1",
+    dataset_version="sentiment-server-fixture-v1",
+    feature_version="monthly-sentiment-features-v1",
+    model_version="test-model-v1",
+).to_dict()
+IDENTITY_ARGS = {
+    "forecast_context": TEST_FORECAST_CONTEXT,
+    "run_id": "sentiment-server-test-run",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +44,79 @@ from tools.sentiment_tools.sentiment_server import (
 # ---------------------------------------------------------------------------
 
 class TestRetrieveSocialData:
+    @patch("tools.sentiment_tools.sentiment_server._get_retriever")
+    def test_live_context_uses_legacy_safe_temporal_projection(
+        self, mock_get_retriever,
+    ):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = []
+        mock_get_retriever.return_value = mock_retriever
+
+        _retrieve_social_data(
+            "query", ticker="NVDA", days_back=30,
+            forecast_context=TEST_FORECAST_CONTEXT,
+            run_id="sentiment-live-test-run",
+        )
+
+        kwargs = mock_retriever.retrieve_raw.call_args.kwargs
+        assert kwargs["historical"] is False
+        assert kwargs["as_of"] == ForecastContext.from_dict(
+            TEST_FORECAST_CONTEXT
+        ).as_of
+
+    @patch("tools.sentiment_tools.sentiment_server._get_retriever")
+    def test_historical_context_requires_historical_backend(
+        self, mock_get_retriever,
+    ):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = []
+        mock_get_retriever.return_value = mock_retriever
+        historical_context = ForecastContext(
+            ticker="NVDA",
+            as_of="2026-06-30T20:00:00Z",
+            schema_version="2.1",
+            dataset_version="sentiment-server-fixture-v1",
+            feature_version="monthly-sentiment-features-v1",
+            model_version="test-model-v1",
+            analysis_mode=AnalysisMode.HISTORICAL_BACKTEST,
+        ).to_dict()
+
+        _retrieve_social_data(
+            "query", ticker="NVDA", days_back=30,
+            forecast_context=historical_context,
+            run_id="sentiment-historical-test-run",
+        )
+
+        assert mock_retriever.retrieve_raw.call_args.kwargs["historical"] is True
+    @patch("tools.sentiment_tools.sentiment_server._get_retriever")
+    def test_filters_future_chunk_before_same_url_document_grouping(
+        self, mock_get_retriever,
+    ):
+        mock_retriever = MagicMock()
+        mock_retriever.retrieve_raw.return_value = [
+            {
+                "text": "eligible text", "ticker": "NVDA",
+                "published_at": "2026-06-20T12:00:00Z",
+                "url": "https://example.com/story",
+            },
+            {
+                "text": "FUTURE TEXT", "ticker": "NVDA",
+                "published_at": "2026-07-01T12:00:00Z",
+                "url": "https://example.com/story?utm_source=future",
+            },
+        ]
+        mock_get_retriever.return_value = mock_retriever
+
+        result = _retrieve_social_data(
+            "query", ticker="NVDA", days_back=30,
+            forecast_context=TEST_FORECAST_CONTEXT,
+            run_id="sentiment-server-test-run",
+        )
+
+        assert result["chunks"] == ["eligible text"]
+        assert "FUTURE TEXT" not in json.dumps(result)
+        assert "FUTURE_EVIDENCE_REJECTED" in result["temporal_rejections"]
+
     @patch("tools.sentiment_tools.sentiment_server._get_retriever")
     def test_extracts_text_and_metadata_in_parallel(self, mock_get_retriever):
         mock_retriever = MagicMock()
@@ -181,13 +270,27 @@ class TestToDict:
 
 class TestCallToolRouting:
     @pytest.mark.asyncio
+    async def test_all_mcp_schemas_require_forecast_identity(self):
+        result = await list_tools()
+        assert result.tools
+        for tool in result.tools:
+            required = set(tool.inputSchema.get("required", []))
+            assert {"forecast_context", "run_id"} <= required
+
+    @pytest.mark.asyncio
     @patch("tools.sentiment_tools.sentiment_server._retrieve_social_data")
     async def test_routes_to_retrieve_social_data_with_defaults(self, mock_retrieve):
         mock_retrieve.return_value = {"chunks": [], "sources_metadata": [], "total_retrieved": 0}
 
-        result = await call_tool("retrieve_social_data", {"query": "NVDA"})
+        result = await call_tool(
+            "retrieve_social_data", {"query": "NVDA", **IDENTITY_ARGS}
+        )
 
-        mock_retrieve.assert_called_once_with(query="NVDA", ticker=None, days_back=30)
+        mock_retrieve.assert_called_once_with(
+            query="NVDA", ticker=None, days_back=30,
+            forecast_context=TEST_FORECAST_CONTEXT,
+            run_id="sentiment-server-test-run",
+        )
         assert result.isError is False
 
     @pytest.mark.asyncio
@@ -198,7 +301,10 @@ class TestCallToolRouting:
         analyzer.analyze.return_value = MagicMock()
         mock_get_finbert.return_value = analyzer
 
-        await call_tool("analyze_finbert", {"texts": ["a", "b"], "batch_size": 4})
+        await call_tool(
+            "analyze_finbert",
+            {"texts": ["a", "b"], "batch_size": 4, **IDENTITY_ARGS},
+        )
 
         # batch_size temporarily set to 4 during the call...
         analyzer.analyze.assert_called_once_with(["a", "b"])
@@ -212,7 +318,7 @@ class TestCallToolRouting:
         scorer.score.return_value = MagicMock()
         mock_get_vader.return_value = scorer
 
-        await call_tool("score_vader", {"texts": ["a", "b"]})
+        await call_tool("score_vader", {"texts": ["a", "b"], **IDENTITY_ARGS})
 
         scorer.score.assert_called_once_with(texts=["a", "b"])
 
@@ -227,6 +333,7 @@ class TestCallToolRouting:
 
         await call_tool("calculate_fear_greed", {
             "finbert_result": {"bullish_prob": 0.5}, "vader_result": {"compound": 0.1},
+            **IDENTITY_ARGS,
         })
 
         mock_get_fear_greed.assert_called_once()
@@ -245,6 +352,7 @@ class TestCallToolRouting:
             "finbert_result": {"bullish_prob": 0.5},
             "vader_result": {"compound": 0.1},
             "evidence_independence": 0.4,
+            **IDENTITY_ARGS,
         })
 
         calculator.calculate_from_dict.assert_called_once_with(
@@ -266,6 +374,7 @@ class TestCallToolRouting:
         await call_tool("calculate_fear_greed", {
             "finbert_result": {}, "vader_result": {},
             "finbert_weight": 0.5, "vader_weight": 0.5,
+            **IDENTITY_ARGS,
         })
 
         mock_calc_cls.assert_called_once_with(finbert_weight=0.5, vader_weight=0.5)
@@ -280,7 +389,7 @@ class TestCallToolRouting:
 class TestUnknownToolAndErrors:
     @pytest.mark.asyncio
     async def test_unknown_tool_returns_error_result(self):
-        result = await call_tool("not_a_real_tool", {})
+        result = await call_tool("not_a_real_tool", {**IDENTITY_ARGS})
         assert result.isError is True
         payload = json.loads(result.content[0].text)
         assert "Unknown tool" in payload["error"]
@@ -289,7 +398,7 @@ class TestUnknownToolAndErrors:
     async def test_missing_required_arg_is_caught_not_raised(self):
         # "texts" is required for analyze_finbert; omitting it raises KeyError
         # internally, which must be caught and wrapped, not propagated.
-        result = await call_tool("analyze_finbert", {})
+        result = await call_tool("analyze_finbert", {**IDENTITY_ARGS})
         assert result.isError is True
         payload = json.loads(result.content[0].text)
         assert payload["tool"] == "analyze_finbert"
@@ -311,11 +420,16 @@ class TestSentryCaptureOnException:
             scope = MagicMock()
             mock_push_scope.return_value.__enter__.return_value = scope
 
-            result = await call_tool("score_vader", {"texts": ["x"]})
+            result = await call_tool(
+                "score_vader", {"texts": ["x"], **IDENTITY_ARGS}
+            )
 
             scope.set_tag.assert_any_call("tool", "score_vader")
             scope.set_tag.assert_any_call("server", "sentiment-agent-mcp")
+            scope.set_tag.assert_any_call("error_type", "RuntimeError")
             mock_capture_exc.assert_called_once()
+            captured = mock_capture_exc.call_args.args[0]
+            assert str(captured) == "SENTIMENT_TOOL_FAIL_CLOSED"
             assert result.isError is True
 
     @pytest.mark.asyncio
@@ -325,12 +439,29 @@ class TestSentryCaptureOnException:
         mock_get_vader.side_effect = RuntimeError("model crashed")
 
         with patch("sentry_sdk.capture_exception") as mock_capture_exc:
-            result = await call_tool("score_vader", {"texts": ["x"]})
+            result = await call_tool(
+                "score_vader", {"texts": ["x"], **IDENTITY_ARGS}
+            )
             mock_capture_exc.assert_not_called()
             assert result.isError is True
 
     @pytest.mark.asyncio
-    async def test_error_payload_includes_original_arguments(self):
-        result = await call_tool("analyze_finbert", {"unexpected": "value"})
+    async def test_error_payload_omits_original_arguments(self):
+        result = await call_tool(
+            "analyze_finbert", {"unexpected": "value", **IDENTITY_ARGS}
+        )
         payload = json.loads(result.content[0].text)
-        assert payload["arguments"] == {"unexpected": "value"}
+        assert "arguments" not in payload
+        assert payload["error_code"] == "SENTIMENT_TOOL_FAIL_CLOSED"
+        assert "unexpected" not in payload["error"]
+
+    @pytest.mark.asyncio
+    @patch("tools.sentiment_tools.sentiment_server._retrieve_social_data")
+    async def test_missing_forecast_identity_fails_before_dispatch(
+        self, mock_retrieve,
+    ):
+        result = await call_tool("retrieve_social_data", {"query": "NVDA"})
+        payload = json.loads(result.content[0].text)
+        assert result.isError is True
+        assert payload["error_code"] == "SENTIMENT_TOOL_FAIL_CLOSED"
+        mock_retrieve.assert_not_called()

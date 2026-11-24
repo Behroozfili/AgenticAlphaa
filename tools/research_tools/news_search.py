@@ -1,8 +1,17 @@
 import os
 import re
 import httpx
-from typing import Optional
-from datetime import datetime, timedelta
+from typing import Any, Mapping, Optional
+from datetime import timedelta
+
+from core.forecast_contract import AnalysisMode, ForecastContext
+from tools.research_tools import (
+    context_metadata,
+    eligible_evidence,
+    historical_unavailable,
+    observed_research_operation,
+    require_research_context,
+)
 
 NEWSAPI_URL = "https://newsapi.org/v2/everything"
 
@@ -113,6 +122,7 @@ def _min_required_matches(n_terms: int) -> int:
     return min(2, n_terms)
 
 
+@observed_research_operation("news_search")
 async def news_search(
     query: str,
     from_date: Optional[str] = None,   # YYYY-MM-DD
@@ -121,6 +131,9 @@ async def news_search(
     sort_by: str = "relevancy",        # "relevancy" | "popularity" | "publishedAt"
     page_size: int = 5,
     exclude_domains: Optional[list[str]] = None,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+    archived_records: list[Mapping[str, Any]] | None = None,
 ) -> dict:
     """
     Fetch financial news articles via NewsAPI.
@@ -151,10 +164,31 @@ async def news_search(
     "first_term AND (rest OR'd)" form, since requiring every word in a
     full sentence to co-occur in one article routinely returns 0 results.
     """
+    context, run_identity = require_research_context(forecast_context, run_id)
+    if context.analysis_mode is AnalysisMode.HISTORICAL_BACKTEST:
+        if archived_records is None:
+            return historical_unavailable(
+                context, run_identity, source="news_search",
+                reason="NewsAPI is a current index and cannot represent the past; no GDELT/project archive was supplied.",
+            )
+        evidence, rejected = eligible_evidence(
+            archived_records, context=context, run_id=run_identity,
+            source="news_search", historical=True,
+        )
+        return {
+            **context_metadata(context, run_identity), "query": query,
+            "effective_query": _restructure_query(query), "total_results": len(evidence),
+            "articles": evidence, "evidence": evidence, "quarantined": rejected,
+            "status": "OK" if evidence else "DATA_UNAVAILABLE",
+            "missing": not evidence, "degraded": bool(rejected) or not evidence,
+        }
+
     api_key = os.environ["NEWSAPI_KEY"]
 
     if not from_date:
-        from_date = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+        from_date = (context.as_of - timedelta(days=context.lookback_days)).date().isoformat()
+    if not to_date:
+        to_date = context.as_of.date().isoformat()
 
     sort_by = SORT_BY_MAP.get(sort_by, "relevancy")
 
@@ -165,7 +199,6 @@ async def news_search(
     terms = _extract_terms(query)
 
     params = {
-        "apiKey":   api_key,
         "q":        effective_query,
         "from":     from_date,
         "language": language,
@@ -177,9 +210,26 @@ async def news_search(
     if exclude_domains:
         params["excludeDomains"] = ",".join(exclude_domains)
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    # NewsAPI accepts the key in a header. Keeping it out of the query
+    # string prevents HTTP/access logs from recording the secret URL.
+    async with httpx.AsyncClient(
+        timeout=20.0, headers={"X-Api-Key": api_key}
+    ) as client:
         resp = await client.get(NEWSAPI_URL, params=params)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 426:
+                return {
+                    **context_metadata(context, run_identity),
+                    "query": query, "effective_query": effective_query,
+                    "requested_from": from_date, "requested_to": to_date,
+                    "articles": [], "evidence": [], "quarantined": [],
+                    "status": "DATA_UNAVAILABLE",
+                    "error_code": "NEWSAPI_RETENTION_LIMIT",
+                    "missing": True, "degraded": True,
+                }
+            raise
         data = resp.json()
 
     raw_articles = [
@@ -188,8 +238,12 @@ async def news_search(
             "description":  a.get("description", ""),
             "url":          a.get("url", ""),
             "source":       a.get("source", {}).get("name", ""),
+            "research_source": "news_search",
             "author":       a.get("author"),
             "published_at": a.get("publishedAt", ""),
+            "ticker": context.ticker,
+            "dataset_version": context.dataset_version,
+            "provider": "newsapi_live",
         }
         for a in data.get("articles", [])
         if a.get("title") != "[Removed]"
@@ -213,11 +267,35 @@ async def news_search(
 
     total_results = data.get("totalResults", 0)
 
+    evidence, rejected = eligible_evidence(
+        articles, context=context, run_id=run_identity,
+        source="news_search", historical=False,
+    )
+    eligible_urls = {
+        str(item.get("citation", {}).get("url")): item for item in evidence
+        if isinstance(item.get("citation"), dict)
+    }
+    articles = [
+        {
+            **article,
+            **{
+                key: value for key, value in eligible_urls[str(article.get("url"))].items()
+                if key not in {"source", "title"}
+            },
+        }
+        for article in articles if str(article.get("url")) in eligible_urls
+    ]
     result = {
+        **context_metadata(context, run_identity),
         "query":            query,
         "effective_query":  effective_query,
         "total_results":    total_results,
         "articles":         articles,
+        "evidence":         evidence,
+        "quarantined":      rejected,
+        "status":           "OK" if evidence else "DATA_UNAVAILABLE",
+        "missing":          not evidence,
+        "degraded":         bool(rejected) or not evidence,
     }
 
     if articles_were_filtered and filtered_articles:

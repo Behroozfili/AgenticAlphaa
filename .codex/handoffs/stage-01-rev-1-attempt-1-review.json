@@ -1,0 +1,93 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "reviewer",
+  "status": "REJECTED",
+  "review_status": "REJECTED",
+  "blocking_findings": [
+    {
+      "id": "STAGE01-XNYS-CALENDAR-001",
+      "finding": "The versioned XNYS calendar does not implement the actual regular-session set it claims to represent. It applies the generic Saturday-observed rule to next year's New Year's Day, incorrectly classifying Friday 2021-12-31 as closed and deriving 2021-12-30 as that month's cutoff. It also omits the known 2025-01-09 national day-of-mourning closure, classifies that date as open, and consequently derives 2025-01-31 as the 21st session after 2024-12-31 instead of 2025-02-03. These are direct violations of the canonical last-regular-session as_of and exact 21-session target contract.",
+      "evidence": [
+        "core/forecast_contract.py:51 and core/forecast_contract.py:100-102 apply _observed() to next-year January 1 without the XNYS Saturday exception.",
+        "core/forecast_contract.py:81-86 contains exceptional closures only through 2018 and omits 2025-01-09.",
+        "Independent local evaluation returned is_us_regular_trading_session(2021-12-31)=False, last_trading_session_of_month(2021,12)=2021-12-30, is_us_regular_trading_session(2025-01-09)=True, and nth_trading_session_after(2024-12-31)=2025-01-31."
+      ]
+    },
+    {
+      "id": "STAGE01-CONTEXT-DESERIALIZATION-002",
+      "finding": "ForecastContext.from_dict fails open on missing serialized contract fields. calendar_version and label are validated only when present, and analysis_mode is not required; removing analysis_mode, calendar_version, and label from a HISTORICAL_BACKTEST payload is accepted and silently restores it as LIVE. This loses the historical boundary and version identities rather than rejecting an incomplete payload, contrary to temporal-safety and reproducibility requirements.",
+      "evidence": [
+        "core/forecast_contract.py:298-319 accepts a partial allowed-field mapping and invokes constructor defaults.",
+        "core/forecast_contract.py:307 and core/forecast_contract.py:313 make calendar/label checks conditional on presence.",
+        "Independent local round-trip mutation restored a HISTORICAL_BACKTEST payload with the three fields removed as analysis_mode=LIVE and accepted the missing calendar and label identities."
+      ]
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "STAGE01-STATE-JSON-HYGIENE-003",
+      "finding": "ForecastFeatureSlot.values is typed as dict[str, Any], so the type contract alone does not guarantee the draft/implementation claim that every new feature slot is compact and JSON-safe or exclude raw evidence/reasoning values. No Stage 01 persistence call site currently stores such payloads, so this is not the reason for rejection, but downstream producers must use compact JSON values/evidence IDs and add validation before persistence; narrowing the central alias in the retry would strengthen the contract."
+    },
+    {
+      "id": "STAGE01-DOWNSTREAM-OFFLINE-FIXTURE-004",
+      "finding": "QA's 10 AlphaEmbedder failures are retained as a visible downstream Stage 03 test-isolation issue: the legacy pipeline fixture uses sys.modules.setdefault and can reach the real HuggingFace loader when sentence_transformers was imported first and no local model is cached. Focused Stage 01 tests passed, the Primary full-unit run did not reproduce the extra 10, no RAG path changed in Stage 01, and zero external connections completed. This does not excuse the two Stage 01 contract defects above and must not be hidden in Stage 03."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    {
+      "finding_id": "STAGE01-XNYS-CALENDAR-001",
+      "action": "Correct the bounded XNYS calendar policy for Saturday New Year's Day and all known exceptional closures through the supported historical range, then add locked regression tests proving 2021-12-31 is a session/month-end cutoff, 2025-01-09 is closed, and the 21st session after 2024-12-31 is 2025-02-03. Re-run all Stage 01 temporal and round-trip gates in a new immutable attempt."
+    },
+    {
+      "finding_id": "STAGE01-CONTEXT-DESERIALIZATION-002",
+      "action": "Make ForecastContext.from_dict reject missing analysis_mode, calendar_version, label, and the other canonical serialized context identities instead of invoking LIVE or version defaults. Add negative tests for each required serialized field and a HISTORICAL_BACKTEST round-trip test that proves mode cannot degrade to LIVE."
+    }
+  ],
+  "review_blockers": [],
+  "evidence": [
+    {
+      "check": "artifact_identity_and_gate",
+      "status": "PASS",
+      "detail": "State is REVIEW for Stage 01 revision 1 attempt 1; matching draft-ready, observability, final implementation and QA artifacts exist; QA is PASS; this review path is exactly locked to reviewer; Stage 02 is PENDING/NOT_STARTED."
+    },
+    {
+      "check": "scope_ownership_and_operational_safety",
+      "status": "PASS",
+      "detail": "CONTROL VALID before review. All Stage 01 implementation, test, export, observability and artifact paths have exact owner locks. No dependency, migration, database, RAG, deployment, commit, push, deletion, seed, network acquisition or Stage 02 implementation change was found. Rollback is documented and prior Stage 00/user artifacts remain present."
+    },
+    {
+      "check": "utc_temporal_and_monthly_target_contract",
+      "status": "FAIL",
+      "detail": "Aware UTC parsing, naive rejection, ordinary holiday/weekend handling, Black Friday close, future-evidence rejection and the selected 2024 target fixture are implemented, but the XNYS session calendar is incorrect for material historical boundaries and therefore cannot guarantee canonical as_of or exact 21-session targets."
+    },
+    {
+      "check": "versioning_and_historical_fail_closed",
+      "status": "FAIL",
+      "detail": "Constructor-required schema/dataset/feature/model identities and present-value mismatch checks exist, but deserialization accepts missing analysis_mode/calendar_version/label and can silently turn historical mode into LIVE."
+    },
+    {
+      "check": "state_exports_and_legacy_compatibility",
+      "status": "PASS_WITH_NONBLOCKING_HARDENING",
+      "detail": "The eight legacy required SharedManagerState keys remain required, six forecast slots are optional, ForecastContext full-payload JSON round-trip passes, and protected imports/exports remain compatible. ForecastFeatureSlot.values remains broader than the stated compact JSON-safe hygiene contract and is recorded separately."
+    },
+    {
+      "check": "observability_privacy_and_compatibility",
+      "status": "PASS",
+      "detail": "Observability changes are additive, use an explicit compact allowlist, exclude raw evidence/full State/brain_reasoning/headers from emitted forecast metadata, keep run_id top-level, preserve legacy publish wire behavior, and do not fabricate latency or initialize external tracing."
+    },
+    {
+      "check": "downstream_financial_quant_data_contracts",
+      "status": "NOT_APPLICABLE_UNCHANGED",
+      "detail": "Stage 01 did not modify SEC, provider, universe, action policy, DCF/WACC, nine financial intents/mappers, Quant numeric source-of-truth, database schema, RAG, persistence or backtest behavior."
+    }
+  ],
+  "rollback_reviewed": true,
+  "supersedes": null,
+  "created_at": "2026-08-28T06:41:13.9789369Z"
+}

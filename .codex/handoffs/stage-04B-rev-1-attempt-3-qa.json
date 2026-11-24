@@ -1,0 +1,226 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "04B",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "qa",
+  "qa_status": "PASS",
+  "execution_phase": "QA",
+  "control_revision": 91,
+  "implementation_artifact": ".codex/handoffs/stage-04B-rev-1-attempt-3-implementation.json",
+  "implementation_sha256": "3bbca0f6a14215603f616cd544d39c5fbbd99d9dd346bff1428d6285733e7629",
+  "input_artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-3-draft-ready.json",
+      "sha256": "e42930f38d221b45dcb0f5de439b1873e243d0dbf5ff4d5c011c8ab965b12f55"
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-3-observability.json",
+      "sha256": "975041faecb1c4d5f8826e680e16e4a336205621f0a35aea98859e51e06104e4"
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-3-implementation.md",
+      "sha256": "2a7ebcbc892a509785e2829c785c8b3de234ad8ad8c0e23f76018623e8d829d1"
+    },
+    "status": "PASS_ALL_HASHES_AND_IDENTITIES"
+  },
+  "tests_run": [
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_research_agent.py::TestCheckerNode::test_checker_missing_and_score_never_reach_logs_or_progress -q",
+      "exit_code": 0,
+      "result": "1 passed in 2.47s",
+      "network_mode": "OFFLINE_MOCKS"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_search_executor_helpers.py tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/search_test/test_tavily_search.py tests/unit_tests/search_test/test_news_search.py tests/unit_tests/search_test/test_search_sec_edgar.py tests/unit_tests/search_test/test_search_server.py -q",
+      "exit_code": 0,
+      "result": "122 passed in 18.23s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/search_test -q",
+      "exit_code": 0,
+      "result": "66 passed in 19.55s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_rag -q",
+      "exit_code": 0,
+      "result": "333 passed in 50.94s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_research_agent_only.py",
+      "exit_code": 0,
+      "result": "1314 tests collected in 18.15s; zero collection errors; integration tests collected only and never executed"
+    },
+    {
+      "command": "in-memory AST compile of 11 Stage04B Python source paths",
+      "exit_code": 0,
+      "result": "AST_COMPILE_PASS_11"
+    },
+    {
+      "command": "git diff --check on the 20 recorded Stage04B source/test/fixture paths",
+      "exit_code": 0,
+      "result": "PASS; LF/CRLF notices only"
+    },
+    {
+      "command": "static privacy, old-prompt and Attempt1 runtime metadata scans",
+      "exit_code": 0,
+      "result": "zero capture_exception, logger.exception, str(exc), stage04b-r1-a1, Stage04B attempt=1 metadata or propt_search_agent runtime matches; old prompt absent and renamed prompt present"
+    },
+    {
+      "command": "SHA-256 verification of Attempt3 inputs, 20 recorded source/test paths and 11 immutable Attempt1/2 artifacts",
+      "exit_code": 0,
+      "result": "PASS_20_OF_20_SOURCE; PASS_11_OF_11_PRIOR_ARTIFACTS; PASS_4_OF_4_INPUT_CHAIN"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact each Attempt3 draft/observability/implementation artifact",
+      "exit_code": 0,
+      "result": "CONTROL VALID for all three same-attempt inputs"
+    }
+  ],
+  "provenance_audit": {
+    "finding": "REVIEW-04B-001",
+    "status": "PASS_RESOLVED",
+    "single_source": "tools/research_tools/__init__.py::RESEARCH_IMPLEMENTATION_IDENTITY",
+    "immutable": true,
+    "identity": {
+      "stage": "04B",
+      "stage_revision": 1,
+      "attempt": 3,
+      "agent": "research",
+      "implementation_version": "stage04b-r1-a3"
+    },
+    "stage04b_boundaries_verified": [
+      "research_agent_trace",
+      "research_agent_progress",
+      "research_agent_sentry",
+      "research_synthesis",
+      "tavily_provider",
+      "news_provider",
+      "sec_search",
+      "sec_filing",
+      "rag_vector_dispatch",
+      "rag_graph_dispatch",
+      "rag_hybrid_dispatch",
+      "comprehensive_analysis",
+      "pre_synthesis_quarantine",
+      "pre_state_leakage_gate"
+    ],
+    "runtime_attempt1_matches": 0,
+    "split_stage04b_identity_found": false,
+    "dependency_layer_note": "Accepted Stage04A vector/graph/hybrid internals retain their own Stage04A rev1 attempt2 dependency identity; the Stage04B dispatcher replaces outward research lifecycle telemetry with the immutable Stage04B attempt3 identity."
+  },
+  "checker_privacy_audit": {
+    "finding": "OBS-04B-002-ATTEMPT3",
+    "status": "PASS_RESOLVED",
+    "sentinel": "PRIVATE_SENTINEL injected into checker missing and score fields",
+    "caplog_contains_sentinel": false,
+    "progress_contains_sentinel": false,
+    "free_form_missing_persisted": false,
+    "unsafe_score_persisted": false,
+    "fixed_metadata_preserved": true,
+    "is_complete_behavior_preserved": true
+  },
+  "contract_audit": {
+    "forecast_context_required": "PASS",
+    "run_id_required": "PASS",
+    "ticker_context_consistency": "PASS",
+    "historical_provider_allowlist": "PASS_FAIL_CLOSED",
+    "current_web_historical_fallback": "ABSENT",
+    "sec_filed_at_not_after_as_of": "PASS",
+    "pre_synthesis_future_unknown_rejection": "PASS",
+    "pre_state_future_unknown_rejection": "PASS",
+    "deterministic_evidence_id": "PASS",
+    "deterministic_citation_reference_and_version_dedupe": "PASS",
+    "typed_reference_only_research_features": "PASS",
+    "vector_only_graph_only_hybrid_coverage": "PASS",
+    "vector_graph_hybrid_degradation": "PASS",
+    "prompt_rename_atomic_and_collection_safe": "PASS"
+  },
+  "observability_audit": {
+    "OBS-04B-001": "PASS_COMPACT_ALLOWLISTED_TRACE_AND_NO_RAW_MCP_WRAPPER",
+    "OBS-04B-002": "PASS_STABLE_CODES_AND_NO_RAW_PRIVATE_PERSISTENCE",
+    "OBS-04B-003": "PASS_MEASURED_COMPACT_LIFECYCLE_AT_ALL_REQUIRED_BOUNDARIES",
+    "OBS-04B-004": "PASS_TYPED_COMPACT_REFERENCE_ONLY_SHARED_STATE",
+    "OBS-04B-002-ATTEMPT3": "PASS_PRIVATE_SENTINEL_MISSING_AND_SCORE_NOT_PERSISTED"
+  },
+  "leakage_report": {
+    "status": "PASS_ZERO_FUTURE_OR_UNKNOWN_EVIDENCE_EXPORTED",
+    "first_gate": "eligible evidence quarantine before synthesis",
+    "second_gate": "explicit pre-State leakage gate",
+    "sec_boundary": "filed_at <= ForecastContext.as_of",
+    "historical_mode": "archive allowlist only; unavailable data fails closed",
+    "live_provider_evidence_used": false
+  },
+  "regression_report": {
+    "focused_stage04b": "PASS_122",
+    "complete_search": "PASS_66",
+    "graph_rag": "PASS_333",
+    "collection": "PASS_1314_ZERO_ERRORS",
+    "compile": "PASS_11",
+    "diff_check": "PASS"
+  },
+  "source_integrity": {
+    "recorded_paths": 20,
+    "matching_paths": 20,
+    "mismatches": 0,
+    "attempt3_paths_changed_from_attempt2": [
+      "tools/research_tools/__init__.py",
+      "tools/research_tools/context_synthesizer.py",
+      "agents/research_agent.py",
+      "tests/unit_tests/test_agents/test_research_agent.py"
+    ],
+    "scope_status": "PASS_EXACT_REMEDIATION_SCOPE"
+  },
+  "prior_attempt_artifact_immutability": {
+    "status": "PASS_11_OF_11",
+    "attempt1_artifacts_verified": 5,
+    "attempt2_artifacts_verified": 6,
+    "mismatches": 0
+  },
+  "operational_incident_retained": {
+    "type": "ACCIDENTAL_READ_ONLY_LEGACY_LIVE_TEST",
+    "disclosed_reads": ["News", "SEC"],
+    "stopped_immediately": true,
+    "external_writes": false,
+    "attempt3_rerun": false,
+    "qa_rerun": false,
+    "rerun_forbidden": true,
+    "used_as_qa_evidence": false,
+    "qa_disposition": "RETAINED_NON_WRITE_INCIDENT_NOT_A_METHOD_CORRECTNESS_BLOCKER"
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_provider_tests": "NOT_RUN_AND_RERUN_FORBIDDEN",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage05_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false,
+    "scope_audited": false
+  },
+  "ownership_violations": [],
+  "scope_violations": [],
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [],
+  "limitations": [
+    "QA evidence is entirely offline; live/provider integration was intentionally not executed.",
+    "The disclosed Attempt1 read-only legacy probe remains retained as an incident and is not acceptance evidence.",
+    "LF/CRLF conversion notices are non-blocking; git diff --check exited zero."
+  ],
+  "supersedes": ".codex/handoffs/stage-04B-rev-1-attempt-2-qa.json",
+  "created_at": "2026-09-01T19:13:03.3956362Z"
+}

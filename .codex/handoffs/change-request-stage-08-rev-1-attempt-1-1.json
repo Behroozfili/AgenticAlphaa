@@ -1,0 +1,47 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "CHANGES_REQUESTED",
+  "target_agent": "integration",
+  "requested_paths": [
+    "agents/manager_agent.py",
+    "tests/unit_tests/test_stage8_manager_integration.py"
+  ],
+  "reason": "The Stage 08 monthly Manager path has two blocking observability defects. ManagerAgent.run uses the default LangSmith @traceable input/output capture with no allowlist processors, so the private task query, manager directives, ForecastContext and complete returned SharedManagerState can enter traces. In addition, the forecast_context early return enters _run_monthly before the legacy pipeline progress calls and emits no publish_forecast lifecycle event, measured latency, stable degraded/error signal or stage/revision/attempt identity; therefore progress for two concurrent Manager runs cannot be associated with or isolated by run identity even though their product results are isolated.",
+  "blocking": true,
+  "requested_changes": [
+    {
+      "id": "OBS-08-001",
+      "blocking": true,
+      "request": "In agents/manager_agent.py, add Stage-08-specific process_inputs and process_outputs allowlist processors to ManagerAgent.run and attach the immutable Stage 08 identity (stage=08, stage_revision=1, attempt=1, agent=integration, implementation_version=stage08-r1-a1). Derive compact context metadata through core.observability.forecast_trace_metadata when available. Input traces must exclude task_query, user_preferences, arbitrary manager_directives and full ForecastContext/State; output traces must exclude the full SharedManagerState, narrative/report text, evidence IDs, raw upstream summaries, prompts and exceptions. Permit only bounded status/count/boolean fields and compact identity/version metadata. Add a PRIVATE_SENTINEL test which calls both processors and proves the sentinel is absent recursively while run/ticker/as_of/target/horizon/mode/dataset/feature/model/schema and Stage identity remain available. Preserve the public constructor/run contract and all numeric/routing behavior."
+    },
+    {
+      "id": "OBS-08-002",
+      "blocking": true,
+      "request": "Instrument only the Stage 08 monthly branch in agents/manager_agent.py with core.progress_bus.publish_forecast and time.perf_counter-based measured latency. Emit stable payload-free events for context acceptance, specialist feature start/controlled join, market feature construction, monthly forecast synthesis/publication, explicit degraded completion and fail-closed error/re-raise. Every event must carry the validated run_id, ForecastContext allowlist, exact Stage 08 revision/attempt/agent identity, evidence count where available and bounded degraded flags; never include task text, State, feature values, Quant numeric values, evidence IDs, narrative, raw results or exception strings. Extend tests/unit_tests/test_stage8_manager_integration.py to assert finite non-negative measured completion latency, deterministic event/status ordering, stable error codes, required metadata, bounded payload-free event shapes, no numeric mutation, and two concurrent client_session_id/run_id streams with zero queue cross-talk. Error instrumentation must not swallow or change existing exceptions."
+    }
+  ],
+  "evidence": [
+    "Offline AST inspection found ManagerAgent.run @traceable keywords exactly [name, run_type]; process_inputs and process_outputs are both absent.",
+    "Offline AST inspection found zero publish_forecast calls and zero legacy _publish_progress calls inside _run_monthly; the scoped Stage 08 runtime files contain zero publish_forecast symbols.",
+    "A no-network runtime probe invoked the monthly branch with client_session_id=obs-stage08-msft and PRIVATE_SENTINEL in task_query. The forecast returned READY, the complete returned State retained the private sentinel, and the corresponding progress queue contained zero events. Because ManagerAgent.run has default trace capture, both the private input and complete State are exposed to trace serialization when tracing is enabled.",
+    "The focused 59-test Stage 08/Manager suite passed, including two concurrent product runs with different ticker/as_of/run_id and unchanged Quant numeric/action assertions; this confirms the requested changes are observability-only and must preserve current behavior."
+  ],
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "created_at": "2026-09-10T11:23:16.6070939Z"
+}

@@ -1,0 +1,179 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "10B",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 184,
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    "langsmith_trace.py",
+    "tests/unit_tests/test_stage10b_observability.py",
+    ".codex/handoffs/change-request-stage-10B-rev-1-attempt-1-1.json",
+    ".codex/handoffs/stage-10B-rev-1-attempt-1-observability.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-10B-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "2b607d13576f2943c18aa0317f0ab8fab018da0ec3dd77576d899bbb6081f4ac",
+  "runtime_identity_audit": {
+    "required": "10B/r1/a1/integration",
+    "observed": "10B/r1/a1/integration",
+    "implementation_version": "stage10b-r1-a1",
+    "single_runtime_identity_source": "langsmith_trace.STAGE10B_RUNTIME_IDENTITY",
+    "local_only": true,
+    "external_client_construction": 0,
+    "status": "PASS"
+  },
+  "instrumentation_added": {
+    "builder": "langsmith_trace.stage10b_event",
+    "nonfatal_emitter": "langsmith_trace.emit_stage10b_event",
+    "supported_events": [
+      "stage10b.analysis.started",
+      "stage10b.analysis.completed",
+      "stage10b.analysis.failed",
+      "stage10b.persistence.completed",
+      "stage10b.persistence.failed",
+      "stage10b.backtest.started",
+      "stage10b.backtest.completed",
+      "stage10b.backtest.failed"
+    ],
+    "metadata_policy": "Canonical forecast context fields plus run_id, stage identity, measured latency, evidence count, degraded flags, status and stable error code only.",
+    "latency_source": "time.perf_counter via core.observability.elapsed_latency_ms",
+    "raw_payload_serialization": false
+  },
+  "latency_instrumentation_status": "HELPER_PASS_CALLSITE_WIRING_REQUESTED: monotonic finite nonnegative latency is enforced by the local builder; integration must wire analyze, persistence and backtest callsites under OBS-10B-001 through OBS-10B-003.",
+  "requested_primary_changes": [
+    {
+      "id": "OBS-10B-001",
+      "blocking": true,
+      "owner": "integration",
+      "summary": "Wire local Stage 10B analyze start/terminal telemetry with canonical context, measured latency and compact outcome counts."
+    },
+    {
+      "id": "OBS-10B-002",
+      "blocking": true,
+      "owner": "integration",
+      "summary": "Record nonfatal monthly persistence success/failure without changing persistence semantics."
+    },
+    {
+      "id": "OBS-10B-003",
+      "blocking": true,
+      "owner": "integration",
+      "summary": "Wire local asynchronous backtest start/completion/failure telemetry with stable failure code and available version metadata."
+    },
+    {
+      "id": "OBS-10B-004",
+      "blocking": true,
+      "owner": "integration",
+      "summary": "Add exact integration tests for privacy, latency, persistence disposition and concurrent request isolation."
+    }
+  ],
+  "change_request": {
+    "path": ".codex/handoffs/change-request-stage-10B-rev-1-attempt-1-1.json",
+    "sha256": "967eb092d32ee1d445bbf26a0e5b66b06f54df6ed54b02d007241133abcbd01e",
+    "blocking": true
+  },
+  "privacy_checks": [
+    {
+      "check": "Unknown request, reasoning, raw evidence and exception fields are dropped.",
+      "status": "PASS",
+      "evidence": "PRIVATE_SENTINEL probes were absent from built events and sink payloads."
+    },
+    {
+      "check": "Failure telemetry exposes only a stable code.",
+      "status": "PASS",
+      "evidence": "BACKTEST_EXECUTION_FAILED was retained while exception objects and text were excluded."
+    },
+    {
+      "check": "Latency is measured and cannot be supplied through arbitrary metadata.",
+      "status": "PASS",
+      "evidence": "All observed latency_ms values were finite and nonnegative from a monotonic start value."
+    },
+    {
+      "check": "Injected local sink failure cannot fail feature work.",
+      "status": "PASS",
+      "evidence": "A raising sink returned a valid event and disclosed no private exception text."
+    },
+    {
+      "check": "Distinct request identities do not cross-contaminate.",
+      "status": "PASS_HELPER_LEVEL",
+      "evidence": "AMD/run-amd and MSFT/run-msft events retained their own exact identity. API-level proof is requested from integration in OBS-10B-004."
+    }
+  ],
+  "source_integrity": {
+    "observability_sha256": {
+      "langsmith_trace.py": "5e5e6782f6d5c01e1107bf9a748caeaf4590cf50158dc55547b8bf40d900c505",
+      "tests/unit_tests/test_stage10b_observability.py": "7d5f781903db7cdcba98242bd5ba662ac0797bbbc68d8c68ecc1ae6619724618"
+    },
+    "draft_recorded_integration_sources_checked": 10,
+    "draft_recorded_integration_source_mismatches": [],
+    "stage10a_dependency_handoff_sha256": "5d4e36d9f1db1c2dec6c5909d4bbf11d6f572edc569604396fadffc221670625",
+    "stage10a_dependency_hash_match": true,
+    "closed_stage_artifacts_changed": false
+  },
+  "tests_run": [
+    {
+      "command": "forced-offline pytest Stage10B observability plus Stage10A/Core observability modules",
+      "exit_code": 0,
+      "result": "39 passed in 8.04s",
+      "network_mode": "FORCED_OFFLINE_LOCAL_SINK_AND_EXPORTERS_DISABLED"
+    },
+    {
+      "command": "forced-offline pytest Stage10B observability/feature/API/pipeline tests plus Stage08/09/10A sensitive regressions",
+      "exit_code": 0,
+      "result": "124 passed in 27.50s",
+      "network_mode": "FORCED_OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 pytest --collect-only -q",
+      "exit_code": 0,
+      "result": "1500 tests collected in 28.77s; zero collection errors",
+      "network_mode": "FORCED_OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent observability",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 184",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": "git diff --check -- <Observability-owned Stage10B paths>",
+      "exit_code": 0,
+      "result": "PASS; line-ending notice only",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-10B-001 through OBS-10B-004: safe local helpers exist, but integration-owned analyze/backtest callsites and API-level telemetry tests must be wired before final implementation."
+  ],
+  "stage_boundary": {
+    "feature_behavior_changed_by_observability": false,
+    "integration_source_or_tests_changed_by_observability": false,
+    "observability_source_and_tests_changed": true,
+    "change_request_created": true,
+    "primary_reactivation_required": true,
+    "state_or_qa_or_review_changed": false,
+    "stage10a_changed_or_reopened": false,
+    "stage11_activated": false
+  },
+  "external_execution": {
+    "network_intentionally_used": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "dependency_change": false,
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "Feature callsite wiring remains intentionally untouched because those paths are owned by integration.",
+    "External Sentry and LangSmith remain fail closed under the accepted Stage 10A policy.",
+    "No live provider, database, exporter or browser session was contacted."
+  ],
+  "created_at": "2026-09-14T13:32:53.9539340Z"
+}

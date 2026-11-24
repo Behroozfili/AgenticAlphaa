@@ -17,6 +17,7 @@ import json
 import logging
 import sys
 import os
+import time
 from typing import Any
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -40,7 +41,8 @@ from tools.research_tools.news_search   import news_search  # noqa: E402
 from tools.research_tools.sec_edgar     import sec_edgar_search, sec_edgar_filing  # noqa: E402
 from tools.research_tools.comprehensive_analysis import comprehensive_analysis  # noqa: E402
 from rag.hybrid_rag import rag_vector_search, rag_graph_traverse, rag_hybrid_query  # noqa: E402
-from core.observability import init_sentry, sentry_enabled  # noqa: E402
+from core.observability import elapsed_latency_ms, init_sentry, sentry_enabled  # noqa: E402
+from tools.research_tools import compact_lifecycle, require_research_context  # noqa: E402
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("research-mcp")
@@ -98,7 +100,7 @@ def _normalize_sections(raw) -> list[str]:
         if key in _VALID_SECTIONS and key not in normalized:
             normalized.append(key)
         else:
-            log.warning("Dropping unrecognized 'sections' value: %r", item)
+            log.warning("RESEARCH_SECTION_REJECTED")
 
     return normalized
 
@@ -108,7 +110,7 @@ def _normalize_sections(raw) -> list[str]:
 # ══════════════════════════════════════════════════════════════════
 @app.list_tools()
 async def list_tools() -> ListToolsResult:
-    return ListToolsResult(tools=[
+    tools = [
 
         # ── 1. Tavily Search ───────────────────────────────────────
         Tool(
@@ -141,7 +143,15 @@ async def list_tools() -> ListToolsResult:
                     "topic": {
                         "type": "string",
                         "enum": ["general", "news", "finance"],
-                        "default": "finance"
+                        "default": "news"
+                    },
+                    "start_date": {
+                        "type": "string",
+                        "description": "Optional YYYY-MM-DD lower bound; clamped to ForecastContext"
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "Optional YYYY-MM-DD upper bound; clamped to ForecastContext.as_of"
                     },
                 },
             },
@@ -535,7 +545,24 @@ async def list_tools() -> ListToolsResult:
             },
         ),
 
-    ])
+    ]
+    context_schema = {
+        "type": "object",
+        "description": "Required immutable ForecastContext for live and historical research.",
+    }
+    for tool in tools:
+        schema = tool.inputSchema
+        required = list(schema.get("required", []))
+        for field in ("forecast_context", "run_id"):
+            if field not in required:
+                required.append(field)
+        schema["required"] = required
+        schema.setdefault("properties", {})["forecast_context"] = context_schema
+        schema["properties"]["run_id"] = {
+            "type": "string", "minLength": 1,
+            "description": "Required reproducible run identity.",
+        }
+    return ListToolsResult(tools=tools)
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -543,9 +570,23 @@ async def list_tools() -> ListToolsResult:
 # ══════════════════════════════════════════════════════════════════
 @app.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
-    log.info("→ tool=%s args=%s", name, json.dumps(arguments, ensure_ascii=False))
+    started_at = time.perf_counter()
+    safe_name = name if name in {
+        "tavily_search", "news_search", "sec_edgar_search", "sec_edgar_filing",
+        "rag_vector_search", "rag_graph_traverse", "rag_hybrid_query",
+        "comprehensive_analysis",
+    } else "unknown"
+    context_preview = arguments.get("forecast_context") or {}
+    log.info(
+        "research tool=%s ticker=%s run_id=%s argument_keys=%s",
+        safe_name, context_preview.get("ticker"), arguments.get("run_id"),
+        sorted(arguments),
+    )
 
     try:
+        context, run_id = require_research_context(
+            arguments.get("forecast_context"), arguments.get("run_id")
+        )
         match name:
 
             case "tavily_search":
@@ -554,8 +595,12 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     max_results=arguments.get("max_results", 3),
                     search_depth=arguments.get("search_depth", "basic"),
                     include_domains=arguments.get("include_domains"),
-                    topic=arguments.get("topic", "finance"),
+                    topic=arguments.get("topic", "news"),
                     snippet_chars=arguments.get("snippet_chars", 500),
+                    start_date=arguments.get("start_date"),
+                    end_date=arguments.get("end_date"),
+                    forecast_context=context, run_id=run_id,
+                    archived_records=arguments.get("archived_records"),
                 )
 
             case "news_search":
@@ -567,6 +612,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     sort_by=arguments.get("sort_by", "relevancy"),
                     page_size=arguments.get("page_size", 5),
                     exclude_domains=arguments.get("exclude_domains"),
+                    forecast_context=context, run_id=run_id,
+                    archived_records=arguments.get("archived_records"),
                 )
 
             case "sec_edgar_search":
@@ -575,6 +622,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     ticker=arguments.get("ticker"),
                     form_type=arguments.get("form_type") or arguments.get("filing_type"),
                     max_results=arguments.get("max_results", 5),
+                    forecast_context=context, run_id=run_id,
+                    archived_records=arguments.get("archived_records"),
                 )
 
             case "sec_edgar_filing":
@@ -593,6 +642,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     length=arguments.get("length"),
                     max_chars=arguments.get("max_chars", 25000),
                     accession_number=arguments.get("accession_number"),
+                    forecast_context=context, run_id=run_id,
+                    archived_filing=arguments.get("archived_filing"),
                 )
 
             case "rag_vector_search":
@@ -601,6 +652,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     top_k=arguments.get("top_k", 5),
                     ticker_filter=arguments.get("ticker_filter"),
                     threshold=arguments.get("threshold", 0.01),
+                    days_back=context.lookback_days,
+                    context=context,
                 )
 
             case "rag_graph_traverse":
@@ -609,6 +662,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     relation_types=arguments.get("relation_types", ["ALL"]),
                     max_hops=arguments.get("max_hops", 2),
                     limit=arguments.get("limit", 20),
+                    context=context,
                 )
 
             case "rag_hybrid_query":
@@ -618,6 +672,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     top_k=arguments.get("top_k", 5),
                     max_hops=arguments.get("max_hops", 2),
                     fusion=arguments.get("fusion", "rrf"),
+                    days_back=context.lookback_days,
+                    context=context,
                 )
 
             case "comprehensive_analysis":
@@ -630,25 +686,42 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                     max_results=arguments.get("max_results", 3),
                     filing_mode=arguments.get("filing_mode", "preview"),
                     filing_query=arguments.get("filing_query"),
+                    forecast_context=context, run_id=run_id,
+                    archived_web_records=arguments.get("archived_web_records"),
+                    archived_filing=arguments.get("archived_filing"),
                 )
 
             case _:
                 raise ValueError(f"Unknown tool: {name}")
 
+        if not isinstance(result, dict):
+            result = {"status": "FAIL_CLOSED", "error_code": "RESEARCH_TOOL_INVALID_RESULT", "evidence": [], "missing": True, "degraded": True}
+        result["telemetry"] = compact_lifecycle(
+            context=context, run_id=run_id, operation=name,
+            latency_ms=elapsed_latency_ms(started_at), payload=result,
+        )
+        log.info(
+            "research tool=%s outcome=%s result_count=%s evidence_count=%s latency_ms=%s",
+            safe_name, result["telemetry"]["outcome"], result["telemetry"]["result_count"],
+            result["telemetry"]["evidence_count"], result["telemetry"]["latency_ms"],
+        )
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(result, ensure_ascii=False, indent=2))]
         )
 
-    except Exception as exc:
-        log.exception("Tool %s failed", name)
+    except Exception:
+        log.error("RESEARCH_TOOL_FAIL_CLOSED tool=%s", safe_name)
         if sentry_enabled():
             import sentry_sdk
             with sentry_sdk.push_scope() as scope:
-                scope.set_tag("tool", name)
+                scope.set_tag("tool", safe_name)
                 scope.set_tag("server", "research-agent-mcp")
-                sentry_sdk.capture_exception(exc)
+                sentry_sdk.capture_message("RESEARCH_TOOL_FAIL_CLOSED", level="error")
         return CallToolResult(
-            content=[TextContent(type="text", text=json.dumps({"error": str(exc), "tool": name}))],
+            content=[TextContent(type="text", text=json.dumps({
+                "status": "FAIL_CLOSED", "error_code": "RESEARCH_TOOL_FAIL_CLOSED",
+                "tool": safe_name, "missing": True, "degraded": True,
+            }))],
             isError=True,
         )
 
@@ -657,7 +730,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 # Entry point
 # ══════════════════════════════════════════════════════════════════
 async def main():
-    init_sentry()
+    from core.observability import configure_process_observability
+    configure_process_observability()
     log.info("Research Agent MCP Server starting...")
     async with stdio_server() as (read, write):
         await app.run(read, write, app.create_initialization_options())

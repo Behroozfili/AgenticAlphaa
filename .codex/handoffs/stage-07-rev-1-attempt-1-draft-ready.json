@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "quant",
+  "execution_phase": "PRIMARY_DRAFT",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoffs": [
+    ".codex/handoffs/stage-04B-rev-1-handoff.json",
+    ".codex/handoffs/stage-05-rev-1-handoff.json",
+    ".codex/handoffs/stage-06-rev-1-handoff.json"
+  ],
+  "changed_files": [
+    "tools/__init__.py",
+    "tools/market_tools/__init__.py",
+    "tools/market_tools/market_data.py",
+    "tools/market_tools/feature_builder.py",
+    "tools/market_tools/historical_dataset_builder.py",
+    "tools/market_tools/forecast_model.py",
+    "tools/market_tools/market_server.py",
+    "tests/fixtures/monthly_point_in_time_fixture.json",
+    "tests/unit_tests/market_test/__init__.py",
+    "tests/unit_tests/market_test/test_market_data.py",
+    "tests/unit_tests/market_test/test_feature_builder.py",
+    "tests/unit_tests/market_test/test_historical_dataset_builder.py",
+    "tests/unit_tests/market_test/test_forecast_model.py",
+    "tests/unit_tests/market_test/test_market_server.py",
+    "tests/unit_tests/test_market_features_stage7.py",
+    ".codex/handoffs/stage-07-rev-1-attempt-1-milestone-DATA_READINESS.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-1-milestone-MODEL_READY.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-1-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "milestones": {
+    "DATA_READINESS": {"status": "PASS", "artifact": ".codex/handoffs/stage-07-rev-1-attempt-1-milestone-DATA_READINESS.json"},
+    "MODEL_READY": {"status": "PASS", "artifact": ".codex/handoffs/stage-07-rev-1-attempt-1-milestone-MODEL_READY.json"}
+  },
+  "delivered_contract": [
+    "Exact-range local adjusted OHLCV cache validation for ticker, benchmark and optional sector with provider, retrieval time, adjustment mode, corporate actions and content hashes; no acquisition API.",
+    "Trading-session-aware momentum 5/21/63, volatility, volume surprise, drawdown, beta, relative strength and typed Research/Financial/Sentiment/Graph features with explicit missing indicators.",
+    "Immutable point-in-time feature snapshots, exact 21st-session adjusted-price outcomes, coverage/exclusion/version/hash manifest and a mandatory PASS gate before fitting.",
+    "Deterministic logistic direction model and ridge ticker/excess-return models with training-only median imputation and scaling, versioned coefficients, residual confidence interval and fixed action_policy_v1.",
+    "Local deterministic service emits all required forecast identity and reproducibility fields and never calls an LLM."
+  ],
+  "draft_self_tests": [
+    {
+      "command": "python -m pytest tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "31 passed in 0.81s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "python -m pytest --collect-only tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "31 tests collected in 0.64s",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "python -m py_compile <six Stage07 market package modules>; import tools.market_tools",
+      "exit_code": 0,
+      "result": "PASS"
+    }
+  ],
+  "source_sha256": {
+    "tools/__init__.py": "713aa79338fa9eca57e74cf94888753c0ebf8348748b69c3d9d5897c90813529",
+    "tools/market_tools/__init__.py": "90a01907de44383ec181629aea92df7ccf6bcb3a113e6853a46895dd780ffe12",
+    "tools/market_tools/market_data.py": "15bfad82b9ee0cde81d4998bb7282c068bba2d645661810f5ed3f959a3d990a5",
+    "tools/market_tools/feature_builder.py": "1ed1b2e2cff3ad6473d79027b0d41974d37b8373072ffd977c17aa8f5dafb997",
+    "tools/market_tools/historical_dataset_builder.py": "9bfd307fcbcc5c839f90346b212c75c2125600f9558356b6a30a0857ff59a468",
+    "tools/market_tools/forecast_model.py": "0e1a494cdbf8342d4f103ff98cb0f81c6e2739bab79c026b79985d8c271f0063",
+    "tools/market_tools/market_server.py": "70177713a4ecaac269407bb4876bfbb08d0c48e8fb2c74919bb1a68427db67ec",
+    "tests/fixtures/monthly_point_in_time_fixture.json": "deb996a86cb98d1e13d5a6cc3483d9521bee3a4ad347dd2870905c106dfae483"
+  },
+  "operational_safety": {
+    "network_used": false,
+    "live_provider_validation": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deploy_commit_or_push": false,
+    "llm_generated_or_altered_forecast_numbers": false
+  },
+  "limitations": [
+    "The locked fixture is synthetic, single-ticker and 40-cutoff; it proves engineering correctness only and remains PRELIMINARY under the scientific contract.",
+    "No live Yahoo or other provider acquisition/validation was authorized or performed.",
+    "Stage 09 owns walk-forward performance metrics, baselines and ablations; no investment-performance claim is made here.",
+    "Independent observability review is required next; final implementation MD/JSON were intentionally not written in PRIMARY_DRAFT."
+  ],
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-06T08:41:45.4086062Z"
+}

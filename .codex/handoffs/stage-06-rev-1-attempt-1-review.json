@@ -1,0 +1,231 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "reviewer",
+  "status": "REVIEW_REJECTED",
+  "review_status": "REJECTED",
+  "execution_phase": "REVIEW",
+  "control_revision": 105,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-06-rev-1-attempt-1-review.json"
+  ],
+  "artifact_chain": {
+    "dependency_handoff": {
+      "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+      "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+      "identity_valid": true,
+      "status": "CLOSED"
+    },
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-draft-ready.json",
+      "sha256": "291fd6a2ad5a23d787cc28ecad9e71c2cb9e91bbc516c6d232c8681867107329",
+      "identity_valid": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-observability.json",
+      "sha256": "0cca8a2b60e647c6ef9c722a26e048f20c5851735c2861678409e934bb3f36f3",
+      "identity_valid": true,
+      "status": "CHANGES_REQUESTED"
+    },
+    "change_request": {
+      "path": ".codex/handoffs/change-request-stage-06-rev-1-attempt-1-1.json",
+      "sha256": "d42326c97203bd6f3952eec45fa5b2139fcb47e521034b8c7b9a69998d51c849",
+      "identity_valid": true
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-implementation.md",
+      "sha256": "565d664a0bdc3ccb24c450ade0a2d69ba7ab7b2cbd89451b5b0b85ae2fd04bd5"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-implementation.json",
+      "sha256": "3c54d93dd66a6f0b2e4077f7b0865c893465177e492ea89d223c40d0a23cf1a1",
+      "identity_valid": true,
+      "recorded_source_hashes_valid": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-qa.json",
+      "sha256": "3fc94f1d5e7c34fef11d98e0c84d32b6eef84265dead91fe515aa3735e06d7ed",
+      "identity_valid": true,
+      "qa_status": "PASS"
+    }
+  },
+  "blocking_findings": [
+    {
+      "id": "REVIEW-06-B-001",
+      "category": "TEMPORAL_SAFETY",
+      "summary": "Evidence with a future effective_from is accepted when published_at is eligible.",
+      "evidence": "agents/executor_helpers/sentiment_helper.py:248 selects published_at OR effective_from, so published_at wins whenever both exist. The reviewer probe used published_at=2026-06-20, effective_from=2026-07-01 and as_of=2026-06-30; select_point_in_time_evidence returned eligible_count=1 with no rejection.",
+      "contract_violation": "The Stage 06 owner contract requires published/effective time <= as_of before scoring and again before aggregation. The implementation artifact's claim that future evidence is rejected before scoring is therefore false for this valid metadata shape."
+    },
+    {
+      "id": "REVIEW-06-B-002",
+      "category": "TEMPORAL_SAFETY_AND_DEDUPLICATION",
+      "summary": "Document grouping happens before temporal filtering and can merge a future chunk into an eligible past document.",
+      "evidence": "tools/sentiment_tools/sentiment_server.py:252-291 groups all chunks by canonical document key and retains only the first chunk's timestamp; temporal selection runs afterward at lines 292-306. The reviewer probe supplied one past and one future chunk with the same canonical URL and received chunks=['eligible text\\n\\nFUTURE TEXT'], temporal_rejections=[], eligible_docs=1.",
+      "contract_violation": "A post-as_of text can reach FinBERT/VADER and change a historical score, violating future-news isolation and the requirement to filter before scoring."
+    },
+    {
+      "id": "REVIEW-06-B-003",
+      "category": "CONTRACT_ENFORCEMENT",
+      "summary": "The MCP dispatch handler does not require ForecastContext and run_id at execution time.",
+      "evidence": "tools/sentiment_tools/sentiment_server.py:563-567 validates identity only if either field is present; when both are absent it runs the legacy current-path retrieval without as_of/dataset_version/historical. tests/unit_tests/sentiment_test/test_sentiment_server.py:192-200 explicitly asserts that retrieve_social_data succeeds with only query, and the analyzer/scorer/fusion routing tests also omit identity.",
+      "contract_violation": "Schema declarations alone do not enforce the Stage 06 rule that every sentiment execution requires ForecastContext/run identity and that historical sentiment has no current fallback."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-06-NB-001",
+      "summary": "The FinBERT version label calls a 40-character Git revision a sha256 revision.",
+      "assessment": "The pinned commit is immutable and local-files-only, so reproducibility is adequate, but the label 'sha256-revision' is technically inaccurate and should be renamed to an unambiguous git-revision field during rework."
+    },
+    {
+      "id": "REVIEW-06-NB-002",
+      "summary": "Live providers and external trace export remain unverified by design.",
+      "assessment": "Offline fixtures and local models are appropriate under the no-network authorization. This does not excuse the deterministic temporal defects reproduced locally."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    {
+      "finding": "REVIEW-06-B-001",
+      "owner": "sentiment",
+      "paths": [
+        "agents/executor_helpers/sentiment_helper.py",
+        "tests/unit_tests/test_sentiment_phase4.py"
+      ],
+      "requirement": "Validate every present temporal field independently. Reject when published_at or effective_from is invalid or later than as_of; do not use an OR choice that hides a future effective_from. Repeat the same invariant before aggregation and add boundary tests."
+    },
+    {
+      "finding": "REVIEW-06-B-002",
+      "owner": "sentiment",
+      "paths": [
+        "tools/sentiment_tools/sentiment_server.py",
+        "tests/unit_tests/sentiment_test/test_sentiment_server.py"
+      ],
+      "requirement": "Apply point-in-time eligibility to individual chunks before document grouping, or conservatively reject a document containing any ineligible revision. Add a same-canonical-URL past/future test proving future text never reaches the scored chunks."
+    },
+    {
+      "finding": "REVIEW-06-B-003",
+      "owner": "sentiment",
+      "paths": [
+        "tools/sentiment_tools/sentiment_server.py",
+        "tests/unit_tests/sentiment_test/test_sentiment_server.py"
+      ],
+      "requirement": "Require and validate forecast_context and run_id unconditionally in call_tool before dispatch. Ensure retrieval cannot enter a current/no-as_of path and update legacy routing tests to provide explicit point-in-time identity or assert fail-closed behavior."
+    }
+  ],
+  "review_blockers": [
+    "The current accepted-attempt candidate permits future evidence to affect historical sentiment in two reproducible paths.",
+    "The runtime MCP handler permits sentiment execution without the mandatory ForecastContext/run identity."
+  ],
+  "resolved_findings": [
+    {
+      "id": "OBS-06-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "Private query and free-form provider error text are excluded from logs, progress, Sentry and compact Shared State by fixed labels/error codes and allowlisted processors; exact offline privacy sentinels passed."
+    },
+    {
+      "id": "OBS-06-002",
+      "status": "PASS_RESOLVED",
+      "evidence": "Eight Stage 06 lifecycle boundaries now carry forecast/run/version identity, measured non-negative latency, semantic counts and bounded degraded flags."
+    },
+    {
+      "id": "OBS-06-003",
+      "status": "PASS_RESOLVED",
+      "evidence": "The traced MCP child boundary catches and replaces raw provider/transport and malformed-payload exceptions before they cross the trace boundary."
+    },
+    {
+      "id": "OBS-06-004",
+      "status": "PASS_RESOLVED",
+      "evidence": "FinBERT uses an immutable local commit with local_files_only and VADER records the SHA-256 of local lexicon bytes; no automatic model or lexicon download is used."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_locks": "PASS: all 18 implementation-recorded paths and the reviewer artifact have exact owner locks. All 16 recorded source/test/fixture SHA-256 values match. No Stage 07 product work, Manager, Quant, database, migration, dependency, deploy, commit, push, seed or deletion path was entered.",
+    "artifact_integrity": "PASS: Stage 05 is CLOSED; draft-ready, observability, change-request, implementation MD/JSON and QA are the same Stage 06 revision 1 attempt 1, all input SHA-256 values match, QA is PASS, and every input validates under the current control plane.",
+    "temporal_safety": "FAIL_BLOCKING: effective_from can be after as_of when published_at is eligible, and future chunks sharing a canonical document identity can be merged into a past document before temporal filtering. Both defects were independently reproduced and allow future content to be scored.",
+    "forecast_identity_and_provider_policy": "FAIL_BLOCKING: the MCP schemas list forecast_context/run_id as required, but call_tool does not enforce them when both are absent and can dispatch retrieval without as_of, dataset_version or historical=True.",
+    "window_and_feature_shape": "PASS_WITH_BLOCKING_INPUT_CAVEAT: fixed 7/14/30 calendar-day aggregates, momentum, dispersion, volumes, source diversity, confidence, evidence IDs and explicit missing/degraded flags are implemented. Their correctness is not acceptable while ineligible future inputs can enter scoring.",
+    "model_reproducibility": "PASS: FinBERT is pinned to local immutable revision 4556d13015211d73dccd3fdd39d39232506f3e43 with deterministic settings; VADER includes local lexicon SHA-256 and disables download; fusion is versioned.",
+    "state_and_data_hygiene": "PASS: Shared State commits compact sentiment summary and feature slot only. brain_reasoning, full attempts, raw chunks, source metadata and model chunk scores remain private and are excluded by the persistence allowlist.",
+    "observability_and_privacy": "PASS: OBS-06-001 through OBS-06-004 are substantively resolved; traces/progress/errors use allowlisted identity, counts, flags and stable codes without raw payloads or private exception messages.",
+    "financial_and_numeric_integrity": "PASS_BY_SCOPE: Stage 06 does not modify Financial DCF/WACC or nine intent/mappers, does not modify Quant, and does not introduce an LLM-authored 21-session numeric forecast.",
+    "scientific_honesty": "PASS_BY_SCOPE: artifacts claim offline engineering validation only, disclose absent live-provider validation and retain five known baseline/out-of-scope failures. No investment-success or backtest-performance claim is made.",
+    "regression": "PASS_TEST_EXECUTION_BUT_INSUFFICIENT_CONTRACT_COVERAGE: the independent official Stage 06 suite passed 164 tests with 5 live tests deselected and one deprecation warning; however it lacks the three exact cases identified by this review.",
+    "operational_safety": "PASS: rollback is documented and no database read/write, migration application, seed, deletion, deployment, commit or push is reported or observed."
+  },
+  "tests_and_checks": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+      "result": "PASS: CONTROL VALID"
+    },
+    {
+      "command": "official offline Stage 06 unit and integration suite with not-live/not-slow/not-db markers",
+      "result": "PASS: 164 passed, 5 deselected, 1 warning in 7.00s"
+    },
+    {
+      "command": "independent SHA-256 and owner-lock verification",
+      "result": "PASS: 7/7 chain files match; 16/16 implementation source/test/fixture hashes match; 18/18 implementation changed paths are locked to sentiment"
+    },
+    {
+      "command": "effective_from-after-as_of executable probe",
+      "result": "FAIL_BLOCKING: eligible_count=1 and rejections=[] for future effective_from"
+    },
+    {
+      "command": "same-URL mixed past/future chunk executable retrieval probe",
+      "result": "FAIL_BLOCKING: future text was concatenated into the eligible document and temporal_rejections=[]"
+    },
+    {
+      "command": "server-side mandatory identity audit",
+      "result": "FAIL_BLOCKING: call_tool executes when both forecast_context and run_id are absent; existing routing tests assert this behavior"
+    }
+  ],
+  "source_integrity": {
+    "recorded_paths": 16,
+    "matching_paths": 16,
+    "mismatches": 0,
+    "implementation_changed_paths": 18,
+    "all_implementation_paths_locked_to_sentiment": true,
+    "old_prompt_exists": false,
+    "old_prompt_runtime_references": 0
+  },
+  "known_out_of_scope_failures": [
+    {
+      "path": "tests/unit_tests/test_agents/test_manager_agent.py::TestRunFullPipeline::test_happy_path_runs_all_three_agents_and_finalises",
+      "count": 1,
+      "classification": "BASELINE_RESPONSIBLE_STAGE_08",
+      "review_assessment": "Correctly classified; the Stage 00 baseline manifest assigns this unchanged Manager expectation to Stage 08."
+    },
+    {
+      "path": "tests/unit_tests/test_supabase_phase5_migration.py",
+      "count": 4,
+      "classification": "BLOCKED_PRE_EXISTING_NO_VALID_RETARGET",
+      "review_assessment": "Correctly classified; the Stage 00 baseline manifest records the missing root legacy migration and Stage 06 owns no migration path."
+    }
+  ],
+  "external_execution": {
+    "network_access_by_review": false,
+    "live_sentiment_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage07_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "activated": false
+  },
+  "supersedes": null,
+  "created_at": "2026-09-03T20:17:48.2949302Z"
+}

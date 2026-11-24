@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "reviewer",
+  "status": "REJECTED",
+  "review_status": "REJECTED",
+  "blocking_findings": [
+    {
+      "id": "STAGE03-HISTORICAL-INGESTION-PROVIDER-002",
+      "finding": "The public ingestion and seed path cannot perform historical ingestion. AlphaLoader correctly fails closed unless an archive_provider is injected, but run_ingestion_pipeline has no archive-provider/loader-factory input and always constructs AlphaLoader without one; rag.seed forwards historical boundaries into that unusable path. Therefore every real historical CLI/pipeline run reaches HistoricalSourceUnavailable rather than ingesting a reproducible archive.",
+      "required_change": "Add an explicit reproducible archive-provider boundary to the ingestion API and a concrete/configured historical seed path without enabling live fallback. Add an offline end-to-end test that passes start/end/as_of and a deterministic archive provider through ingestion to V2 upsert while proving no live fetch is called."
+    },
+    {
+      "id": "STAGE03-CHECKPOINT-SNAPSHOT-IDENTITY-003",
+      "finding": "Checkpoint/resume does not bind completion to an immutable materialization. The run_id includes only tickers, dataset_version, historical and raw boundary strings; it omits archive/provider identity, vector adapter, embedding model/version/cache schema, and any document/chunk manifest hash. When Vector is complete but Graph failed, the retry reloads and reprocesses sources, skips Vector, and sends the newly fetched raw_docs to Graph. A changed live/archive response can therefore produce Graph evidence different from the already-completed Vector batch, and a changed adapter/model can incorrectly reuse a completed checkpoint.",
+      "required_change": "Persist and validate a canonical run/materialization fingerprint covering normalized temporal bounds, provider/archive identity, dataset, adapter, embedding identity and ordered document/chunk identities. Resume Graph from the exact accepted materialization or fail closed on mismatch. Add tests where source content/provider/model/adapter changes between attempts and prove the checkpoint cannot mix Vector and Graph snapshots or falsely skip work."
+    },
+    {
+      "id": "STAGE03-REVISION-EVIDENCE-PRESERVATION-004",
+      "finding": "AlphaProcessor still discards legitimate immutable versions/observations when canonical URL and content are unchanged. After computing distinct document_id/evidence_id/revision_key values, the url_hash/content_hash branch returns no chunks for a second document_version, a second dataset_version, or a later retrieved_at observation with identical content. Independent offline reproduction produced one chunk for two same-content revisions and one chunk for two same-content dataset versions. This contradicts the frozen requirement to preserve revisions and versioned evidence rather than overwrite or suppress them.",
+      "required_change": "Deduplicate only the exact immutable document/evidence/chunk identity required by the frozen schema. Preserve distinct document_version, dataset_version and retrieved evidence observations even when URL/content are unchanged, and add exact regression tests for same-content distinct revision, dataset and retrieval-time cases."
+    },
+    {
+      "id": "STAGE03-OBSERVABILITY-ATTEMPT-IDENTITY-005",
+      "finding": "Runtime ingestion telemetry is hard-coded to stage revision 1 attempt 1, while the candidate, state, draft-ready, observability, implementation and QA artifacts are revision 1 attempt 2. The Attempt 2 telemetry test explicitly asserts the stale attempt=1 value. Accepting Attempt 2 would therefore emit false provenance and violate revision/attempt identity consistency.",
+      "required_change": "Make the emitted Stage 03 provenance match the current accepted implementation attempt (or derive it from one versioned build/control identity), update the focused observability assertion, and rerun the matching observability/QA chain."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "PREEXISTING-LOCK-STATE-001",
+      "finding": "Global --check-locks remains invalid for agents/state.py: its current SHA-256 differs from the accepted Stage 01 lock-history hash and it has no current/permanent/accepted owner for the present bytes. The path was not modified or claimed by Stage 03, so it is not attributed as a Stage 03 behavioral defect. It nevertheless prevents the Orchestrator from claiming a globally clean lock/closure validation until the authorized Stage 01/control-plane owner reconciles the attribution or content; Reviewer did not edit or claim it."
+    },
+    {
+      "id": "STAGE03-LIVE-V2-NOT-RUN",
+      "finding": "V2 RPC/upsert behavior was validated with deterministic mocks and fixtures only because migrations/reconciliation and external database access were not authorized. This is acceptable for the offline Stage 03 gate, but no live V2 correctness or latency claim is approved."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    "Expose and test a usable reproducible archive-provider path through historical ingestion/seed while keeping historical live fallback disabled.",
+    "Bind checkpoint/run identity and Vector/Graph resume to one immutable, versioned materialization and fail closed on any provider, data, adapter or embedding mismatch.",
+    "Preserve same-content distinct document revisions, dataset versions and evidence retrieval observations in processor identities and tests.",
+    "Correct runtime observability provenance from Attempt 1 to the matching implementation attempt and repeat Observability, implementation finalization and QA under a new immutable attempt.",
+    "Preserve the verified legacy-default adapter, pre-ranking as_of/ticker/dataset/effective filters, fixture backward compatibility, explicit seed-only startup, sanitized error codes and Attempt 1/2 artifact immutability while reworking."
+  ],
+  "review_blockers": [
+    "STAGE03-HISTORICAL-INGESTION-PROVIDER-002",
+    "STAGE03-CHECKPOINT-SNAPSHOT-IDENTITY-003",
+    "STAGE03-REVISION-EVIDENCE-PRESERVATION-004",
+    "STAGE03-OBSERVABILITY-ATTEMPT-IDENTITY-005"
+  ],
+  "evidence": [
+    {
+      "check": "artifact_identity_phase_and_required_chain",
+      "status": "PASS",
+      "detail": "State is ACTIVE/REVIEW for Stage 03 revision 1 attempt 2. Matching draft-ready, required observability, final implementation JSON/MD and QA artifacts exist; QA is PASS; each input artifact validates against the local schema/identity checks; the review path is locked to reviewer; CONTROL VALID."
+    },
+    {
+      "check": "attempt_history_and_immutability",
+      "status": "PASS",
+      "detail": "Attempt 1 ended at QA FAIL and has no fabricated review. Independent SHA-256 checks for all five Attempt 1 artifacts match the hashes recorded by Attempt 2, and this review creates a new immutable Attempt 2 path with supersedes=null."
+    },
+    {
+      "check": "scope_locks_and_downstream_boundary",
+      "status": "PASS",
+      "detail": "All cumulative Stage 03 product/test paths listed by implementation are explicitly locked to data_rag; main.py changes only removal of normal-startup auto-seed. No rag/graph_store.py, rag/hybrid_rag.py, Research, Financial, Sentiment, Quant, API, migration, dependency or downstream Stage 04A implementation path changed in Stage 03."
+    },
+    {
+      "check": "temporal_loader_and_retrieval_guards",
+      "status": "PASS",
+      "detail": "AlphaLoader requires start/end/as_of and an archive provider in historical mode, does not substitute current time for unknown required evidence time, and quarantines invalid times. V2 RPC plus client/retriever checks enforce ticker, as_of, dataset version and effective interval before freshness ranking; legacy historical retrieval fails closed; historical freshness uses as_of."
+    },
+    {
+      "check": "historical_ingestion_composition",
+      "status": "FAIL",
+      "detail": "rag/ingestion.py constructs AlphaLoader without archive_provider and its public signature has no injection/configuration boundary, while rag/seed.py advertises and forwards historical options. The correct fail-closed loader therefore makes the historical ingestion/CLI path nonfunctional."
+    },
+    {
+      "check": "versioned_document_and_evidence_identity",
+      "status": "FAIL",
+      "detail": "Processor IDs include source/content/document version and dataset/retrieval time, but the later URL/content dedupe suppresses those distinct identities. Existing tests cover only changed-content revisions and miss same-content revision/dataset/evidence observations."
+    },
+    {
+      "check": "checkpoint_resume_and_idempotency",
+      "status": "FAIL",
+      "detail": "Atomic file replacement and separate Vector/Graph statuses are present, and exact-input completed retry skips duplicate Vector work. However the checkpoint has no input/model/adapter/materialization fingerprint and Graph retry reloads sources after Vector completion, so cross-store consistency and reproducible resume are not guaranteed."
+    },
+    {
+      "check": "observability_privacy_latency_and_identity",
+      "status": "FAIL",
+      "detail": "Allowlisted metadata, monotonic latency, compact counts/status and sanitized error codes pass, with no raw exception payload in checkpoint/breadcrumb evidence. Runtime attempt provenance is nevertheless stale at attempt=1 and conflicts with every matching Attempt 2 artifact."
+    },
+    {
+      "check": "legacy_fixture_startup_and_regression",
+      "status": "PASS",
+      "detail": "Legacy remains the default Vector adapter; V2 is explicit; current startup does not auto-seed; the shared fixture retains exact legacy cases and temporal rows. QA reports 203 focused Stage 03 passes, 16 narrative passes, 109 Stage 01-02 regressions, 17 explicit contract tests and 1218 collected tests with zero collection errors. Passing tests do not cover the four blocking contract failures."
+    },
+    {
+      "check": "financial_numeric_scientific_and_storage_integrity",
+      "status": "NOT_APPLICABLE_UNCHANGED",
+      "detail": "Stage 03 did not alter DCF/WACC, the nine financial intents/mappers, deterministic Quant outputs, monthly target/provider/universe/action policy, backtesting methodology or forecast persistence. Canonical Vector chunk storage remains confined to the RAG evidence path; no CoT, brain_reasoning, secret, full filing copy or duplicated analysis payload was added by the reviewed Stage 03 paths."
+    },
+    {
+      "check": "rollback_and_operational_safety",
+      "status": "PASS",
+      "detail": "Rollback is documented and legacy remains the runtime default. No external DB read/write, migration application, seed/backfill, reconciliation, legacy deletion, route switch, deploy, commit or push is evidenced. No operational rollback is currently required."
+    }
+  ],
+  "rollback_reviewed": true,
+  "supersedes": null,
+  "created_at": "2026-08-30T07:52:12.8378862Z"
+}

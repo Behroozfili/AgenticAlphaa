@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "CHANGES_REQUESTED",
+  "target_agent": "quant",
+  "requested_paths": [
+    "tools/market_tools/__init__.py",
+    "tools/market_tools/market_data.py",
+    "tools/market_tools/feature_builder.py",
+    "tools/market_tools/historical_dataset_builder.py",
+    "tools/market_tools/forecast_model.py",
+    "tools/market_tools/market_server.py",
+    "tests/unit_tests/market_test/test_market_data.py",
+    "tests/unit_tests/market_test/test_feature_builder.py",
+    "tests/unit_tests/market_test/test_historical_dataset_builder.py",
+    "tests/unit_tests/market_test/test_forecast_model.py",
+    "tests/unit_tests/market_test/test_market_server.py",
+    "tests/unit_tests/test_market_features_stage7.py"
+  ],
+  "reason": "The Stage 07 draft has three blocking observability/provenance defects. First, it has no immutable stage/revision/attempt/agent implementation identity and no measured compact lifecycle for cache validation, market bundle construction, feature construction/snapshot finalization, outcome materialization, DATA_READINESS, model fitting, prediction, or the service boundary; the service record also omits available schema/calendar/stage identity, evidence count, latency, readiness hash and training-data provenance, and labels feature as_of as feature_materialized_at. Second, arbitrary evidence_ids cross MarketFeatures.to_state_slot and MarketForecastService.forecast unchanged, while DATA_READINESS persists an unbounded run_id; offline PRIVATE_SENTINEL counterexamples proved both paths. Third, identity and temporal/readiness binding is incomplete: the service accepts MarketFeatures for a different ticker/as_of while reporting the requested context identity; labeled_snapshot_from_mapping accepts an outcome materialized before target_date; build_data_readiness accepts rows outside the versioned universe/effective membership and lacks upstream source date-range evidence; and fit_deterministic_model accepts rows different from those evaluated by the supplied readiness manifest because the readiness artifact is not bound to an eligible-row content hash.",
+  "blocking": true,
+  "requested_changes": [
+    {
+      "id": "OBS-07-001",
+      "blocking": true,
+      "request": "Add one immutable Quant implementation identity in tools/market_tools/__init__.py for stage=07, stage_revision=1, attempt=1, agent=quant and derive compact allowlisted lifecycle metadata from it. Measure monotonic finite non-negative latency at the Stage 07 boundaries that actually execute: cache validation/bundle construction, feature build/snapshot finalization, outcome materialization, DATA_READINESS, model fit, prediction and service forecast. Include run_id, ticker, as_of, target, horizon, analysis_mode, dataset/feature/model/schema/calendar versions where available, semantic counts, evidence_count and bounded degraded flags. Never emit raw bars, feature vectors, coefficients, labels, evidence IDs, exceptions or full input/output payloads. Add deterministic offline lifecycle-matrix and failure-path privacy tests. Make the forecast record include truthful materialization/provenance fields; do not relabel as_of as feature_materialized_at."
+    },
+    {
+      "id": "OBS-07-002",
+      "blocking": true,
+      "request": "Validate run_id and evidence references at the first Stage 07 boundary with a compact, whitespace-free reference policy and bounded cardinality/length. Preserve only opaque reference IDs in State and forecast output; telemetry receives counts only. Add PRIVATE_SENTINEL tests proving raw/private evidence text and multiline or oversized run IDs are rejected and absent from State, output and lifecycle metadata."
+    },
+    {
+      "id": "OBS-07-003",
+      "blocking": true,
+      "request": "Bind every MarketFeatures instance used for forecasting to the exact ForecastContext ticker/as_of/dataset/feature identity and reject mismatches. Validate fixture snapshots against the central 21-session target rule and reject outcome_materialized_at before target availability. Enforce each labeled row's ticker, benchmark and as_of against the universe constituent effective interval before DATA_READINESS PASS; record real per-source temporal coverage or explicit missing/unverified status. Derive a canonical eligible-row content hash (including snapshot identity and labels) in DATA_READINESS and require model fitting to reproduce it before fit. Add offline counterexamples for mismatched feature identity, pre-target fixture outcome, out-of-universe rows and modified rows fitted under an unrelated readiness manifest."
+    }
+  ],
+  "evidence": [
+    "A scoped source scan found zero QUANT_IMPLEMENTATION_IDENTITY, compact_lifecycle, forecast_trace_metadata, publish_forecast, elapsed_latency_ms, time.perf_counter, stage_revision or attempt call sites under tools/market_tools and the locked Stage 07 tests.",
+    "PRIVATE_SENTINEL raw article text supplied as an evidence_id was returned unchanged by both MarketFeatures.to_state_slot and MarketForecastService.forecast.",
+    "PRIVATE_SENTINEL raw private prompt supplied as DATA_READINESS run_id was persisted unchanged in the manifest.",
+    "MarketForecastService.forecast accepted ticker=AAPL/as_of=2020-01-31 MarketFeatures with an MSFT/2024-06-28 ForecastContext and reported MSFT while retaining the mismatched feature as_of.",
+    "labeled_snapshot_from_mapping accepted outcome_materialized_at=2024-06-29 for target_date=2024-07-30.",
+    "build_data_readiness returned PASS for MSFT rows under an AAPL-only universe manifest.",
+    "fit_deterministic_model accepted a label-mutated row set under a readiness manifest built from the original rows."
+  ],
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "created_at": "2026-09-06T08:52:54.6585828Z"
+}

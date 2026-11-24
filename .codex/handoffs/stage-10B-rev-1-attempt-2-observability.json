@@ -1,0 +1,122 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "10B",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 189,
+  "status": "AUDITED",
+  "changed_files": [
+    "langsmith_trace.py",
+    "tests/unit_tests/test_stage10b_observability.py",
+    ".codex/handoffs/stage-10B-rev-1-attempt-2-observability.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-10B-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "a38c3888967254d57cb83186119f28a4ed80effc0f418d41b2c0755af2f01499",
+  "trigger_review": {
+    "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-review.json",
+    "sha256": "f2d56f2d79e3e0df5d76d3c4077742d75293af3fbfed5d52769262610e08c044",
+    "hash_match": true
+  },
+  "requested_primary_changes": [],
+  "blocking_issues": [],
+  "review_finding_audit": {
+    "REVIEW-10B-001": {
+      "status": "PASS_RESOLVED",
+      "telemetry_impact": "NONE",
+      "assessment": "The two compact provenance strings are stored in forecast_payload but are not added to lifecycle events; existing context/version/count allowlists remain closed."
+    },
+    "REVIEW-10B-002": {
+      "status": "PASS_RESOLVED",
+      "telemetry_impact": "NONE",
+      "assessment": "Canonical reproduction inputs are used only for a local SHA-256 identity. Neither folds nor report/output payloads are emitted to the local telemetry sink."
+    }
+  },
+  "runtime_identity_audit": {
+    "required": "10B/r1/a2/integration",
+    "observed": "10B/r1/a2/integration",
+    "implementation_version": "stage10b-r1-a2",
+    "single_runtime_identity_source": "langsmith_trace.STAGE10B_RUNTIME_IDENTITY",
+    "stale_attempt_1_identity_in_runtime_event": false,
+    "status": "PASS"
+  },
+  "privacy_checks": [
+    {
+      "check": "Monthly persistence provenance does not broaden telemetry payloads.",
+      "status": "PASS",
+      "evidence": "Lifecycle events continue to include only canonical context/version/count/status fields; forecast_payload, universe hashes, materialization payloads, query, narrative and raw evidence are not passed to the emitter."
+    },
+    {
+      "check": "Backtest canonical identity does not emit folds or output payloads.",
+      "status": "PASS",
+      "evidence": "The SHA-256 helper consumes input identity locally; telemetry receives only the existing compact version context, run_id, stage identity, status and latency."
+    },
+    {
+      "check": "Private and exception payloads remain excluded and sink failure remains nonfatal.",
+      "status": "PASS",
+      "evidence": "PRIVATE_SENTINEL, stable failure-code, raising-sink and two-run isolation tests passed."
+    },
+    {
+      "check": "No external exporter or provider was contacted.",
+      "status": "PASS",
+      "evidence": "Tests used local injected sinks, deterministic fixtures, mocks and forced-offline environment; Stage 10A exporter gates remain fail closed."
+    }
+  ],
+  "latency_instrumentation_status": "PASS_FINITE_NONNEGATIVE_MONOTONIC_LOCAL_EVENTS_CURRENT_ATTEMPT_IDENTITY",
+  "source_integrity": {
+    "observability_sha256": {
+      "langsmith_trace.py": "7092986ab9c4a32079f7f8d20e46d334d82b774c41e13ec09cfb5513b33cdcc9",
+      "tests/unit_tests/test_stage10b_observability.py": "44b73602f88ccc6af8fb4dc97c82ea7e56f92602e02999d5e5ff30a236c59094"
+    },
+    "draft_recorded_integration_sources_checked": 4,
+    "draft_recorded_integration_source_mismatches": [],
+    "immutable_attempt_1_artifacts_checked": 7,
+    "immutable_attempt_1_artifact_mismatches": [],
+    "closed_stage_artifacts_changed": false
+  },
+  "tests_run": [
+    {
+      "command": "forced-offline Stage10B observability/provenance/reproducibility/concurrency/analyze plus Stage10A/Core observability regressions",
+      "exit_code": 0,
+      "result": "78 passed in 1.71s",
+      "network_mode": "FORCED_OFFLINE_LOCAL_SINK_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent observability",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 189",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "stage_boundary": {
+    "feature_behavior_changed_by_observability": false,
+    "integration_source_or_tests_changed_by_observability": false,
+    "observability_identity_and_direct_test_changed": true,
+    "change_request_created": false,
+    "primary_reactivation_required": true,
+    "state_or_qa_or_review_changed": false,
+    "attempt_1_artifacts_changed": false,
+    "stage11_activated": false
+  },
+  "external_execution": {
+    "network_intentionally_used": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "dependency_change": false,
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "External trace export remains fail closed under the accepted Stage 10A policy.",
+    "Live database/provider behavior was not exercised.",
+    "Primary must rerun final tests and write Attempt 2 implementation artifacts."
+  ],
+  "created_at": "2026-09-14T20:17:10.0880101Z"
+}

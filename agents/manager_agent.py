@@ -19,7 +19,10 @@ from agents.executor_helpers.manager_executor_helper import (
     render_section_entry,
     format_filing_chunk_fairly,
     feedback_to_snapshot,
-    infer_result_keys
+    infer_result_keys,
+    maybe_await,
+    run_monthly_specialists_concurrently,
+    controlled_monthly_join,
 )
 
 import anthropic
@@ -30,6 +33,8 @@ from langsmith import traceable
 from agents.financial_agent import FinancialAnalystAgent
 from agents.research_agent import ResearchAgent
 from agents.sentiment_agent import SentimentAgent
+from agents.monthly_forecast_agent import MonthlyForecastAgent
+from agents.executor_helpers.monthly_forecast_helper import STAGE08_IMPLEMENTATION_IDENTITY
 from agents.state import (
     EvaluationSnapshot,
     ManagerGraphState,
@@ -37,8 +42,11 @@ from agents.state import (
 )
 from memory.manager_memory import EvaluationFeedback, ManagerMemory
 from core.error_handler import add_breadcrumb, capture_exception, capture_message
-from core.progress_bus import publish as _publish_progress
-from agents.prompts.promt_manager_agent import (ROUTER_SYSTEM_PROMPT ,EVALUATOR_SYSTEM_PROMPT,FINALISER_SYSTEM_PROMPT,VALID_ACTIONS,ACTION_DESCRIPTIONS)
+from core.progress_bus import publish as _publish_progress, publish_forecast as _publish_forecast
+from core.observability import forecast_trace_metadata
+from core.forecast_contract import ForecastContext
+from tools.market_tools import validate_run_id
+from agents.prompts.prompt_manager_agent import (ROUTER_SYSTEM_PROMPT ,EVALUATOR_SYSTEM_PROMPT,FINALISER_SYSTEM_PROMPT,VALID_ACTIONS,ACTION_DESCRIPTIONS)
 from evaluation.validate_period_consistency import (
     check_narration_vs_period, detect_material_period_conflicts,
 )
@@ -72,6 +80,82 @@ _TRANSIENT_ERROR_MARKERS = (
     "connection refused", "temporarily unavailable", "temporary failure",
     "service unavailable", "gateway timeout", "502", "503", "504",
 )
+
+
+def _stage08_trace_metadata(context: Any = None, run_id: Any = None, **measurements: Any) -> dict[str, Any]:
+    metadata = dict(STAGE08_IMPLEMENTATION_IDENTITY)
+    if context is None:
+        return metadata
+    try:
+        safe = forecast_trace_metadata(
+            context, run_id=str(run_id) if run_id else None,
+            stage=STAGE08_IMPLEMENTATION_IDENTITY["stage"],
+            stage_revision=STAGE08_IMPLEMENTATION_IDENTITY["stage_revision"],
+            attempt=STAGE08_IMPLEMENTATION_IDENTITY["attempt"],
+            agent=STAGE08_IMPLEMENTATION_IDENTITY["agent"],
+            **measurements,
+        )
+    except (TypeError, ValueError):
+        return metadata
+    return {**safe, "implementation_version": STAGE08_IMPLEMENTATION_IDENTITY["implementation_version"]}
+
+
+def _manager_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    """Allowlist Manager entry metadata; never trace task/directive payloads."""
+    directives = inputs.get("manager_directives")
+    directives = directives if isinstance(directives, dict) else {}
+    context = directives.get("forecast_context")
+    return {
+        "operation": "manager_run",
+        "metadata": _stage08_trace_metadata(context, directives.get("run_id")),
+        "monthly_mode": context is not None,
+        "has_client_session": bool(inputs.get("client_session_id")),
+    }
+
+
+def _manager_trace_outputs(outputs: Any) -> dict[str, Any]:
+    """Allowlist result status/counts; never trace complete Shared State."""
+    state = outputs if isinstance(outputs, dict) else {}
+    directives = state.get("manager_directives")
+    directives = directives if isinstance(directives, dict) else {}
+    forecast = state.get("monthly_forecast")
+    forecast = forecast if isinstance(forecast, dict) else {}
+    evidence = forecast.get("evidence_ids")
+    warnings = forecast.get("warnings")
+    raw_status = forecast.get("status") or state.get("execution_status")
+    status = raw_status if raw_status in {
+        "READY", "DEGRADED", "INSUFFICIENT_DATA", "completed", "failed",
+    } else "UNKNOWN"
+    return {
+        "operation": "manager_run",
+        "metadata": _stage08_trace_metadata(
+            state.get("forecast_context") or directives.get("forecast_context"),
+            forecast.get("run_id") or directives.get("run_id"),
+            evidence_count=len(evidence) if isinstance(evidence, list) else 0,
+            degraded_flags=["monthly_degraded"] if forecast.get("degraded") else [],
+        ),
+        "status": status,
+        "missing": bool(forecast.get("missing")),
+        "degraded": bool(forecast.get("degraded")),
+        "warning_count": len(warnings) if isinstance(warnings, list) else 0,
+        "history_count": len(state.get("agent_execution_history", [])) if isinstance(state.get("agent_execution_history"), list) else 0,
+    }
+
+
+def _publish_stage08_monthly(
+    session_id: str | None, event_type: str, *, context: ForecastContext,
+    run_id: str, started_at: float, message: str,
+    evidence_count: int | None = None, degraded_flags: tuple[str, ...] = (),
+) -> None:
+    _publish_forecast(
+        session_id, event_type, run_id=run_id, context=context,
+        stage=STAGE08_IMPLEMENTATION_IDENTITY["stage"],
+        stage_revision=STAGE08_IMPLEMENTATION_IDENTITY["stage_revision"],
+        attempt=STAGE08_IMPLEMENTATION_IDENTITY["attempt"],
+        agent=STAGE08_IMPLEMENTATION_IDENTITY["agent"],
+        message=message, started_at=started_at, evidence_count=evidence_count,
+        degraded_flags=degraded_flags,
+    )
 
 
 def sentiment_result_quality_passed(summary: dict[str, Any]) -> bool:
@@ -113,7 +197,23 @@ def agent_result_is_valid(agent_key: str, state: dict[str, Any]) -> bool:
     if agent_key == "financial":
         fm = state.get("financial_metrics_summary", {}) or {}
         sanity = fm.get("financial_sanity", {}) or {}
-        return bool(fm) and fm.get("validation_passed") is True and sanity.get("passed", True) is not False
+        features = state.get("financial_features")
+        if isinstance(features, dict):
+            values = features.get("values")
+            evidence_ids = features.get("evidence_ids")
+            return (
+                bool(fm)
+                and fm.get("validation_passed") is True
+                and sanity.get("passed") is True
+                and isinstance(values, dict) and bool(values)
+                and isinstance(evidence_ids, list) and bool(evidence_ids)
+                and features.get("missing") is False
+            )
+        return (
+            bool(fm)
+            and fm.get("validation_passed") is True
+            and sanity.get("passed") is True
+        )
     if agent_key == "sentiment":
         sm = state.get("sentiment_analysis_summary", {}) or {}
         return sentiment_result_quality_passed(sm)
@@ -192,12 +292,20 @@ class ManagerAgent:
         model:             str = _DEFAULT_MODEL,
         max_routing_loops: int = _DEFAULT_MAX_ROUTING_LOOPS,
         llm_client:        anthropic.AsyncAnthropic | None = None,
+        monthly_forecast_agent: MonthlyForecastAgent | None = None,
+        market_forecast_service: Any | None = None,
+        market_data_provider: Any | None = None,
     ) -> None:
         
         self._llm               = llm_client or anthropic.AsyncAnthropic()
         self._model             = model
         self._max_routing_loops = max_routing_loops
         self._memory            = memory
+        self._monthly_forecast_agent = monthly_forecast_agent or MonthlyForecastAgent(
+            llm_client=self._llm, model=model,
+        )
+        self._market_forecast_service = market_forecast_service
+        self._market_data_provider = market_data_provider
 
         self._agents: dict[str, Any] = {
             "research":  research_agent,
@@ -1304,7 +1412,198 @@ class ManagerAgent:
     # ENTRY POINT — run()
     # =========================================================================
 
-    @traceable(name="ManagerAgent.run", run_type="chain")
+    async def _run_monthly(
+        self,
+        *,
+        task_query: str,
+        directives: dict[str, Any],
+        session_id: str,
+    ) -> SharedManagerState:
+        """Domain integration path; request lifecycle remains Stage 10A scope."""
+        run_started_at = time.perf_counter()
+        raw_context = directives.get("forecast_context")
+        context = (
+            raw_context if isinstance(raw_context, ForecastContext)
+            else ForecastContext.from_dict(dict(raw_context or {}))
+        )
+        requested_ticker = str(directives.get("ticker") or context.ticker).upper()
+        if requested_ticker != context.ticker:
+            raise ValueError("manager ticker must match ForecastContext.ticker")
+        run_id = validate_run_id(str(directives.get("run_id") or uuid.uuid4()))
+        try:
+            _publish_stage08_monthly(
+                session_id, "forecast_context", context=context, run_id=run_id,
+                started_at=run_started_at, message="STAGE08_CONTEXT_ACCEPTED",
+            )
+            monthly_directives = {
+                **directives,
+                "ticker": context.ticker,
+                "forecast_context": context.to_dict(),
+                "run_id": run_id,
+                "_progress_session_id": session_id,
+            }
+            shared = self._hydrate_state(task_query, monthly_directives)
+            shared["forecast_context"] = context.to_dict()
+            shared["run_id"] = run_id
+
+            specialist_started_at = time.perf_counter()
+            _publish_stage08_monthly(
+                session_id, "feature_start", context=context, run_id=run_id,
+                started_at=specialist_started_at, message="STAGE08_SPECIALISTS_STARTED",
+            )
+            specialist_results = await run_monthly_specialists_concurrently(
+                self._agents, shared,
+            )
+            shared, node_order = controlled_monthly_join(shared, specialist_results)
+            specialist_slots = [
+                shared.get(name) for name in (
+                    "research_features", "financial_features", "sentiment_features",
+                )
+            ]
+            specialist_evidence_count = sum(
+                len(slot.get("evidence_ids", []))
+                for slot in specialist_slots if isinstance(slot, dict)
+                and isinstance(slot.get("evidence_ids"), list)
+            )
+            specialist_degraded = any(
+                bool(slot.get("degraded")) or bool(slot.get("missing"))
+                for slot in specialist_slots if isinstance(slot, dict)
+            )
+            _publish_stage08_monthly(
+                session_id, "feature_complete", context=context, run_id=run_id,
+                started_at=specialist_started_at,
+                message="STAGE08_SPECIALISTS_JOINED",
+                evidence_count=specialist_evidence_count,
+                degraded_flags=("specialist_features_degraded",) if specialist_degraded else (),
+            )
+
+            market_started_at = time.perf_counter()
+            _publish_stage08_monthly(
+                session_id, "feature_start", context=context, run_id=run_id,
+                started_at=market_started_at, message="STAGE08_MARKET_QUANT_STARTED",
+            )
+            if self._market_forecast_service is None or self._market_data_provider is None:
+                shared["market_features"] = {
+                    "version": "unavailable", "values": {}, "evidence_ids": [],
+                    "missing": True, "degraded": True,
+                    "errors": ["QUANT_SERVICE_NOT_CONFIGURED"],
+                }
+            else:
+                market = await maybe_await(self._market_data_provider(context))
+                market_features = await maybe_await(
+                    self._market_forecast_service.build_features(
+                        context=context, market=market,
+                        research_features=shared.get("research_features"),
+                        financial_features=shared.get("financial_features"),
+                        sentiment_features=shared.get("sentiment_features"),
+                    )
+                )
+                prediction = await maybe_await(
+                    self._market_forecast_service.forecast(
+                        context=context, market_features=market_features, run_id=run_id,
+                    )
+                )
+                if not hasattr(market_features, "to_state_slot"):
+                    raise TypeError("Quant market_features must provide to_state_slot()")
+                market_slot = market_features.to_state_slot()
+                market_slot = {
+                    **market_slot,
+                    "values": {
+                        **dict(market_slot.get("values", {})),
+                        "run_id": run_id,
+                        "quant_prediction": dict(prediction),
+                    },
+                }
+                shared["market_features"] = market_slot
+            node_order.append("market_features")
+            market_slot = shared["market_features"]
+            market_evidence_count = len(market_slot.get("evidence_ids", []))
+            market_degraded = bool(market_slot.get("missing")) or bool(market_slot.get("degraded"))
+            _publish_stage08_monthly(
+                session_id, "feature_complete", context=context, run_id=run_id,
+                started_at=market_started_at, message="STAGE08_MARKET_QUANT_COMPLETED",
+                evidence_count=market_evidence_count,
+                degraded_flags=("market_features_degraded",) if market_degraded else (),
+            )
+
+            forecast_started_at = time.perf_counter()
+            _publish_stage08_monthly(
+                session_id, "monthly_forecast_start", context=context, run_id=run_id,
+                started_at=forecast_started_at, message="STAGE08_FORECAST_STARTED",
+            )
+            shared = await self._monthly_forecast_agent.run(shared)
+            node_order.extend(["monthly_forecast", "canonical_synthesis", "publication"])
+            forecast = dict(shared.get("monthly_forecast", {}))
+            shared["monthly_node_order"] = node_order
+            shared["canonical_synthesis"] = {
+                "forecast": {
+                    key: forecast.get(key) for key in (
+                        "status", "ticker", "as_of", "target_date",
+                        "horizon_trading_days", "cutoff_policy", "benchmark",
+                        "quality_gate_passed", "quality_gate_failures", "probability_positive",
+                        "expected_return_21d", "expected_excess_return",
+                        "confidence_interval", "confidence", "action", "versions",
+                        "specialist_contributions", "decision_drivers", "narrative",
+                    )
+                },
+                "dcf_semantics": "LONG_TERM_VALUATION_FEATURE_NOT_21_DAY_FORECAST",
+            }
+            shared["final_report"] = str(forecast.get("narrative") or "")
+            # Request-local recall of this result; durable storage is owned by
+            # the API. Prior forecasts never become Quant training features.
+            try:
+                self._memory.store_monthly_insight(
+                    ticker=context.ticker, as_of=context.as_of,
+                    horizon=context.horizon_trading_days,
+                    analysis_mode=context.analysis_mode, schema_version=context.schema_version,
+                    insight=forecast,
+                )
+            except Exception:
+                log.warning("monthly_memory_cache_failed")
+            insufficient = forecast.get("status") == "INSUFFICIENT_DATA"
+            quality_blocked = forecast.get("quality_gate_passed") is not True
+            if insufficient:
+                shared["publication_status"] = "DATA_INSUFFICIENT"
+                shared["execution_status"] = "failed"
+            elif quality_blocked:
+                shared["publication_status"] = "DATA_QUALITY_BLOCKED"
+                shared["execution_status"] = "failed"
+            elif forecast.get("degraded"):
+                shared["publication_status"] = "PUBLISHED_WITH_WARNINGS"
+                shared["execution_status"] = "completed"
+            else:
+                shared["publication_status"] = "PUBLISHED"
+                shared["execution_status"] = "completed"
+            evidence = forecast.get("evidence_ids")
+            evidence_count = len(evidence) if isinstance(evidence, list) else 0
+            degraded = bool(forecast.get("degraded"))
+            _publish_stage08_monthly(
+                session_id, "monthly_forecast_complete", context=context, run_id=run_id,
+                started_at=run_started_at, message="STAGE08_FORECAST_COMPLETED",
+                evidence_count=evidence_count,
+                degraded_flags=("monthly_degraded",) if degraded else (),
+            )
+            if degraded:
+                _publish_stage08_monthly(
+                    session_id, "forecast_degraded", context=context, run_id=run_id,
+                    started_at=run_started_at, message="STAGE08_FORECAST_DEGRADED",
+                    evidence_count=evidence_count, degraded_flags=("monthly_degraded",),
+                )
+            return shared
+        except Exception:
+            _publish_stage08_monthly(
+                session_id, "forecast_error", context=context, run_id=run_id,
+                started_at=run_started_at, message="STAGE08_MONTHLY_FAIL_CLOSED",
+                degraded_flags=("monthly_fail_closed",),
+            )
+            raise
+
+    @traceable(
+        name="ManagerAgent.run", run_type="chain",
+        metadata=STAGE08_IMPLEMENTATION_IDENTITY,
+        process_inputs=_manager_trace_inputs,
+        process_outputs=_manager_trace_outputs,
+    )
     async def run(
         self,
         task_query:         str,
@@ -1318,6 +1617,11 @@ class ManagerAgent:
         preferences = dict(user_preferences or {})
 
         directives["_progress_session_id"] = session_id
+
+        if "forecast_context" in directives:
+            return await self._run_monthly(
+                task_query=task_query, directives=directives, session_id=session_id,
+            )
 
         self._memory.new_session(session_id=session_id, task_query=task_query)
         for k, v in preferences.items():

@@ -1,0 +1,209 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "reviewer",
+  "status": "REVIEW_REJECTED",
+  "review_status": "REJECTED",
+  "execution_phase": "REVIEW",
+  "control_revision": 131,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-07-rev-1-attempt-2-review.json"
+  ],
+  "artifact_chain": {
+    "dependency_handoffs": [
+      {
+        "stage": "04B",
+        "path": ".codex/handoffs/stage-04B-rev-1-handoff.json",
+        "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049",
+        "state_status": "CLOSED"
+      },
+      {
+        "stage": "05",
+        "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+        "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+        "state_status": "CLOSED"
+      },
+      {
+        "stage": "06",
+        "path": ".codex/handoffs/stage-06-rev-1-handoff.json",
+        "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735",
+        "state_status": "CLOSED"
+      }
+    ],
+    "prior_failed_qa": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-1-qa.json",
+      "sha256": "4aba365346b22ec8e88a1f28844bd1783b7142f4d81bbc7d91b2ab76a1162034",
+      "qa_status": "FAIL",
+      "blocking_finding": "QA-07-001"
+    },
+    "data_readiness": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-DATA_READINESS.json",
+      "sha256": "cd406506c1b9c001ea4f62861796aadf9243e7d9c049b705cb93611b692b8b6e",
+      "identity_valid": true,
+      "milestone_status": "PASS"
+    },
+    "model_ready": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-MODEL_READY.json",
+      "sha256": "3c52a74ebc9c3f74ae5db54bff131696e6362997d4edd8af860121813d27f6b1",
+      "identity_valid": true,
+      "milestone_status": "PASS"
+    },
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-2-draft-ready.json",
+      "sha256": "4058fb9ed2d19f47900599204b697101bc380dbd4749a21eddb79a6c4a87265f",
+      "identity_valid": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-2-observability.json",
+      "sha256": "855c3d6079ad9f9b1f250b24a944e266ce646e3185c514661c34496a2ae8bd82",
+      "identity_valid": true,
+      "status": "AUDITED_NO_FINDINGS",
+      "requested_primary_changes": 0
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-2-implementation.md",
+      "sha256": "830e14dabd0162d8b3f7b100215cf88c1df9231b69c876492c36390f0300dd21"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-2-implementation.json",
+      "sha256": "10c860a89da895317fac0beb52f02130650cdb8b401ca8cdd4c732168e1cc26e",
+      "identity_valid": true,
+      "implementation_status": "REVALIDATION_ONLY"
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-2-qa.json",
+      "sha256": "96fc747ef5202c5f02f1d86fd24f2d0278f8ad1a2be7528b15c75ffd054ed428",
+      "identity_valid": true,
+      "qa_status": "PASS"
+    }
+  },
+  "blocking_findings": [
+    {
+      "id": "REVIEW-07-A2-B-001",
+      "severity": "BLOCKING",
+      "responsible_agent": "quant",
+      "category": "CONTRACT_AND_NUMERIC_INTEGRITY",
+      "summary": "The MODEL_READY evidence is deterministically reproduced from training rows whose classification labels violate the canonical monthly label contract.",
+      "finding": "The canonical label implementation defines direction as POSITIVE exactly when forward_21d_excess_return is greater than zero. The current Stage 07 training fixture instead assigns direction_positive from index modulo four. Independent inspection and execution found 20 mismatches among the 40 rows used by DATA_READINESS and MODEL_READY, including rows with negative excess return labeled positive. build_data_readiness validates only that direction_positive is binary and therefore accepts these inconsistent labels as eligible. fit_deterministic_model then fits its logistic classifier to the invalid direction labels. Exact hashes, normal/reversed-order determinism and test PASS do not cure the semantic contract violation.",
+      "evidence": [
+        "core/forecast_contract.py:210-215 derives excess_return and excess_return_direction from adjusted-close ticker and benchmark returns.",
+        "tools/market_tools/historical_dataset_builder.py:235-240 maps materialized direction_positive from excess_return_direction.",
+        "tests/unit_tests/market_test/__init__.py:111-116 constructs the milestone training rows but assigns direction_positive as 1 when index modulo four is 1 or 2.",
+        "tools/market_tools/historical_dataset_builder.py:411-414 checks finiteness and binary direction only; it does not require forward_21d_excess_return to equal ticker_total_return minus benchmark_total_return or require direction_positive to equal the sign of excess return.",
+        "Independent counterprobe: label_mismatch_count=20 of 40 while readiness_hash, model_version, complete milestone model artifact and prediction all reproduced exactly."
+      ],
+      "impact": "The mandatory MODEL_READY PASS artifact proves reproducibility of a classifier trained against a noncanonical target. Its probability_positive value is not the contracted probability of positive 21-session excess return, so Stage 07 cannot be accepted and downstream Stage 08 must not consume this model identity.",
+      "required_disposition": "Start a new non-overwriting Stage 07 attempt. Enforce label invariants before DATA_READINESS can PASS, regenerate contract-consistent deterministic training rows from adjusted-close outcomes, add counterexample tests that reject inconsistent return/excess/direction tuples, then regenerate DATA_READINESS and MODEL_READY and rerun Observability, QA and independent Review."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-07-A2-NB-001",
+      "summary": "The accepted evidence remains a preliminary engineering fixture, not investment-performance evidence.",
+      "assessment": "The artifacts disclose the one-ticker, 40-cutoff, synthetic and offline limitation and make no investment-success claim. Walk-forward performance metrics, baselines, transaction costs and ablations remain correctly deferred to Stage 09."
+    },
+    {
+      "id": "REVIEW-07-A2-NB-002",
+      "summary": "Live provider, multi-ticker and externally materialized historical data were not exercised.",
+      "assessment": "This is consistent with the current authorization and the artifacts do not claim otherwise. Network acquisition, database writes and migration application remained unused."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    "Reject any labeled row unless forward_21d_excess_return equals ticker_total_return minus benchmark_total_return within a documented deterministic tolerance and direction_positive equals 1 exactly when the contracted excess return is greater than zero.",
+    "Replace the modulo-based synthetic direction labels with labels derived through the same canonical adjusted-close label semantics used by compute_forward_return_labels and materialize_outcome.",
+    "Add focused negative tests proving labeled_snapshot_from_mapping and DATA_READINESS fail closed for inconsistent excess-return and direction tuples.",
+    "Regenerate non-overwriting DATA_READINESS and MODEL_READY milestone artifacts in a new attempt, with new eligible-row, readiness, training-data and model hashes, and repeat Observability, QA and Review."
+  ],
+  "review_blockers": [],
+  "resolved_findings": [
+    {
+      "id": "QA-07-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "Attempt 2 non-overwriting milestones exactly reproduce the current byte-preserved runtime: readiness manifest ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6, eligible rows 1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4 and model version logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126 matched in normal and reversed order. The new Reviewer finding concerns the semantic validity of the reproducible labels, not stale milestone evidence."
+    },
+    {
+      "id": "OBS-07-001..003",
+      "status": "PASS_PRESERVED",
+      "evidence": "All 15 Attempt 1 source/test/fixture hashes remain unchanged, compact lifecycle metadata is measured and allowlisted, opaque identities fail closed, and eligible-row/model bindings are present."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_ownership": "PASS: every Stage 07 source, fixture, test and attempt artifact path is explicitly locked to Quant, Observability, QA or Reviewer as appropriate. Attempt 2 remained evidence-only, no Stage 08 path was entered, no test was deleted or weakened, and the sole Reviewer output path is locked to reviewer.",
+    "artifact_integrity": "PASS: state is ACTIVE REVIEW at control revision 131 for Stage 07 revision 1 attempt 2; both required milestones are state-linked PASS artifacts; matching draft-ready, audited Observability, implementation MD/JSON and QA PASS artifacts exist. All recorded SHA-256 values match, Attempt 1 QA remains immutable, 15 of 15 Attempt 1 source/test/fixture hashes match current files, and the official validator reports CONTROL VALID.",
+    "temporal_safety": "PASS_WITH_BLOCKING_LABEL_EXCEPTION_RECORDED_SEPARATELY: rolling features use only bars through as_of; snapshot finalization after as_of, outcomes before target availability, rows after train_through and incorrect target dates fail closed. The exact target is the 21st regular US trading session strictly after as_of and labels use adjusted closes. The blocking defect is semantic target-label inconsistency in the milestone training fixture, not use of future rows.",
+    "versioning_and_reproducibility": "PASS: universe, dataset, feature, calendar, action-policy, readiness, eligible-row, training-data and model identities are immutable and mutually bound. Independent normal/reversed execution exactly reproduced the complete readiness manifest, complete model artifact and forecast probe.",
+    "financial_integrity": "PASS_BY_SCOPE: Stage 07 does not modify Financial DCF/WACC semantics or the nine intents/mappers. DCF is not used as the 21-session label or predicted price.",
+    "numeric_integrity": "REJECTED: forecast values are deterministic and no LLM creates or alters them, but the logistic probability is fitted to 20 of 40 direction labels that conflict with the canonical sign of forward excess return. Deterministic output is therefore not sufficient evidence of the contracted numeric target.",
+    "train_fold_preprocessing": "PASS: selected features, medians, imputation statistics, means, scales, coefficients and residual interval are derived solely from the supplied readiness-bound training rows; rows after an explicit train_through are rejected. No separate probability calibrator exists.",
+    "missing_data": "PASS: missing feature values remain null with explicit indicators; all-missing optional columns are excluded rather than zero-filled; prediction uses stored training medians and fails closed when required market coverage is missing.",
+    "observability_and_data_hygiene": "PASS: nine measured lifecycle boundaries emit only allowlisted identity, bounded counts, outcomes, stable error codes and latency. Raw bars, feature vectors, labels, coefficients, exceptions, full filings, article chunks, provider payloads, secrets, brain_reasoning and chain-of-thought are not persisted or exported by the reviewed Stage 07 boundary.",
+    "regression": "PASS: independent execution produced 64 of 64 focused Stage 07 passes and 114 of 114 combined ForecastContext, State and Stage 07 passes. This test suite lacks the contract counterexample that exposed REVIEW-07-A2-B-001.",
+    "operational_safety": "PASS: rollback is documented and quarantine-based; no external acquisition, database read/write, migration, seed, deletion, deployment, commit or push occurred. No Manager singleton or downstream runtime path changed.",
+    "scientific_honesty": "REJECTED_FOR_LABEL_VALIDITY: the artifacts honestly mark the evidence PRELIMINARY and make no investment-success claim, but a scientifically valid MODEL_READY gate cannot be based on classification labels inconsistent with the declared outcome definition.",
+    "contract_integrity": "REJECTED: provider, universe, exact 21-session horizon and action_policy_v1 are unchanged, but the mandatory positive/negative direction label used by MODEL_READY does not match the versioned monthly target contract. This unversioned semantic deviation is blocking."
+  },
+  "tests_and_checks": [
+    {
+      "command": "python -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "result": "PASS: 64 passed in 14.34s",
+      "network_mode": "OFFLINE_LOCAL_FIXTURES"
+    },
+    {
+      "command": "python -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test -q",
+      "result": "PASS: 114 passed in 96.04s",
+      "network_mode": "OFFLINE_LOCAL_FIXTURES"
+    },
+    {
+      "command": "Independent normal/reversed DATA_READINESS, model and prediction semantic reproduction against Attempt 2 milestones",
+      "result": "PASS_EXACT: readiness ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6, eligible rows 1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4, model logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126, complete model artifact and forecast probe matched in both orders"
+    },
+    {
+      "command": "Independent canonical excess-return direction counterprobe over the 40 milestone training rows",
+      "result": "FAIL_CONTRACT: 20 of 40 rows have direction_positive different from 1 if forward_21d_excess_return > 0 else 0; DATA_READINESS nevertheless returns PASS and the model fits those rows"
+    },
+    {
+      "command": "Independent SHA-256 validation of Attempt 1 runtime/source/test/fixture identities and Attempt 2 chain",
+      "result": "PASS: 15 of 15 declared source/test/fixture hashes match; prior QA, milestones, draft-ready, Observability, implementation MD/JSON and QA hashes match their declared/state values"
+    },
+    {
+      "command": "python -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact all Attempt 2 prerequisite JSON artifacts",
+      "result": "PASS: CONTROL VALID before review artifact creation"
+    }
+  ],
+  "source_integrity": {
+    "recorded_source_test_fixture_paths": 15,
+    "matching_source_test_fixture_paths": 15,
+    "source_hash_mismatches": 0,
+    "active_chain_hash_mismatches": 0,
+    "normal_reversed_reproduction": "PASS_EXACT",
+    "label_rows_checked": 40,
+    "contract_label_mismatches": 20,
+    "all_recorded_paths_locked_to_correct_owner": true
+  },
+  "external_execution": {
+    "network_access_by_review": false,
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "stage08_work": "NOT_RUN"
+  },
+  "downstream_gate": {
+    "stage07_closure": "BLOCKED_PENDING_NEW_ATTEMPT",
+    "stage08_activation": "FORBIDDEN"
+  },
+  "supersedes": null,
+  "created_at": "2026-09-08T07:17:15.3784949Z"
+}

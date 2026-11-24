@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "00",
+  "stage_revision": 1,
+  "accepted_attempt": 3,
+  "primary_agent": "core",
+  "implementation_status": "IMPLEMENTED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "draft_ready": null,
+    "implementation": ".codex/handoffs/stage-00-rev-1-attempt-3-implementation.json",
+    "observability": null,
+    "qa": ".codex/handoffs/stage-00-rev-1-attempt-3-qa.json",
+    "review": ".codex/handoffs/stage-00-rev-1-attempt-3-review.json"
+  },
+  "implementation_markdown": ".codex/handoffs/stage-00-rev-1-attempt-3-implementation.md",
+  "milestones": {
+    "BASELINE_READY": ".codex/handoffs/stage-00-rev-1-attempt-3-milestone-BASELINE_READY.json"
+  },
+  "accepted_counts": {
+    "collected_total": 1136,
+    "unit_collected": 1085,
+    "integration_collected": 51,
+    "unit_passed": 1045,
+    "known_failures": 40,
+    "external_dns_connect_attempts": 0
+  },
+  "known_limitations": [
+    "Thirty-six pre-existing product-contract failures remain assigned to later owning stages.",
+    "Four unchanged legacy migration tests fail because supabase_phase5_provenance_migration.sql is absent with NO_VALID_RETARGET.",
+    "Supabase, Neo4j, backup artifacts, checksums and restore evidence remain NOT_AVAILABLE/NOT_RUN.",
+    "Historical point-in-time data remains NOT_AVAILABLE and belongs to Stages 07 and 09.",
+    "Legacy integration tests remain explicit-only pending exact-lock live-marker classification."
+  ],
+  "dispositions": {
+    "legacy_trace": "OBSOLETE_BY_USER_DECISION",
+    "legacy_migration": "BLOCKED_PRE_EXISTING_NO_VALID_RETARGET",
+    "database_backup_restore": "NOT_AVAILABLE_NOT_RUN"
+  },
+  "next_stage": "01",
+  "next_stage_activated": false,
+  "supersedes": null,
+  "created_at": "2026-08-27T19:19:31.7574027Z"
+}

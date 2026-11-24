@@ -1,0 +1,214 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "execution_phase": "QA",
+  "control_revision": 145,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "qa_status": "FAIL",
+  "implementation_artifact": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.json",
+  "implementation_sha256": "07fd2b1b30eea050d282039717fc9717878268cad3ac087deba69b984fb5e633",
+  "implementation_markdown": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.md",
+  "implementation_markdown_sha256": "e01ee884bdf43c629c8c650bf9f03dd9fb4121ff71e205c5dfeec776088d81b1",
+  "validated_input_artifacts": [
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-1-draft-ready.json",
+      "sha256": "1b1f6632636c4d869dfdc76bd8cbe98d5e719dd6e39c7986218515a2f68e1de6",
+      "identity_match": true
+    },
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-1-observability.json",
+      "sha256": "fb3091eaf1bbedb688fbc43baf311ff1f4658c9e8cd53de6999ff70516ff9d6c",
+      "identity_match": true
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-08-rev-1-attempt-1-1.json",
+      "sha256": "e1c25be55da2375e09f37125357993b5be25bffcf9dd288b9c0ee8577ad7bd50",
+      "identity_match": true
+    },
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.json",
+      "sha256": "07fd2b1b30eea050d282039717fc9717878268cad3ac087deba69b984fb5e633",
+      "identity_match": true
+    }
+  ],
+  "dependency_handoff_validation": {
+    "stages": ["01", "04B", "05", "06", "07"],
+    "closed_pass_approved": 5,
+    "sha256_matches": 5,
+    "mismatches": 0
+  },
+  "source_hash_validation": {
+    "recorded_paths_checked": 14,
+    "matches": 14,
+    "mismatches": 0,
+    "deleted_prompt_verified": "agents/prompts/promt_manager_agent.py"
+  },
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py -q",
+      "exit_code": 0,
+      "passed": 12,
+      "failed": 0,
+      "duration_seconds": 22.46,
+      "result": "PASS",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "passed": 62,
+      "failed": 0,
+      "duration_seconds": 19.86,
+      "result": "PASS",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "passed": 183,
+      "failed": 0,
+      "duration_seconds": 22.39,
+      "result": "PASS",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/api_test/test_api_main.py tests/unit_tests/api_test/test_analyze_cor_api.py tests/unit_tests/test_root_main.py -q",
+      "exit_code": 0,
+      "passed": 47,
+      "failed": 0,
+      "duration_seconds": 24.80,
+      "result": "PASS",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_financial_agent_only.py tests/integration_test_2/test_research_agent_only.py tests/integration_test_2/test_sentiment_agent_only.py",
+      "exit_code": 0,
+      "collected": 1427,
+      "collection_errors": 0,
+      "duration_seconds": 8.32,
+      "result": "PASS",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile <Stage08 source, export and focused test paths>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent qa",
+      "exit_code": 0,
+      "result": "CONTROL VALID",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "source-only prompt typo path/reference scan",
+      "exit_code": 0,
+      "result": "PASS: old prompt file absent and zero old-name source references",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "independent Quant provenance preservation counterprobe",
+      "exit_code": 0,
+      "result": "FAIL: input Quant prediction contained universe_manifest_hash, model_variant and feature_materialized_at; assembled Stage 08 forecast omitted all three",
+      "network_mode": "OFFLINE_DIRECT_COUNTEREXAMPLE"
+    }
+  ],
+  "gate_results": {
+    "complete_state": "PASS",
+    "incomplete_state": "PASS_INSUFFICIENT_DATA_WITH_NULL_CONFIDENCE",
+    "explicit_degraded": "PASS",
+    "future_evidence_rejection": "PASS_FAIL_CLOSED",
+    "node_order_and_controlled_readiness_join": "PASS",
+    "quant_numeric_and_action_immutable": "PASS",
+    "llm_numeric_override_ignored": "PASS",
+    "output_schema": "FAIL_REQUIRED_REPRODUCIBILITY_METADATA_DROPPED",
+    "legacy_manager_constructor_run_compatibility": "PASS",
+    "same_instance_concurrent_manager_result_isolation": "PASS",
+    "concurrent_progress_queue_isolation": "PASS",
+    "prompt_rename_and_import": "PASS_ATOMIC",
+    "trace_input_output_allowlists": "PASS",
+    "private_payload_redaction": "PASS",
+    "success_error_lifecycle_identity": "PASS",
+    "measured_non_negative_latency": "PASS"
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "future_evidence_counterexamples": 1,
+    "future_evidence_accepted": 0,
+    "notes": "The focused suite proves future Research evidence fails closed to INSUFFICIENT_DATA with null probability and confidence. No network or live provider was used."
+  },
+  "privacy_report": {
+    "status": "PASS",
+    "trace_processors_allowlisted": true,
+    "private_sentinel_absent_recursively": true,
+    "lifecycle_payload_free": true,
+    "exception_text_absent_from_error_event": true,
+    "forbidden_payload_classes_absent": [
+      "task_query",
+      "manager_directives",
+      "full ForecastContext",
+      "full SharedManagerState",
+      "raw evidence",
+      "evidence_ids",
+      "narrative/report text",
+      "Quant numeric payloads",
+      "exception strings"
+    ]
+  },
+  "regression_report": {
+    "status": "PASS_EXCEPT_BLOCKING_SCHEMA_CONTRACT_COUNTEREXAMPLE",
+    "focused_stage08": {"passed": 12, "failed": 0},
+    "focused_and_legacy_manager": {"passed": 62, "failed": 0},
+    "contract_state_quant_manager": {"passed": 183, "failed": 0},
+    "api_import_constructor_run_compatibility": {"passed": 47, "failed": 0},
+    "broad_collection": {"collected": 1427, "errors": 0}
+  },
+  "blocking_findings": [
+    {
+      "id": "QA-08-001",
+      "owner": "integration",
+      "responsible_stage": "08",
+      "severity": "BLOCKING",
+      "contract": ".codex/contracts/monthly-backtest-contract.md Required reproducibility fields; list.md Stage 08 output schema/version gate",
+      "finding": "The canonical Stage 08 monthly forecast drops authoritative Quant reproducibility provenance. When the Quant prediction contains universe_manifest_hash, model_variant and feature_materialized_at, MonthlyForecastResult/to_dict omits every one of those fields. The focused fixture and schema assertion also omit these required fields, so the green focused suite does not exercise the declared record contract.",
+      "evidence": {
+        "quant_input": {
+          "universe_manifest_hash": "sha256:demo",
+          "model_variant": "full_model_v1",
+          "feature_materialized_at": "2026-08-31T20:00:00Z"
+        },
+        "stage08_output": {
+          "universe_manifest_hash": "MISSING",
+          "model_variant": "MISSING",
+          "feature_materialized_at": "MISSING"
+        },
+        "implementation_path": "agents/executor_helpers/monthly_forecast_helper.py",
+        "focused_test_path": "tests/unit_tests/test_stage8_manager_integration.py"
+      },
+      "impact": "The published monthly forecast cannot be tied to the accepted universe/readiness/model variant or feature materialization boundary, weakening point-in-time reproducibility and making Stage 09/10 persistence and evaluation consumers unable to retain the complete canonical provenance.",
+      "required_resolution": "Preserve and validate the Stage 07 Quant universe_manifest_hash, model_variant and materialization metadata in the canonical Stage 08 output and canonical_synthesis, fail closed when mandatory provenance is absent or mismatched, and add direct positive and missing/tampered counterexamples without changing Quant numeric values or action."
+    }
+  ],
+  "blocking_issues": ["QA-08-001"],
+  "candidate_downstream_stages_affected": ["09", "10A", "10B", "11", "FINAL_QA", "FINAL_REVIEW"],
+  "environment_blockers": [],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN_UNAUTHORIZED",
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-10T21:24:37.7084408Z"
+}

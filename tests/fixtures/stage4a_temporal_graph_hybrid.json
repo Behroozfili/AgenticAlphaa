@@ -1,0 +1,66 @@
+{
+  "context": {
+    "ticker": "NVDA",
+    "as_of": "2024-01-31T21:00:00Z",
+    "target": "2024-03-01",
+    "horizon_trading_days": 21,
+    "lookback_days": 365,
+    "benchmark": "SPY",
+    "analysis_mode": "HISTORICAL_BACKTEST",
+    "schema_version": "forecast-v1",
+    "dataset_version": "pit-2024-01",
+    "feature_version": "features-v1",
+    "model_version": "model-v1",
+    "calendar_version": "XNYS-regular-v1",
+    "label": "forward_21d_excess_return"
+  },
+  "vector": [
+    {
+      "document_id": "doc-shared-1",
+      "chunk_id": "chunk-shared-1",
+      "evidence_id": "evidence-shared-1",
+      "ticker": "NVDA",
+      "dataset_version": "pit-2024-01",
+      "text": "NVIDIA announced an eligible product update.",
+      "freshness_score": 0.9,
+      "published_at": "2024-01-30T15:00:00Z",
+      "retrieved_at": "2024-01-30T16:00:00Z",
+      "effective_from": "2024-01-30T15:00:00Z",
+      "materialized_at": "2024-01-30T16:00:00Z",
+      "url": "https://example.test/eligible",
+      "title": "Eligible"
+    }
+  ],
+  "graph": [
+    {
+      "name": "TSMC",
+      "type": "Company",
+      "relation": "SUPPLIES_TO",
+      "hops": 1,
+      "path_nodes": ["NVIDIA", "TSMC"],
+      "observation_id": "observation-eligible-1",
+      "document_id": "doc-shared-1",
+      "chunk_id": "chunk-shared-1",
+      "evidence_id": "evidence-shared-1",
+      "source_url": "https://example.test/eligible",
+      "published_at": "2024-01-30T15:00:00Z",
+      "retrieved_at": "2024-01-30T16:00:00Z",
+      "effective_from": "2024-01-30T15:00:00Z",
+      "effective_to": null,
+      "materialized_at": "2024-01-30T16:00:00Z",
+      "dataset_version": "pit-2024-01"
+    }
+  ],
+  "ineligible_counterexamples": [
+    {"reason": "future_published", "published_at": "2024-02-01T00:00:00Z"},
+    {"reason": "future_retrieved", "retrieved_at": "2024-02-01T00:00:00Z"},
+    {"reason": "unknown_published", "published_at": null},
+    {"reason": "unknown_retrieved", "retrieved_at": null},
+    {"reason": "unknown_effective_from", "effective_from": null},
+    {"reason": "unknown_materialized_at", "materialized_at": null},
+    {"reason": "wrong_dataset", "dataset_version": "pit-2024-02"},
+    {"reason": "wrong_ticker", "ticker": "AMD"},
+    {"reason": "quarantined", "is_quarantined": true}
+  ],
+  "expected_modes": ["vector_only", "graph_only", "hybrid", "unavailable"]
+}

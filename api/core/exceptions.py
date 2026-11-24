@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import uuid
 
+from core.error_handler import (
+    DataUnavailableAsOfError,
+    TemporalLeakageError,
+    VersionMismatchError,
+)
+
 
 # ─────────────────────────────────────────────────────────────
 # Base
@@ -83,3 +89,53 @@ class ConfigurationError(AlphaAgentError):
     
     http_status = 500
     code = "CONFIGURATION_ERROR"
+
+
+class TemporalBoundaryError(AlphaAgentError):
+    """Public, sanitized representation of a point-in-time violation."""
+
+    http_status = 422
+    code = "TEMPORAL_BOUNDARY_ERROR"
+
+
+class DataUnavailableError(AlphaAgentError):
+    """Public representation of unavailable as-of data."""
+
+    http_status = 422
+    code = "DATA_UNAVAILABLE_AS_OF"
+
+
+class RuntimeVersionError(AlphaAgentError):
+    """Public representation of an incompatible versioned input."""
+
+    http_status = 409
+    code = "VERSION_MISMATCH"
+
+
+def map_core_exception(exc: BaseException) -> AlphaAgentError:
+    """Map core contract failures without exposing timestamps or versions.
+
+    The original exception is intentionally retained only in server logs.  Its
+    text can contain provider payloads, exact cutoffs, or internal versions and
+    must never become an API response detail.
+    """
+    if isinstance(exc, TemporalLeakageError):
+        return TemporalBoundaryError(
+            "The request violates the point-in-time data boundary."
+        )
+    if isinstance(exc, DataUnavailableAsOfError):
+        return DataUnavailableError(
+            "Required data is unavailable at the requested cutoff."
+        )
+    if isinstance(exc, VersionMismatchError):
+        return RuntimeVersionError(
+            "The request is incompatible with the active runtime versions."
+        )
+    raise TypeError("unsupported core exception type")
+
+
+CORE_EXCEPTION_TYPES = (
+    TemporalLeakageError,
+    DataUnavailableAsOfError,
+    VersionMismatchError,
+)

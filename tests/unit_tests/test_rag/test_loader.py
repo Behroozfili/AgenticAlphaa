@@ -65,11 +65,9 @@ class TestSafeTimestamp:
         result = _safe_timestamp("2024-03-15T14:32:00Z")
         assert result == "2024-03-15T14:32:00+00:00"
 
-    def test_invalid_value_falls_back_to_now(self):
+    def test_invalid_value_is_not_rewritten_to_now(self):
         result = _safe_timestamp("garbage timestamp", fallback_label="test")
-        # Should be a valid ISO string close to "now"
-        parsed = datetime.fromisoformat(result)
-        assert (datetime.now(timezone.utc) - parsed).total_seconds() < 5
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +94,66 @@ class TestLoaderOrchestration:
 
         loader = AlphaLoader()
         docs = loader.load(["NVDA"])
-        assert docs == [doc1, doc2]
+        assert [doc.title for doc in docs] == ["t1", "t2"]
+        assert all(doc.retrieved_at == doc.published_at for doc in docs)
+        assert all(doc.effective_from == doc.published_at for doc in docs)
+
+
+class TestHistoricalLoader:
+    def test_requires_archive_provider_and_never_falls_back_live(self):
+        loader = AlphaLoader()
+        with patch.object(loader, "_fetch_yfinance") as live_news, patch.object(loader, "_fetch_reddit_rss") as live_rss:
+            with pytest.raises(Exception, match="archive provider"):
+                loader.load(["NVDA"], start="2024-01-01", end="2024-01-31", as_of="2024-02-01", historical=True)
+        live_news.assert_not_called()
+        live_rss.assert_not_called()
+
+    def test_filters_future_and_late_retrieved_evidence(self):
+        def archive_provider(**_kwargs):
+            return [
+                RawDocument("before", "NVDA", "https://x/1", "archive", "NVDA", "2024-01-10", retrieved_at="2024-01-11", effective_from="2024-01-10"),
+                RawDocument("future", "NVDA", "https://x/2", "archive", "NVDA", "2024-02-02", retrieved_at="2024-02-02", effective_from="2024-02-02"),
+                RawDocument("late retrieval", "NVDA", "https://x/3", "archive", "NVDA", "2024-01-12", retrieved_at="2024-02-02", effective_from="2024-01-12"),
+            ]
+        docs = AlphaLoader(archive_provider=archive_provider).load(
+            ["nvda"], start="2024-01-01", end="2024-01-31", as_of="2024-02-01",
+            dataset_version="snapshot-2024-02-01", historical=True,
+        )
+        assert [doc.title for doc in docs] == ["before"]
+        assert docs[0].dataset_version == "snapshot-2024-02-01"
+
+    def test_invalid_archive_timestamp_is_quarantined(self):
+        loader = AlphaLoader(archive_provider=lambda **_: [RawDocument("bad", "NVDA", "https://x/bad", "archive", "NVDA", "unknown")])
+        docs = loader.load(["NVDA"], start="2024-01-01", end="2024-01-31", as_of="2024-02-01", historical=True)
+        assert docs == []
+        assert loader.quarantine[0].reason == "invalid_or_unknown_evidence_time"
+
+    def test_unknown_historical_retrieval_time_is_quarantined_not_invented(self):
+        loader = AlphaLoader(archive_provider=lambda **_: [RawDocument(
+            "unknown retrieval", "NVDA", "https://x/unknown", "archive", "NVDA", "2024-01-10",
+            effective_from="2024-01-10",
+        )])
+        docs = loader.load(["NVDA"], start="2024-01-01", end="2024-01-31", as_of="2024-02-01", historical=True)
+        assert docs == []
+        assert loader.quarantine[0].raw_timestamp == "2024-01-10"
+
+    def test_rejects_unrequested_archive_ticker_independently_of_provider(self):
+        def untrusted_provider(**_kwargs):
+            return [
+                RawDocument("requested", "NVDA", "https://x/nvda", "archive", "NVDA", "2024-01-10", retrieved_at="2024-01-11", effective_from="2024-01-10"),
+                RawDocument("unrequested", "AMD", "https://x/amd", "archive", "AMD", "2024-01-10", retrieved_at="2024-01-11", effective_from="2024-01-10"),
+            ]
+
+        loader = AlphaLoader(archive_provider=untrusted_provider)
+        docs = loader.load(
+            ["nvda"], start="2024-01-01", end="2024-01-31", as_of="2024-02-01",
+            dataset_version="snapshot-v1", historical=True,
+        )
+
+        assert [doc.ticker for doc in docs] == ["NVDA"]
+        assert [(item.ticker, item.reason) for item in loader.quarantine] == [
+            ("AMD", "ticker_out_of_scope")
+        ]
 
 
 # ---------------------------------------------------------------------------

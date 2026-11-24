@@ -1,0 +1,133 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "06",
+  "stage_revision": 1,
+  "accepted_attempt": 4,
+  "primary_agent": "sentiment",
+  "implementation_status": "IMPLEMENTED",
+  "observability_status": "AUDITED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "draft_ready": ".codex/handoffs/stage-06-rev-1-attempt-4-draft-ready.json",
+    "observability": ".codex/handoffs/stage-06-rev-1-attempt-4-observability.json",
+    "implementation": ".codex/handoffs/stage-06-rev-1-attempt-4-implementation.json",
+    "qa": ".codex/handoffs/stage-06-rev-1-attempt-4-qa.json",
+    "review": ".codex/handoffs/stage-06-rev-1-attempt-4-review.json"
+  },
+  "implementation_markdown": ".codex/handoffs/stage-06-rev-1-attempt-4-implementation.md",
+  "artifact_sha256": {
+    "draft_ready": "dcc03cfda49f68ede72d0afade0c089274a2eba1be4333acc241c5769a8bca71",
+    "observability": "5ce285c68f8dee3bd821456f614527750f060193020b5c9f5d5b094ebe642af4",
+    "implementation": "fdd9dab973601c637e4cbdbb05a9b1bc3d541ea3aac39c844a715b58eb322f16",
+    "implementation_markdown": "2aed5b34284c97eec45dd5de24cbacd3aa2d9514d8f703e035e70eba00c3716a",
+    "qa": "bdee6767daf8d317d77d3346cc7d606ea6fb716ca671838f3b29b595464b1ce1",
+    "review": "afd8460f709f30f820370ab9ce319b3096a5f10727d5ed70e73bd21fb03381eb"
+  },
+  "retry_chain": [
+    {
+      "attempt": 1,
+      "terminal_gate": "REVIEW",
+      "result": "REJECTED",
+      "artifact": ".codex/handoffs/stage-06-rev-1-attempt-1-review.json"
+    },
+    {
+      "attempt": 2,
+      "terminal_gate": "REVIEW",
+      "result": "REJECTED",
+      "artifact": ".codex/handoffs/stage-06-rev-1-attempt-2-review.json"
+    },
+    {
+      "attempt": 3,
+      "terminal_gate": "REVIEW",
+      "result": "REJECTED",
+      "artifact": ".codex/handoffs/stage-06-rev-1-attempt-3-review.json"
+    },
+    {
+      "attempt": 4,
+      "terminal_gate": "REVIEW",
+      "result": "APPROVED",
+      "artifact": ".codex/handoffs/stage-06-rev-1-attempt-4-review.json"
+    }
+  ],
+  "resolved_findings": [
+    "OBS-06-001",
+    "OBS-06-002",
+    "OBS-06-003",
+    "OBS-06-004",
+    "OBS-06-A2-001",
+    "OBS-06-A3-001",
+    "REVIEW-06-B-001",
+    "REVIEW-06-B-002",
+    "REVIEW-06-B-003",
+    "REVIEW-06-NB-001",
+    "REVIEW-06-A2-B-001",
+    "REVIEW-06-A3-B-001"
+  ],
+  "accepted_counts": {
+    "sensitive_counterexamples_passed": 14,
+    "real_executor_privacy_counterexamples_passed": 1,
+    "measured_lifecycle_boundaries": 8,
+    "stage06_tests_passed": 175,
+    "stage06_tests_deselected": 5,
+    "collection_total": 1293,
+    "collection_errors": 0,
+    "full_offline_unit_passed": 1288,
+    "known_out_of_scope_failures": 5,
+    "stage06_regression_failures": 0,
+    "prior_attempt_artifacts_verified": 21,
+    "recorded_hashes_mismatched": 0
+  },
+  "delivered_contract": [
+    "ForecastContext, run_id and ticker identity are mandatory before Sentiment provider or MCP execution and fail closed when absent or inconsistent.",
+    "Every present publication and effective timestamp is independently validated against as_of, and future chunks are rejected before canonical URL grouping and deduplication.",
+    "Typed monthly SentimentFeatures provide deterministic fixed 7/14/30 calendar-day aggregates, momentum, dispersion, volumes, source diversity and compact evidence references.",
+    "FinBERT and VADER identities use immutable local model revision and lexicon hash provenance without automatic downloads.",
+    "Required-model failure, fusion failure, malformed status or polarity, and low or unknown coverage remain explicit through fixed missing, degraded, availability and model-status fields while valid partial aggregates may remain available.",
+    "Original fusion health is preserved separately from selected-attempt health; only actual valid contributors emit availability and model provenance.",
+    "Shared State and all telemetry exclude raw queries, chunks, provider payloads, exceptions and free-form provider-controlled status or polarity.",
+    "Eight measured lifecycle boundaries emit payload-free allowlisted metadata with truthful attempt 4 identity."
+  ],
+  "source_sha256": {
+    "agents/executor_helpers/sentiment_helper.py": "8e88a4869b6602ecc3446b95085a8b170d63b4812a5256f85571e4932a304a80",
+    "agents/sentiment_agent.py": "0f23c3d006a7aeba9aaab4ad361652e42f8ed7b31042fa9b2825e71cd27e0734",
+    "tools/sentiment_tools/finbert_analyzer.py": "52ea8ac62139c49f23e70047e16feb4d4b5132c50644f1c5a7aa17d60ae1b3be",
+    "tools/sentiment_tools/vader_scorer.py": "5273042f5dc45dfa20b248380bd227f02f54ee6c1ffeca4e95064619fdc0bd59",
+    "tools/sentiment_tools/fear_greed_calculator.py": "564077267886fa545541e0e1d0bd2bc6d72d5d78ce7b7ff47d953b2985868f1e",
+    "tools/sentiment_tools/sentiment_server.py": "6d05919b4be567f711bb10ffd7fe2e4c31daba98f751a1cd4e3d26ffc2a3cee4",
+    "agents/prompts/prompt_sentiment.py": "e38cad51346e7f166b9c3510d5b2395f08ed2f618e16b3ed9a155a2abae99e3d",
+    "tests/fixtures/stage6_sentiment_point_in_time.json": "bc34cf40b6b366c5989b37337baca3481fe13865ca315768aaf0149bf2194066",
+    "tests/unit_tests/test_sentiment_phase4.py": "4ccf5eee7ce5b50117e4337029937bc344735a8a37e831faef867e6fb8e8c9ad",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py": "bff9e61eeab01284277adfd79d43943791eab1dc491081e03cd2fc87735b840c",
+    "tests/unit_tests/sentiment_test/test_finbert_anayzer.py": "a5629deaebdd291709bf9904566c9bd3cec5803acfabdaa5ad19177f49cd21fc",
+    "tests/unit_tests/sentiment_test/test_vader_scorer.py": "f47962db16bb66768096c190da365d995505b3e27da23d703697fee36c8c1ac3",
+    "tests/unit_tests/sentiment_test/test_fear_greed_calculator.py": "ec183708a11b10ff9034e321b5e0ff58ad79a08bd52bd6830c91a57dc36d7c8c",
+    "tests/unit_tests/sentiment_test/test_sentiment_server.py": "111f5090ee1a5176093648583e52b96270b22dc72af1f3b64176c8b34eb86fc8",
+    "tests/unit_tests/test_aspect_sentiment_phase6.py": "bc5ae5f6af89b58647f815e47d1aea73023d3a6f2840d87eba0791df0fe9a3b4"
+  },
+  "known_limitations": [
+    "No live sentiment-provider or external trace-service validation was authorized or used as acceptance evidence; closure uses deterministic offline fixtures, mocks and existing local model assets.",
+    "One unchanged Manager unit failure remains assigned to Stage 08 by the Stage 00 baseline.",
+    "Four unchanged legacy migration tests remain blocked by the intentionally absent root supabase_phase5_provenance_migration.sql file.",
+    "No external database access, migration application, seed, deletion, deployment, commit or push was authorized or performed.",
+    "Stage 07 remains PENDING, NOT_STARTED and inactive until separately authorized."
+  ],
+  "operational_safety": {
+    "live_provider_validation": false,
+    "network_used": false,
+    "external_trace_provider_contacted": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deploy_commit_or_push": false
+  },
+  "next_stage": "07",
+  "next_stage_activated": false,
+  "supersedes": null,
+  "created_at": "2026-09-04T19:08:09.8747491Z"
+}

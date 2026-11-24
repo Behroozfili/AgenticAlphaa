@@ -2,11 +2,15 @@ import json
 import math
 import os
 import re
+import time
+import uuid
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
+from types import MappingProxyType
 from typing import Any, Dict, List, Optional
 
-from dotenv import load_dotenv
 from langsmith import Client
+from core.observability import elapsed_latency_ms, forecast_trace_metadata
 from evaluation.valid_availability import valid_metric_inventory
 
 
@@ -14,17 +18,272 @@ from evaluation.valid_availability import valid_metric_inventory
 
 
 
-load_dotenv()
+client: Optional[Client] = None
 
-api_key = os.getenv("LANGSMITH_API_KEY") or os.getenv("LANGCHAIN_API_KEY")
-if not api_key:
-    raise RuntimeError(
-        "LANGSMITH_API_KEY or LANGCHAIN_API_KEY was not found in the environment."
-    )
 
-client = Client()
+def get_langsmith_client() -> Client:
+    """Use an injected client for offline checks or the configured runtime client."""
+    if client is not None:
+        return client
+    from core.observability import telemetry_client
+    return telemetry_client()
+
 
 DEFAULT_PROJECT = os.getenv("LANGCHAIN_PROJECT", "alpha-agent-node")
+
+
+STAGE10A_RUNTIME_IDENTITY = MappingProxyType(
+    {
+        "stage": "10A",
+        "stage_revision": 1,
+        "attempt": 3,
+        "agent": "core",
+        "implementation_version": "stage10a-r1-a3",
+    }
+)
+STAGE10A_EVENT_NAMES = frozenset(
+    {
+        "api.startup.started",
+        "api.startup.completed",
+        "api.startup.failed",
+        "api.shutdown.started",
+        "api.shutdown.completed",
+        "api.shutdown.failed",
+        "api.request.started",
+        "api.request.completed",
+        "api.request.failed",
+        "manager.factory.created",
+        "manager.factory.failed",
+        "manager.memory.created",
+        "manager.memory.failed",
+        "seed.command.selected",
+    }
+)
+STAGE10B_RUNTIME_IDENTITY = MappingProxyType(
+    {
+        "stage": "10B",
+        "stage_revision": 1,
+        "attempt": 2,
+        "agent": "integration",
+        "implementation_version": "stage10b-r1-a2",
+    }
+)
+STAGE10B_EVENT_NAMES = frozenset(
+    {
+        "stage10b.analysis.started",
+        "stage10b.analysis.completed",
+        "stage10b.analysis.failed",
+        "stage10b.persistence.completed",
+        "stage10b.persistence.failed",
+        "stage10b.backtest.started",
+        "stage10b.backtest.completed",
+        "stage10b.backtest.failed",
+    }
+)
+STAGE10B_STATUSES = frozenset(
+    {
+        "PLANNED",
+        "STARTED",
+        "RUNNING",
+        "COMPLETED",
+        "FAILED",
+        "DEGRADED",
+        "INSUFFICIENT_DATA",
+    }
+)
+STAGE10A_METADATA_FIELDS = frozenset(
+    {
+        "run_id",
+        "component",
+        "status",
+        "runtime_version",
+        "request_method",
+        "http_status",
+        "error_code",
+        "ticker",
+        "as_of",
+        "target",
+        "horizon",
+        "analysis_mode",
+        "dataset_version",
+        "feature_version",
+        "model_version",
+        "schema_version",
+        "latency_ms",
+        "evidence_count",
+        "degraded_flags",
+    }
+)
+_STAGE10A_TEXT_FIELDS = STAGE10A_METADATA_FIELDS - {
+    "http_status",
+    "horizon",
+    "latency_ms",
+    "evidence_count",
+    "degraded_flags",
+}
+_STAGE10A_MAX_TEXT = 160
+_STAGE10A_MAX_FLAGS = 20
+
+
+def new_stage10a_run_id() -> str:
+    """Return an opaque correlation id containing no request-derived data."""
+    return uuid.uuid4().hex
+
+
+def _stage10a_text(value: Any, field: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError(f"{field} must be text")
+    value = value.strip()
+    if not value or len(value) > _STAGE10A_MAX_TEXT or "\n" in value or "\r" in value:
+        raise ValueError(f"{field} must be compact non-empty text")
+    return value
+
+
+def stage10a_event(
+    event: str,
+    *,
+    metadata: Mapping[str, Any] | None = None,
+    started_at: float | None = None,
+) -> Dict[str, Any]:
+    """Build one compact, payload-free Stage 10A lifecycle event.
+
+    Unknown metadata is dropped rather than serialized. Latency is accepted
+    only as a monotonic start value and is measured here; callers cannot pass
+    fabricated latency through the metadata mapping.
+    """
+    event = _stage10a_text(event, "event")
+    if event not in STAGE10A_EVENT_NAMES:
+        raise ValueError("unsupported Stage 10A event")
+
+    result: Dict[str, Any] = {
+        "event": event,
+        **dict(STAGE10A_RUNTIME_IDENTITY),
+    }
+    source = metadata or {}
+    for field in STAGE10A_METADATA_FIELDS:
+        if field == "latency_ms" or field not in source or source[field] is None:
+            continue
+        value = source[field]
+        if field in _STAGE10A_TEXT_FIELDS:
+            result[field] = _stage10a_text(value, field)
+        elif field in {"http_status", "horizon", "evidence_count"}:
+            if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+                raise ValueError(f"{field} must be a non-negative integer")
+            result[field] = value
+        elif field == "degraded_flags":
+            if isinstance(value, (str, bytes)):
+                raise TypeError("degraded_flags must be a sequence")
+            flags = [_stage10a_text(flag, "degraded_flag") for flag in value]
+            if len(flags) > _STAGE10A_MAX_FLAGS:
+                raise ValueError("too many degraded_flags")
+            result[field] = flags
+
+    if started_at is not None:
+        if isinstance(started_at, bool) or not isinstance(started_at, (int, float)):
+            raise TypeError("started_at must be a monotonic numeric value")
+        latency_ms = (time.perf_counter() - float(started_at)) * 1000.0
+        if not math.isfinite(latency_ms) or latency_ms < 0:
+            raise ValueError("measured latency must be finite and non-negative")
+        result["latency_ms"] = round(latency_ms, 3)
+    return result
+
+
+def emit_stage10a_event(
+    event: str,
+    *,
+    metadata: Mapping[str, Any] | None = None,
+    started_at: float | None = None,
+    sink: Callable[[Dict[str, Any]], Any] | None = None,
+) -> Dict[str, Any] | None:
+    """Emit locally when a sink is injected; telemetry can never fail work."""
+    try:
+        payload = stage10a_event(event, metadata=metadata, started_at=started_at)
+        if sink is not None:
+            try:
+                sink(dict(payload))
+            except Exception:
+                pass
+        return payload
+    except Exception:
+        return None
+
+
+def stage10b_event(
+    event: str,
+    *,
+    run_id: str,
+    status: str,
+    context: Mapping[str, Any] | object | None = None,
+    error_code: str | None = None,
+    started_at: float | None = None,
+    evidence_count: int | None = None,
+    degraded_flags: list[str] | tuple[str, ...] | None = None,
+) -> Dict[str, Any]:
+    """Build compact local-only Stage 10B lifecycle telemetry."""
+    event = _stage10a_text(event, "event")
+    if event not in STAGE10B_EVENT_NAMES:
+        raise ValueError("unsupported Stage 10B event")
+    status = _stage10a_text(status, "status")
+    if status not in STAGE10B_STATUSES:
+        raise ValueError("unsupported Stage 10B status")
+
+    latency_ms = elapsed_latency_ms(started_at) if started_at is not None else None
+    metadata = forecast_trace_metadata(
+        context or {},
+        run_id=run_id,
+        stage=STAGE10B_RUNTIME_IDENTITY["stage"],
+        stage_revision=STAGE10B_RUNTIME_IDENTITY["stage_revision"],
+        attempt=STAGE10B_RUNTIME_IDENTITY["attempt"],
+        agent=STAGE10B_RUNTIME_IDENTITY["agent"],
+        latency_ms=latency_ms,
+        evidence_count=evidence_count,
+        degraded_flags=degraded_flags,
+    )
+    result: Dict[str, Any] = {
+        "event": event,
+        **metadata,
+        "implementation_version": STAGE10B_RUNTIME_IDENTITY[
+            "implementation_version"
+        ],
+        "status": status,
+    }
+    if error_code is not None:
+        result["error_code"] = _stage10a_text(error_code, "error_code")
+    return result
+
+
+def emit_stage10b_event(
+    event: str,
+    *,
+    run_id: str,
+    status: str,
+    context: Mapping[str, Any] | object | None = None,
+    error_code: str | None = None,
+    started_at: float | None = None,
+    evidence_count: int | None = None,
+    degraded_flags: list[str] | tuple[str, ...] | None = None,
+    sink: Callable[[Dict[str, Any]], Any] | None = None,
+) -> Dict[str, Any] | None:
+    """Emit Stage 10B telemetry to an injected local sink without failing work."""
+    try:
+        payload = stage10b_event(
+            event,
+            run_id=run_id,
+            status=status,
+            context=context,
+            error_code=error_code,
+            started_at=started_at,
+            evidence_count=evidence_count,
+            degraded_flags=degraded_flags,
+        )
+        if sink is not None:
+            try:
+                sink(dict(payload))
+            except Exception:
+                pass
+        return payload
+    except Exception:
+        return None
 
 
 METRIC_MARKERS = {
@@ -88,7 +347,9 @@ def run_latency(run: Any) -> float:
 
     if latency is not None:
         try:
-            return round(float(latency), 3)
+            value = float(latency)
+            if math.isfinite(value) and value >= 0:
+                return round(value, 3)
         except Exception:
             pass
 
@@ -97,7 +358,9 @@ def run_latency(run: Any) -> float:
 
     if start is not None and end is not None:
         try:
-            return round((end - start).total_seconds(), 3)
+            value = float((end - start).total_seconds())
+            if math.isfinite(value) and value >= 0:
+                return round(value, 3)
         except Exception:
             pass
 
@@ -876,7 +1139,7 @@ def parse_trace(root_run: Any, project_name: str) -> Dict[str, Any]:
 
 
     children = list(
-        client.list_runs(
+        get_langsmith_client().list_runs(
             project_name=project_name,
             trace_id=root_run.trace_id or root_run.id,
         )
@@ -1005,6 +1268,7 @@ def parse_trace(root_run: Any, project_name: str) -> Dict[str, Any]:
 
 
 def main():
+    validation_client = get_langsmith_client()
     candidate_projects = list(
         dict.fromkeys(
             [
@@ -1024,7 +1288,7 @@ def main():
 
         try:
             root_runs = list(
-                client.list_runs(
+                validation_client.list_runs(
                     project_name=project,
                     is_root=True,
                     limit=50,

@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [],
+  "requested_primary_changes": [],
+  "privacy_checks": [
+    {
+      "check": "The fail-closed ForecastContext.from_dict round trip remains compatible with the existing allowlisted trace metadata builder.",
+      "status": "PASS",
+      "evidence": "HISTORICAL_BACKTEST context for 2024-12-31 serialized, deserialized, and emitted target 2025-02-03, calendar/schema/dataset/feature/model versions, horizon, and analysis mode."
+    },
+    {
+      "check": "JSON-safe feature values and full SharedManagerState are not traversed or serialized by forecast_trace_metadata.",
+      "status": "PASS",
+      "evidence": "A full-State-shaped mapping containing nested feature values, brain_reasoning, and raw_evidence emitted only the explicitly supplied run_id because no direct context fields were present."
+    },
+    {
+      "check": "Raw evidence, feature values, label payloads, reasoning, brain_reasoning, headers, secrets, prompts, filing text, article chunks, and duplicated tool payloads remain outside the metadata/event allowlist.",
+      "status": "PASS"
+    },
+    {
+      "check": "Attempt-1 observability source and artifact evidence remained unchanged during the attempt-2 read-only audit.",
+      "status": "PASS",
+      "attempt_1_observability_sha256": "a536404d3509e86c68eb1518739d2aaa6a404dfd8c1ddceaa38b2e614105b540"
+    },
+    {
+      "check": "No external tracing service was initialized or contacted by this pass.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "UNCHANGED_CONTRACT_READY_NO_RUNTIME_MEASUREMENT_STAGE_01",
+  "retry_audit": {
+    "calendar_corrections": "No instrumentation change required; corrected as_of/target values flow through the existing allowlist.",
+    "fail_closed_deserialization": "No instrumentation change required; the existing metadata builder consumes the validated ForecastContext.to_dict payload.",
+    "json_safe_feature_values": "No instrumentation change required; feature values and full State are intentionally outside the trace/progress metadata path.",
+    "observability_source_files_modified_in_attempt_2": false,
+    "feature_call_sites_changed": false,
+    "change_request_required": false
+  },
+  "tests_run": [
+    {
+      "command": "python -m py_compile core/observability.py core/progress_bus.py core/forecast_contract.py agents/state.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "pytest --collect-only -q focused Stage01 and observability tests",
+      "exit_code": 0,
+      "result": "93 tests collected in 2.54s"
+    },
+    {
+      "command": "pytest -q focused Stage01 and observability tests --disable-warnings",
+      "exit_code": 0,
+      "result": "93 passed in 2.51s"
+    },
+    {
+      "command": "inline attempt2 ForecastContext round-trip, metadata/privacy, progress, and legacy compatibility assertions",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "git diff --check -- Stage01 feature and observability paths",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only"
+    }
+  ],
+  "blocking_issues": [],
+  "change_request_required": false,
+  "network_used": false,
+  "database_or_migration_changes": false,
+  "supersedes": ".codex/handoffs/stage-01-rev-1-attempt-1-observability.json",
+  "created_at": "2026-08-28T06:54:22.6872298Z"
+}

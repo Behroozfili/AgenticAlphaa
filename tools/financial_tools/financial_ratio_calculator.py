@@ -589,8 +589,13 @@ def cagr(start_value: float, end_value: float, years: float) -> dict:
             "interpretation": interp,
             "formula":        "(End Value / Start Value)^(1 / Years) − 1",
         }
-    except Exception as exc:
-        return {"cagr_pct": None, "interpretation": "error", "formula": str(exc)}
+    except Exception:
+        return {
+            "cagr_pct": None,
+            "interpretation": "error",
+            "formula": "(End / Start)^(1/years) - 1",
+            "error_code": "CAGR_CALCULATION_FAILED",
+        }
 
 
 def compute_revenue_cagr_from_growth(annual_revenue: list[dict]) -> dict:
@@ -2330,3 +2335,23 @@ def dcf_multi_factor_monte_carlo(
         "rejected_draws": rejected, "seed": seed, "error": None,
         "note": "Multi-factor scenario distribution, not a calibrated forecast probability; correlations and volatilities are disclosed model assumptions.",
     }
+def attach_financial_provenance(
+    result: dict,
+    *,
+    source: str,
+    exact_period: dict | str | None,
+    filed_at: str | None,
+    accession_references: list[str] | None = None,
+    evidence_ids: list[str] | None = None,
+    eligible_as_of: str | None = None,
+) -> dict:
+    """Add availability provenance without changing any ratio/DCF formula."""
+    enriched = dict(result)
+    enriched.update({
+        "source": source, "exact_period": exact_period, "filed_at": filed_at,
+        "accession_references": sorted(set(accession_references or [])),
+        "evidence_ids": sorted(set(evidence_ids or [])),
+        "eligible_as_of": eligible_as_of,
+        "provenance_complete": bool(source and exact_period and filed_at and eligible_as_of),
+    })
+    return enriched

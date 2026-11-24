@@ -1,0 +1,22 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "milestone",
+  "stage": "00",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "core",
+  "status": "PASS",
+  "milestone_name": "BASELINE_READY",
+  "milestone_status": "PASS",
+  "evidence": [
+    {"artifact": ".codex/baseline-manifest.json", "status": "CAPTURED_WITH_KNOWN_FAILURES"},
+    {"check": "full_collect_only", "status": "PASS", "count": 1136, "exit_code": 0},
+    {"check": "offline_unit_baseline", "status": "CAPTURED", "passed": 1045, "pre_existing_failed": 40, "exit_code": 1},
+    {"check": "legacy_trace_disposition", "status": "OBSOLETE_BY_USER_DECISION"},
+    {"check": "database_backup_restore_inventory", "status": "NOT_AVAILABLE_NOT_RUN"},
+    {"check": "legacy_migration_disposition", "status": "BLOCKED_PRE_EXISTING_NO_VALID_RETARGET"},
+    {"check": "uv_lock_check_offline", "status": "PASS"}
+  ],
+  "blocking_issues": [],
+  "created_at": "2026-08-27T14:46:07.5982587Z"
+}

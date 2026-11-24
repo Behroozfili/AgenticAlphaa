@@ -1,0 +1,203 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "integration",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "execution_phase": "PRIMARY_FINAL",
+  "control_revision": 144,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "implementation_identity": {
+    "single_source": "agents/executor_helpers/monthly_forecast_helper.py::STAGE08_IMPLEMENTATION_IDENTITY",
+    "stage": "08",
+    "stage_revision": 1,
+    "attempt": 1,
+    "agent": "integration",
+    "implementation_version": "stage08-r1-a1"
+  },
+  "draft_ready_artifact": ".codex/handoffs/stage-08-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "1b1f6632636c4d869dfdc76bd8cbe98d5e719dd6e39c7986218515a2f68e1de6",
+  "observability_artifact": ".codex/handoffs/stage-08-rev-1-attempt-1-observability.json",
+  "observability_sha256": "fb3091eaf1bbedb688fbc43baf311ff1f4658c9e8cd53de6999ff70516ff9d6c",
+  "change_request": ".codex/handoffs/change-request-stage-08-rev-1-attempt-1-1.json",
+  "change_request_sha256": "e1c25be55da2375e09f37125357993b5be25bffcf9dd288b9c0ee8577ad7bd50",
+  "implementation_md": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.md",
+  "implementation_md_sha256": "e01ee884bdf43c629c8c650bf9f03dd9fb4121ff71e205c5dfeec776088d81b1",
+  "dependency_handoffs": [
+    {"stage": "01", "path": ".codex/handoffs/stage-01-rev-1-handoff.json", "sha256": "9042aa034aa246fbc48c9ed03f5121c078925f33473c07fcbe6392e38a6a1112"},
+    {"stage": "04B", "path": ".codex/handoffs/stage-04B-rev-1-handoff.json", "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049"},
+    {"stage": "05", "path": ".codex/handoffs/stage-05-rev-1-handoff.json", "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed"},
+    {"stage": "06", "path": ".codex/handoffs/stage-06-rev-1-handoff.json", "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735"},
+    {"stage": "07", "path": ".codex/handoffs/stage-07-rev-1-handoff.json", "sha256": "3fb148bab21cc48cb985a866b5b02581e8d535d685ae936a3f2b2f6bb8e305fc"}
+  ],
+  "changed_files": [
+    "agents/monthly_forecast_agent.py",
+    "agents/executor_helpers/monthly_forecast_helper.py",
+    "agents/prompts/prompt_monthly_forecast.py",
+    "agents/manager_agent.py",
+    "agents/executor_helpers/manager_executor_helper.py",
+    "agents/prompts/promt_manager_agent.py",
+    "agents/prompts/prompt_manager_agent.py",
+    "agents/__init__.py",
+    "agents/prompts/__init__.py",
+    "agents/executor_helpers/__init__.py",
+    "tests/fixtures/stage8_manager_integration.json",
+    "tests/unit_tests/test_stage8_manager_integration.py",
+    "tests/unit_tests/test_agents/test_manager_agent.py",
+    ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "OBS-08-001",
+      "status": "RESOLVED",
+      "resolution": "ManagerAgent.run uses safe allowlisted input/output processors with immutable Stage 08 identity. Trace serialization excludes task text, arbitrary directives, full ForecastContext and State, narratives, evidence identifiers, prompts, raw feature values, secrets and exceptions while retaining compact identity, status, counts and booleans."
+    },
+    {
+      "id": "OBS-08-002",
+      "status": "RESOLVED",
+      "resolution": "The monthly branch emits measured payload-free context, specialist, market/Quant, synthesis, degraded and fail-closed events with validated run_id and exact stage=08/revision=1/attempt=1/agent=integration identity. Per-session queues isolate concurrent runs and error telemetry preserves the original re-raised exception without serializing its text."
+    }
+  ],
+  "source_sha256": {
+    "agents/monthly_forecast_agent.py": "d408b7792d8c16ded019171464a9fec7a90af965102970ad1d2604ea71ec8085",
+    "agents/executor_helpers/monthly_forecast_helper.py": "ad81f98a0ff8522d2a5b12bb3d26e241e4c8645992f0847977ed3e6a461a6e2a",
+    "agents/prompts/prompt_monthly_forecast.py": "afa84850b8a2035087d7e9062cdd306c95d849daf0f23ab0152cf2bc2cdcd09b",
+    "agents/manager_agent.py": "a7c3bb838475fd77c4ec07746e4c6d54f4f2f0e46b53706541e85689ac71ceed",
+    "agents/executor_helpers/manager_executor_helper.py": "3df9a7a8612f0e9edc1740f6e5a1923dd91d776eaea0e1e55805f29d8beea601",
+    "agents/prompts/promt_manager_agent.py": "DELETED",
+    "agents/prompts/prompt_manager_agent.py": "f199c703b6698a2d8e289a618bd7fce346877555fb75ecae8a142a333f26c15f",
+    "agents/__init__.py": "d9c1077f9ca37854b3c921c4ece0c5f456ece1b393f1aa7c35baeb7bce19f188",
+    "agents/prompts/__init__.py": "c1b8a70c40cdb3a18db84d0f7f9c202d22731b071af0f8d53973a7cbc625db47",
+    "agents/executor_helpers/__init__.py": "2e8e2448ad7e786f2709ac51f648862ab2e245798c6b3cb37eadab60ef9473ad",
+    "tests/fixtures/stage8_manager_integration.json": "58329afabe2c483150de4cc36eceab21913558d229853137211f2bc07d119102",
+    "tests/unit_tests/test_stage8_manager_integration.py": "34897e8ab2077b41a7a0ceb9b02e92082cbcb90c900b42dddde8ea25f3f5df13",
+    "tests/unit_tests/test_agents/test_manager_agent.py": "e68d76490c080a11b1848627bb263671318a37ac8b1f726df64356d0ac8e376b",
+    ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.md": "e01ee884bdf43c629c8c650bf9f03dd9fb4121ff71e205c5dfeec776088d81b1"
+  },
+  "self_tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py -q",
+      "exit_code": 0,
+      "result": "12 passed in 17.72s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "result": "62 passed in 20.37s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "result": "183 passed in 22.30s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_financial_agent_only.py tests/integration_test_2/test_research_agent_only.py tests/integration_test_2/test_sentiment_agent_only.py",
+      "exit_code": 0,
+      "result": "1427 tests collected in 10.99s; zero collection errors; integration tests collected only",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile <Stage08 source, export and focused test paths>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check; prompt rename reference scan",
+      "exit_code": 0,
+      "result": "PASS; no whitespace errors; corrected prompt is imported/exported and typo path is absent",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent integration",
+      "exit_code": 0,
+      "result": "CONTROL VALID before artifact generation",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "gate_evidence": {
+    "complete_state": "PASS",
+    "incomplete_state": "PASS_INSUFFICIENT_DATA_WITH_NULL_CONFIDENCE",
+    "future_evidence": "PASS_FAIL_CLOSED",
+    "quant_action_tamper": "PASS_FAIL_CLOSED",
+    "llm_numeric_override": "PASS_IGNORED",
+    "node_order": "PASS_CONTROLLED_JOIN",
+    "output_schema": "PASS",
+    "legacy_manager_compatibility": "PASS",
+    "prompt_rename_and_imports": "PASS_ATOMIC",
+    "trace_input_output_processors": "PASS_ALLOWLISTED",
+    "private_sentinel_trace_absence": "PASS_RECURSIVE",
+    "success_error_lifecycle": "PASS_MEASURED_IDENTITY_BOUND_REDACTED",
+    "two_concurrent_manager_runs": "PASS_RESULT_AND_QUEUE_ISOLATION"
+  },
+  "privacy_checks": [
+    "PRIVATE_SENTINEL absent recursively from trace processor output.",
+    "PRIVATE_SENTINEL, task text, Quant numeric values, evidence IDs, State, narratives and exception text absent from monthly lifecycle events.",
+    "Trace processors retain only compact identity/version metadata, bounded status/count fields and booleans.",
+    "No external trace provider was contacted."
+  ],
+  "latency_instrumentation_status": "PASS_MEASURED_STAGE08_MONTHLY_LIFECYCLE_WITH_EXACT_IDENTITY_AND_CONCURRENT_QUEUE_ISOLATION",
+  "contract_diff": [
+    "Added a backward-compatible monthly Manager domain path keyed by typed ForecastContext; the legacy path is unchanged when forecast_context is absent.",
+    "Added isolated concurrent specialist readiness after common context creation and a deterministic controlled join.",
+    "Added a canonical MonthlyForecastAgent output with explicit READY, DEGRADED and INSUFFICIENT_DATA behavior, warnings, evidence references and versions.",
+    "Kept Quant probability, expected return, excess return, uncertainty and action_policy_v1 action immutable; LLM output is explanation-only.",
+    "Added allowlisted Manager trace processors and measured payload-free Stage 08 lifecycle events without changing business behavior.",
+    "Renamed promt_manager_agent.py to prompt_manager_agent.py and updated direct imports/exports atomically.",
+    "Did not change central State schema, database schema, migrations, upstream formulas, DCF/WACC semantics, API runtime/routes, persistence or UI."
+  ],
+  "schema_and_data_diff": {
+    "central_state_schema_modified": false,
+    "database_schema_modified": false,
+    "migration_application": "NOT_RUN",
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "legacy_data_deleted": false
+  },
+  "blocking_issues": [],
+  "known_limitations": [
+    "Validation is offline with deterministic fixtures and mocks; live providers and external trace export were not exercised.",
+    "Stage 08 implements domain integration only; request lifecycle foundation remains Stage 10A and API routes, persistence, progress jobs and UI remain Stage 10B.",
+    "Without injected Stage 07 market service and market-data provider, the monthly path truthfully returns INSUFFICIENT_DATA."
+  ],
+  "out_of_scope_findings": [],
+  "requested_changes": [],
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Preserve immutable Stage 08 audit inputs, archive Integration-owned paths with recorded hashes, move new Stage 08 paths and final artifacts into a timestamped workspace quarantine, then restore modified Integration-owned files and the typo prompt from base Git object c3cda2144c63b6e69252ca64b93d90bbe39f24b4.",
+    "data_loss_risk": "NONE_WHEN_QUARANTINE_IS_RETAINED",
+    "rollback_tested": false
+  },
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Archive current Integration-owned Stage 08 paths and verify their source_sha256 values.",
+    "Move new monthly agent/helper/prompt, corrected prompt, fixture, focused test and final artifacts to a timestamped workspace quarantine; do not delete them.",
+    "Restore modified Integration-owned files and agents/prompts/promt_manager_agent.py from base Git object c3cda2144c63b6e69252ca64b93d90bbe39f24b4.",
+    "Do not modify refactor-state, dependency handoffs, QA/review artifacts, migrations or external data."
+  ],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "api_runtime_or_route_changes": false,
+    "quant_or_action_policy_changes": false
+  },
+  "supersedes": null,
+  "implementation_ready": true,
+  "created_at": "2026-09-10T21:12:37.7944126Z"
+}

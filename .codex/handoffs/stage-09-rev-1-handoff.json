@@ -1,0 +1,123 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "09",
+  "stage_revision": 1,
+  "accepted_attempt": 2,
+  "primary_agent": "quant",
+  "implementation_status": "IMPLEMENTED",
+  "observability_status": "AUDITED_CHANGES_RESOLVED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "draft_ready": ".codex/handoffs/stage-09-rev-1-attempt-2-draft-ready.json",
+    "observability": ".codex/handoffs/stage-09-rev-1-attempt-2-observability.json",
+    "implementation": ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.json",
+    "qa": ".codex/handoffs/stage-09-rev-1-attempt-2-qa.json",
+    "review": ".codex/handoffs/stage-09-rev-1-attempt-2-review.json"
+  },
+  "change_request": ".codex/handoffs/change-request-stage-09-rev-1-attempt-2-1.json",
+  "implementation_markdown": ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.md",
+  "handoff_markdown": ".codex/handoffs/stage-09-rev-1-handoff.md",
+  "artifact_sha256": {
+    "draft_ready": "67e4bb4c67d1d5d4fd3426850262e43e512324fcb13f33ed10cf21c001a22daf",
+    "observability": "2cb75f58f52a577ad49cece3847bf3d77d0a319d4ba1c1cbd611df3d8694b445",
+    "change_request": "cf9f70850cdafbdec6ad4a8c988d8cf1278620752c502063af71223e938335c2",
+    "implementation": "07d70cbe85442ac368706de09fff748771d9037ba37ce5010dd9d855be996fba",
+    "implementation_markdown": "1bbbde92cf740e52590567b312954040c4a263dd98606ff0ada811deb9a39265",
+    "qa": "b54e8e7e4cbf7cda1c669d8dd799f589a3501732cdff8faa4ef31b9575e98082",
+    "review": "a05922313a3ddb3def66543f0c128953787ab39bc217e6d5373b5b49ebbfdcfd",
+    "handoff_markdown": "03fd4132d13d74a2a0deac7225c09b4b31808d9a93d3725d6c77a84d04f93b03"
+  },
+  "retry_chain": [
+    {
+      "attempt": 1,
+      "terminal_gate": "REVIEW",
+      "result": "REJECTED",
+      "artifact": ".codex/handoffs/stage-09-rev-1-attempt-1-review.json"
+    },
+    {
+      "attempt": 2,
+      "terminal_gate": "REVIEW",
+      "result": "APPROVED",
+      "artifact": ".codex/handoffs/stage-09-rev-1-attempt-2-review.json"
+    }
+  ],
+  "resolved_findings": [
+    "OBS-09-001",
+    "REVIEW-09-001",
+    "OBS-09-A2-001"
+  ],
+  "non_blocking_findings": [
+    "REVIEW-09-A2-NB-001"
+  ],
+  "accepted_counts": {
+    "focused_action_policy_tests_passed": 35,
+    "stage07_related_regressions_passed": 137,
+    "collection_total": 1455,
+    "collection_errors": 0,
+    "recorded_hashes_mismatched": 0
+  },
+  "delivered_contract": [
+    "Deterministic point-in-time monthly walk-forward evaluation uses only cutoff-observable evidence and fails closed on future records.",
+    "Expanding monthly folds evaluate the exact 21-trading-day target across seven locked baselines, ablations and Full Model variants.",
+    "Metrics, calibration, coverage, interval width, turnover, cost-adjusted return, action policy and Full Model comparisons are deterministic and honest.",
+    "SCIENTIFIC requires at least 10 tickers, 60 monthly cutoffs and 500 eligible out-of-sample forecasts after executed common variant coverage; 499 and 500 boundaries are tested.",
+    "Compact payload-safe measured lifecycle telemetry is isolated from scientific output and attributed to immutable runtime identity 09/r1/a2/quant."
+  ],
+  "scientific_evidence": {
+    "classification": "PRELIMINARY",
+    "ticker_count": 2,
+    "source_cutoff_count": 48,
+    "fold_count": 11,
+    "forecast_count_per_variant": 22,
+    "variant_count": 7,
+    "future_record_count": 0,
+    "report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779",
+    "oos_boundary_499": "PRELIMINARY",
+    "oos_boundary_500": "SCIENTIFIC",
+    "investment_performance_claim": false
+  },
+  "reproducibility": {
+    "runtime_identity": "09/r1/a2/quant",
+    "implementation_version": "stage09-r1-a2",
+    "telemetry_scientific_output_invariant": true,
+    "prior_attempt_artifacts_immutable": [1]
+  },
+  "source_sha256": {
+    "evaluation/point_in_time_dataset.py": "f710fc8ea9834c148c0ca51b00d6afa895563218dda71230fd9dd18c502dcb8b",
+    "evaluation/monthly_backtest.py": "1861cc3f635679fd14d40a13c8d445090f6a938efb0e994effe683485f9611d2",
+    "evaluation/forecast_metrics.py": "9930bc15574e2e8a7d5aaf65fe3f7af6102060b5c4be948dc37c06cb73efe7a8",
+    "evaluation/temporal_leakage.py": "c6971cbe9b51cd9e142f0f1805617767132f571d35f76e962c03b76c0a56bf7d",
+    "evaluation/backtest_cli.py": "7291084fa56a4194549de25adeea87ec5bebc98b8041534282dd843c80ad10df",
+    "evaluation/stage3_compare_cli.py": "7c7e8bfcd80c39d81b19421157dbe23ca4c1e45346e666723f35875591e3a39e",
+    "tests/fixtures/stage9_walk_forward.json": "697d84c0c2822764c24171a8d4167709dd80110e9548056520634c3108957a54",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py": "f1481f43365caf24f38d0989ee0c7012cfa398f213adcee76863f35dd919a1b4",
+    "tests/unit_tests/test_monthly_backtest_stage9.py": "66a21970f871a405dc0d9a9cec288b37e6030df83fd74e06c91c8edcc64a6e4f",
+    "tests/unit_tests/test_forecast_metrics_stage9.py": "39c96555916d3cd8986ce923b1b6fcdb1f4ed99ae4f2467f70fd7fce504d95f8",
+    "tests/unit_tests/test_temporal_leakage_stage9.py": "02180d9e2379108e8542ffeb6adff3323468437fe9d505c1809fb4de33073e42",
+    "tests/unit_tests/test_backtest_cli_stage9.py": "c9f3e75352d9e26f63ca78be534306d95c41ad4ab3ed7ca5242c0a858bf53d7c"
+  },
+  "known_limitations": [
+    "Acceptance uses deterministic offline synthetic fixtures and is preliminary engineering evidence, not investment-performance evidence.",
+    "Live providers, external trace export and external databases were not exercised.",
+    "API request lifecycle foundations remain Stage 10A scope and were not activated or implemented.",
+    "No network, external write, migration, seed, deletion, deploy, commit or push was authorized or performed."
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_trace_provider_contacted": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deploy_commit_or_push": false
+  },
+  "next_stage": "10A",
+  "next_stage_activated": false,
+  "supersedes": null,
+  "created_at": "2026-09-12T08:21:27.5545339Z"
+}

@@ -1,0 +1,198 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "qa",
+  "status": "PASS",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_identity_artifacts_control_and_locks",
+      "command": "validate active state, Attempt 2 rejected review, matching Attempt 3 draft-ready/observability/final implementation artifacts, exact QA lock, and control",
+      "exit_code": 0,
+      "result": "PASS; Stage 03 revision 1 attempt 3 is ACTIVE in QA, all required same-attempt artifacts validate, implementation_ready=true, the QA artifact path is locked to qa, and CONTROL VALID."
+    },
+    {
+      "check": "attempt1_attempt2_artifact_immutability",
+      "command": "SHA-256 comparison of all five Attempt 1 artifacts and all six Attempt 2 artifacts against pre-Attempt-3 recorded hashes",
+      "exit_code": 0,
+      "result": "PASS; all eleven prior-attempt artifacts exactly match their recorded SHA-256 values."
+    },
+    {
+      "check": "attempt3_input_artifact_schema_identity",
+      "command": "validate_refactor_control.py --artifact for Attempt 3 draft-ready, observability, and implementation JSON with exact agents",
+      "exit_code": 0,
+      "result": "PASS; all three input artifacts are schema-valid and identity-valid."
+    },
+    {
+      "check": "attempt3_retry_source_integrity",
+      "command": "SHA-256 comparison of rag/ingestion.py, rag/seed.py, rag/processor.py and their three retry test files against the observability audit",
+      "exit_code": 0,
+      "result": "PASS; all six retry paths exactly match the audited Attempt 3 source hashes."
+    },
+    {
+      "check": "stage03_runtime_compile",
+      "command": "python -m py_compile rag/__init__.py rag/loader.py rag/processor.py rag/embedding_manager.py rag/vector_store.py rag/retriever.py rag/ingestion.py rag/seed.py main.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "check": "exact_eight_reviewer_counterexamples",
+      "command": "pytest exact nodes: archive-to-V2 with no live fetch; provider/content/embedding-model/adapter checkpoint mismatches; same-content distinct document-version/dataset/retrieval observations",
+      "exit_code": 0,
+      "result": "8 passed in 12.39s"
+    },
+    {
+      "check": "focused_stage03_offline_gate",
+      "command": "pytest -q tests/unit_tests/test_rag/test_embedding_manager.py tests/unit_tests/test_rag/test_ingestion.py tests/unit_tests/test_rag/test_loader.py tests/unit_tests/test_rag/test_processor.py tests/unit_tests/test_rag/test_retriever.py tests/unit_tests/test_rag/test_vectore_store.py tests/unit_tests/test_rag/test_pipline_rag.py tests/unit_tests/test_root_main.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "216 passed in 49.78s"
+    },
+    {
+      "check": "telemetry_privacy_sanitized_error_and_seed_startup_matrix",
+      "command": "pytest TestLifecycleTelemetry plus explicit archive CLI, archive requirement/injection, and normal-startup no-auto-seed nodes",
+      "exit_code": 0,
+      "result": "10 passed in 15.01s"
+    },
+    {
+      "check": "narrative_stability_and_stage01_stage02_regression",
+      "command": "pytest -q tests/unit_tests/test_stage3_narrative_stability.py plus accepted Stage 01 forecast/state/error/observability and Stage 02 migration contract tests",
+      "exit_code": 0,
+      "result": "125 passed in 2.63s: 16 narrative-stability tests plus 109 Stage 01-02 regressions."
+    },
+    {
+      "check": "fixture_cases_rows_backward_compatibility",
+      "command": "deep structural comparison of current cases against git show HEAD fixture plus temporal rows and expected IDs inspection",
+      "exit_code": 0,
+      "result": "PASS; all four legacy cases are exactly preserved, all four temporal rows remain present, and expected_chunk_ids is ['before-nvda']."
+    },
+    {
+      "check": "full_unit_integration_collection",
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests --disable-warnings",
+      "exit_code": 0,
+      "result": "1231 tests collected in 13.69s; zero collection errors."
+    },
+    {
+      "check": "diff_scope_whitespace_and_external_safety",
+      "command": "actual Attempt 3 retry diff review, scoped git diff --check, Git HEAD check, and operational-safety evidence review",
+      "exit_code": 0,
+      "result": "PASS; retry changes stay within the six authorized product/test paths, whitespace check is clean apart from line-ending notices, Git HEAD remains c3cda2144c63b6e69252ca64b93d90bbe39f24b4, and no migration, external DB operation, seed/backfill, route switch, deploy, commit, or push is evidenced."
+    }
+  ],
+  "review_blocker_resolution_report": {
+    "status": "PASS",
+    "STAGE03-HISTORICAL-INGESTION-PROVIDER-002": {
+      "status": "RESOLVED",
+      "evidence": "Public ingestion accepts archive_provider plus stable identity; CLI composes a content-addressed local JSON provider; the real loader/processor path reaches mocked V2 upsert and neither live fetch method is called."
+    },
+    "STAGE03-CHECKPOINT-SNAPSHOT-IDENTITY-003": {
+      "status": "RESOLVED",
+      "evidence": "Request identity binds normalized bounds, dataset, provider hash, adapter and control identity; materialization additionally binds embedding identity and ordered document/evidence/chunk hashes. Provider, content, model and adapter mismatch counterexamples fail closed before reuse or Vector/Graph mixing."
+    },
+    "STAGE03-REVISION-EVIDENCE-PRESERVATION-004": {
+      "status": "RESOLVED",
+      "evidence": "Deduplication is evidence-identity scoped. Same-content distinct document versions, dataset versions and retrieval observations each produce preserved distinct evidence/chunk identities; exact duplicate evidence remains deduplicated."
+    },
+    "STAGE03-OBSERVABILITY-ATTEMPT-IDENTITY-005": {
+      "status": "RESOLVED",
+      "evidence": "Runtime telemetry identity is stage=03, stage_revision=1, attempt=3, agent=data_rag and contract_version=stage03-r1-a3; every lifecycle payload assertion requires attempt 3."
+    }
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "historical_complete_bounds_required": "PASS",
+    "reproducible_archive_provider_and_identity_required": "PASS",
+    "historical_live_fetch_disabled": "PASS",
+    "historical_v2_adapter_required": "PASS",
+    "invalid_or_unknown_time_quarantine": "PASS",
+    "future_record_rejected_before_ranking": "PASS",
+    "wrong_ticker_rejected_before_ranking": "PASS",
+    "wrong_dataset_version_rejected_before_ranking": "PASS",
+    "late_retrieved_evidence_excluded": "PASS",
+    "effective_interval_enforced": "PASS",
+    "legacy_historical_backend_fail_closed": "PASS",
+    "checkpoint_cross_snapshot_mixing": "REJECTED_FAIL_CLOSED",
+    "live_provider_or_external_database_validation": "NOT_RUN_UNAUTHORIZED_AND_NOT_REQUIRED_FOR_OFFLINE_STAGE03_GATE"
+  },
+  "privacy_report": {
+    "status": "PASS",
+    "telemetry_allowlist": "PASS",
+    "monotonic_latency_ms": "PASS",
+    "attempt3_provenance": "PASS",
+    "provider_identity": "SHA256_HASH_ONLY",
+    "snapshot_identity": "SAFE_HASHES_AND_COUNTS_ONLY",
+    "raw_document_chunk_url_provider_payload_or_secret_persisted": false,
+    "untrusted_exception_text_persisted_or_emitted": false,
+    "sanitized_error_sentinel": "PASS"
+  },
+  "regression_report": {
+    "focused_stage03": {
+      "passed": 216,
+      "failed": 0
+    },
+    "reviewer_counterexamples": {
+      "passed": 8,
+      "failed": 0
+    },
+    "telemetry_privacy_seed_startup": {
+      "passed": 10,
+      "failed": 0
+    },
+    "narrative_stability": {
+      "passed": 16,
+      "failed": 0
+    },
+    "focused_stage01_stage02": {
+      "passed": 109,
+      "failed": 0
+    },
+    "collection": {
+      "unit_and_integration": 1231,
+      "errors": 0,
+      "status": "PASS"
+    },
+    "fixture_legacy_cases_exact_match": true,
+    "fixture_temporal_rows_preserved": true,
+    "attempt1_attempt2_artifacts_immutable": true,
+    "stage03_regressions": 0
+  },
+  "blocking_issues": [],
+  "blocking_findings": [],
+  "environment_blockers": [],
+  "resolved_findings": [
+    "OBS-03-001",
+    "OBS-03-002",
+    "STAGE03-FIXTURE-COLLECTION-001",
+    "STAGE03-HISTORICAL-INGESTION-PROVIDER-002",
+    "STAGE03-CHECKPOINT-SNAPSHOT-IDENTITY-003",
+    "STAGE03-REVISION-EVIDENCE-PRESERVATION-004",
+    "STAGE03-OBSERVABILITY-ATTEMPT-IDENTITY-005"
+  ],
+  "candidate_downstream_stages_affected": [],
+  "non_blocking_closure_limitations": [
+    {
+      "id": "PREEXISTING-LOCK-STATE-001",
+      "path": "agents/state.py",
+      "finding": "Global --check-locks continues to report that the real Git change has no current/permanent/accepted lock owner. This mismatch predates Stage 03, is unrelated to Stage 03 behavior, and was neither modified nor attributed by QA."
+    },
+    {
+      "id": "STAGE03-LIVE-V2-NOT-RUN",
+      "finding": "V2 behavior is validated with deterministic offline mocks and fixtures because Stage 02 migrations are not applied/reconciled and external database/provider execution was not authorized. No live correctness or latency claim is made."
+    }
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migrations_applied": false,
+    "seed_or_backfill_executed": false,
+    "legacy_data_deleted": false,
+    "production_route_switched": false,
+    "deploy_commit_or_push": false
+  },
+  "requested_primary_changes": [],
+  "supersedes": null,
+  "created_at": "2026-08-30T11:46:48.3187883Z"
+}

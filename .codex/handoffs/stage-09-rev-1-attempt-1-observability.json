@@ -1,0 +1,209 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 154,
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    ".codex/handoffs/change-request-stage-09-rev-1-attempt-1-1.json",
+    ".codex/handoffs/stage-09-rev-1-attempt-1-observability.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-09-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "de058ebaeeb139a2eb07913fdf7e4b201a68d605e2c5ecf11bce605a2fbe11f5",
+  "requested_primary_changes": [
+    {
+      "id": "OBS-09-001",
+      "blocking": true,
+      "owner": "quant",
+      "requested_paths": [
+        "evaluation/point_in_time_dataset.py",
+        "evaluation/monthly_backtest.py",
+        "evaluation/forecast_metrics.py",
+        "evaluation/temporal_leakage.py",
+        "evaluation/backtest_cli.py",
+        "tests/unit_tests/test_point_in_time_dataset_stage9.py",
+        "tests/unit_tests/test_monthly_backtest_stage9.py",
+        "tests/unit_tests/test_forecast_metrics_stage9.py",
+        "tests/unit_tests/test_temporal_leakage_stage9.py",
+        "tests/unit_tests/test_backtest_cli_stage9.py"
+      ],
+      "reason": "Required Stage 09 runtime identity, measured latency, bounded lifecycle/progress/degraded signals and payload-safe fail-closed events are absent across all five required backtest boundaries.",
+      "change_request": ".codex/handoffs/change-request-stage-09-rev-1-attempt-1-1.json"
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "Current Stage 09 source does not contact an external trace service or emit raw runtime payloads through a trace/progress sink.",
+      "status": "PASS_NO_TELEMETRY_EXPORT_PRESENT",
+      "evidence": "No trace/span/progress/lifecycle sink or provider call exists in the scoped evaluation modules, and this audit used only local deterministic fixtures."
+    },
+    {
+      "check": "Scientific BacktestReport content is separated from future trace/progress payloads by an explicit compact allowlist.",
+      "status": "FAIL_BLOCKING_PROCESSOR_ABSENT",
+      "evidence": "BacktestReport correctly contains actual labels, forecast values and opaque evidence IDs for evaluation, but there is no safe event processor/sink proving those fields cannot enter telemetry."
+    },
+    {
+      "check": "Future Stage 09 telemetry excludes raw feature vectors, labels, evidence contents/IDs, model coefficients, prompts, chain-of-thought, private payloads and exception text.",
+      "status": "NOT_VERIFIABLE_UNTIL_INSTRUMENTED",
+      "evidence": "No current lifecycle/error telemetry exists to exercise PRIVATE_SENTINEL success and failure paths. The change request requires count-only allowlists and redacted stable error codes."
+    },
+    {
+      "check": "Draft artifacts and scoped source contain no unnecessary prompt, chain-of-thought, credential, token, header, raw article/chunk or full filing payload fields.",
+      "status": "PASS",
+      "evidence": "Static scoped review found deterministic fixture/scientific data only; no external trace service was contacted."
+    }
+  ],
+  "latency_instrumentation_status": "FAIL_BLOCKING_NO_MEASURED_STAGE09_BOUNDARIES",
+  "trace_metadata_audit": {
+    "required_common_identity": [
+      "run_id",
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent"
+    ],
+    "required_context_identity_where_available": [
+      "fold_id",
+      "model_variant",
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "backtest_version",
+      "metrics_version",
+      "audit_version",
+      "latency_ms",
+      "evidence_count",
+      "degraded_flags"
+    ],
+    "report_run_fold_model_identity": "PASS_PRESENT_IN_MANIFEST_RECORDS_AND_FOLDS",
+    "immutable_runtime_stage_attempt_identity": "FAIL_ABSENT",
+    "measured_non_negative_latency": "FAIL_ABSENT",
+    "bounded_lifecycle_progress": "FAIL_ABSENT",
+    "payload_safe_error_signal": "FAIL_ABSENT",
+    "record_level_missing_and_degraded_flags": "PASS_PRESENT_IN_SCIENTIFIC_REPORT_NOT_EMITTED_AS_TELEMETRY"
+  },
+  "lifecycle_matrix": [
+    {
+      "boundary": "fixture_materialization",
+      "status": "MISSING_MEASURED_LIFECYCLE"
+    },
+    {
+      "boundary": "fold_model_fit",
+      "status": "MISSING_MEASURED_LIFECYCLE"
+    },
+    {
+      "boundary": "fold_prediction",
+      "status": "MISSING_MEASURED_LIFECYCLE"
+    },
+    {
+      "boundary": "metric_aggregation",
+      "status": "MISSING_MEASURED_LIFECYCLE"
+    },
+    {
+      "boundary": "leakage_audit",
+      "status": "MISSING_MEASURED_LIFECYCLE_AND_FAIL_CLOSED_ERROR_EVENT"
+    },
+    {
+      "boundary": "run_progress_and_completion",
+      "status": "MISSING_BOUNDED_START_PROGRESS_COMPLETE_ERROR_SIGNALS"
+    }
+  ],
+  "scientific_and_temporal_audit": {
+    "report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779",
+    "report_hash_matches_draft": true,
+    "scientific_report_level": "PRELIMINARY",
+    "scientific_minimum_reason_preserved": "PASS_2_TICKERS_48_CUTOFFS_22_ELIGIBLE_FORECASTS_PER_VARIANT_BELOW_CONTRACT_MINIMUMS",
+    "fold_method": "expanding_window_observable_outcomes_only",
+    "fold_count": 11,
+    "forecast_count_per_variant": 22,
+    "total_forecast_records": 154,
+    "identical_fold_and_row_identity_all_variants": "PASS",
+    "gross_and_net_results_reported": "PASS",
+    "honest_full_model_underperformance_disclosure": "PASS_PRESERVED",
+    "investment_interpretation": "NONE_SYNTHETIC_ENGINEERING_FIXTURE",
+    "llm_altered_numbers": false,
+    "leakage_status": "PASS",
+    "future_record_count": 0,
+    "zero_future_audit_unchanged": true
+  },
+  "source_integrity": {
+    "draft_ready_hash_exact": true,
+    "draft_recorded_source_hash_count": 12,
+    "draft_recorded_source_hash_mismatches": [],
+    "stage08_dependency_handoff_sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+    "stage08_dependency_hash_match": true
+  },
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent observability",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 154; active Stage 09 r1/a1 OBSERVABILITY gates and exact observability/change-request locks verified",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_point_in_time_dataset_stage9.py tests/unit_tests/test_monthly_backtest_stage9.py tests/unit_tests/test_forecast_metrics_stage9.py tests/unit_tests/test_temporal_leakage_stage9.py tests/unit_tests/test_backtest_cli_stage9.py -q",
+      "exit_code": 0,
+      "result": "16 passed in 19.99s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Deterministic in-memory Stage 09 report reproduction probe",
+      "exit_code": 0,
+      "result": "PASS: report_hash=213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779; PRELIMINARY; 11 folds; 22 forecasts per variant; 154 records; leakage PASS with future_record_count=0; Full Model metrics exactly match draft",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "SHA-256 verification of all 12 draft-recorded Stage 09 source/test/fixture paths and the Stage 08 dependency handoff",
+      "exit_code": 0,
+      "result": "PASS_12_OF_12_CURRENT; PASS_STAGE08_DEPENDENCY_HASH",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": "Exact static scan for perf_counter, elapsed_latency_ms, latency_ms, event_sink, progress and lifecycle calls in the six scoped Stage 09 evaluation modules",
+      "exit_code": 1,
+      "result": "EXPECTED_FINDING: no measured lifecycle instrumentation found",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-09-001: Stage 09 lacks immutable active runtime identity, measured latency at all five required boundaries, bounded lifecycle/progress/degraded signals, and payload-safe fail-closed error telemetry."
+  ],
+  "stage_boundary": {
+    "feature_or_scientific_behavior_changed_by_observability": false,
+    "quant_source_or_test_files_changed_by_observability": false,
+    "observability_source_files_changed": false,
+    "change_request_created": true,
+    "primary_reactivation_required": true,
+    "state_or_qa_or_review_changed": false,
+    "stage10a_work_performed": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "Validation used only deterministic local fixtures; no live provider, network source, database or external tracing service was contacted.",
+    "The current scientific report is valid engineering evidence and remains PRELIMINARY; this observability blocker does not challenge its numeric result.",
+    "Observability modified only its two exact locked current-attempt artifacts and did not edit Quant source/tests, control state, prior artifacts or Stage 10A."
+  ],
+  "created_at": "2026-09-11T15:16:16.2410866Z"
+}

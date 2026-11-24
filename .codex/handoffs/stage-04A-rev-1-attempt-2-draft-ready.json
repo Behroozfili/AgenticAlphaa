@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "data_rag",
+  "execution_phase": "PRIMARY_DRAFT",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    "rag/graph_store.py",
+    "tests/unit_tests/test_rag/test_graph_store.py",
+    "tests/unit_tests/test_rag/test_hybried.py",
+    "tests/fixtures/stage4a_temporal_graph_hybrid.json",
+    ".codex/handoffs/stage-04A-rev-1-attempt-2-draft-ready.json"
+  ],
+  "revalidated_unchanged_files": [
+    "rag/hybrid_rag.py",
+    "rag/__init__.py"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "dependency_handoff": ".codex/handoffs/stage-03-rev-2-handoff.json",
+  "dependency_handoff_sha256": "19a684a9f65c7e348f758725280497195a7daaa381c3dded794eab66e04a3a2a",
+  "supersedes": ".codex/handoffs/stage-04A-rev-1-attempt-1-draft-ready.json",
+  "trigger_review": ".codex/handoffs/stage-04A-rev-1-attempt-1-review.json",
+  "trigger_review_sha256": "6eecf4d7ad63ed67a2d1869af1ddc67bf0ce1c15d58055b54ae62e744be72954",
+  "resolved_findings": [
+    {
+      "id": "STAGE04A-NEO4J-TEMPORAL-PROPERTY-TYPE-001",
+      "status": "RESOLVED_IN_DRAFT",
+      "resolution": "All six Graph temporal values are parsed once as timezone-aware UTC ISO-8601 values before any write. Required unknown/invalid times fail closed; optional nulls remain null. EvidenceObservationV2 ON CREATE uses an exact null-safe CASE WHEN parameter IS NULL THEN null ELSE datetime(parameter) END expression for published, retrieved, filed, effective-from, effective-to and materialized times. No current-time substitution exists."
+    },
+    {
+      "id": "STAGE04A-INCOMPLETE-V2-WRITE-FAIL-CLOSED-002",
+      "status": "RESOLVED_IN_DRAFT",
+      "resolution": "GraphDocument now carries explicit write_mode and provenance. Only write_mode=legacy plus provenance=legacy_explicit enters legacy aggregate MERGE. Temporal, V2-origin, unknown-provenance and quarantined documents are validated before entity/relation work; incomplete inputs are skipped with sanitized lifecycle code/count and zero write calls."
+    },
+    {
+      "id": "STAGE04A-EVIDENCE-MATERIALIZED-AT-003",
+      "status": "RESOLVED_IN_DRAFT",
+      "resolution": "GraphDocument carries canonical Stage03 materialization provenance from document metadata or the Stage03 ingested_at value, with no now fallback. materialized_at is required for temporal V2 writes, normalized, persisted as a Neo4j DateTime on EvidenceObservationV2 ON CREATE, and remains unchanged on deterministic retry."
+    }
+  ],
+  "write_boundary": {
+    "legacy": "Allowed only for explicit write_mode=legacy and provenance=legacy_explicit.",
+    "temporal_v2": "Requires Stage03 provenance, every immutable identity, known publication/retrieval/effective-start/materialization time, valid optional times and non-quarantined state.",
+    "rejection": "Rejected documents perform no entity or relation write, increment skipped/rejected lifecycle counts and expose only stable sanitized rejection codes.",
+    "rejection_codes": [
+      "GRAPH_WRITE_MODE_INVALID",
+      "GRAPH_V2_QUARANTINED",
+      "GRAPH_V2_IDENTITY_INCOMPLETE",
+      "GRAPH_V2_MATERIALIZED_AT_MISSING",
+      "GRAPH_V2_TEMPORAL_REQUIRED",
+      "GRAPH_V2_TEMPORAL_INVALID",
+      "GRAPH_V2_EFFECTIVE_INTERVAL_INVALID"
+    ]
+  },
+  "temporal_property_contract": {
+    "normalized_once": true,
+    "timezone": "UTC",
+    "required": [
+      "published_at",
+      "retrieved_at",
+      "effective_from",
+      "materialized_at"
+    ],
+    "optional_null_safe": [
+      "filed_at",
+      "effective_to"
+    ],
+    "neo4j_type_conversion": "Null-safe datetime(parameter) on EvidenceObservationV2 ON CREATE.",
+    "unknown_time_to_now": false,
+    "idempotent_materialized_at": "Create-only; identical evidence retry preserves the original value."
+  },
+  "draft_self_tests": [
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py::TestAttempt2ReviewBlockers --tb=short",
+      "exit_code": 0,
+      "result": "27 passed in 15.41s"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py --tb=short",
+      "exit_code": 0,
+      "result": "92 passed in 15.60s"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag tests/unit_tests/test_stage3_narrative_stability.py --tb=short",
+      "exit_code": 0,
+      "result": "348 passed in 54.28s"
+    },
+    {
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1292 tests collected in 23.16s; zero collection errors"
+    },
+    {
+      "command": "py_compile scoped source/tests; scoped git diff --check; static privacy scan; control/lock validation",
+      "exit_code": 0,
+      "result": "PASS; STATIC_PRIVACY_SCAN=PASS_ZERO_MATCHES; CONTROL VALID; line-ending notices only"
+    }
+  ],
+  "source_sha256": {
+    "rag/graph_store.py": "50b52061db0d0dbaa557baf3a3686b894b8740818128f687033b9aba2b649f5b",
+    "rag/hybrid_rag.py": "38e86c9239e3fc1404160a21ce7f63cc3e1ecbb6b460f55c5bf8460f77d7a070",
+    "rag/__init__.py": "8e626b80cd9fa25d9fcb4ebb05f9f5049b33384f2b7c1fd6ca6fecfa92a375c1",
+    "tests/unit_tests/test_rag/test_graph_store.py": "37d9bbe725a1763051536c0276deb7cffda7d46b092fb4fc45e9adafe34fc1f7",
+    "tests/unit_tests/test_rag/test_hybried.py": "11b2d3e388b9b1fb717acb1751453ed495442f673b694b356fb05d637b76dd12",
+    "tests/fixtures/stage4a_temporal_graph_hybrid.json": "8c5f352787640a457fb043e5634c66bab12b22d65a83e83194c26913a3c92413"
+  },
+  "attempt1_artifact_immutability": {
+    "status": "PASS",
+    "draft_ready_sha256": "5e287a091d583b62d667b599f74877d3ab4b43a7bc020383554c1706c9d982d3",
+    "observability_sha256": "c85cd69662e64ef429953f368c7227bcd47ff3f56e5737ce114c65fdb40a04c9",
+    "implementation_json_sha256": "fdc9713de674a9d3e0745730bdf95e8d7d4e97ecea4e9722bc101fb73672ed1f",
+    "implementation_md_sha256": "2156ab7d4f0d526c27166669ab5aae137846c55dbe4200609cbe124e8c86cff8",
+    "qa_sha256": "9824c2f8f95d54e772c601464022164417bdd3fbeaca9499a6ab9662a5148ec4",
+    "review_sha256": "6eecf4d7ad63ed67a2d1869af1ddc67bf0ce1c15d58055b54ae62e744be72954"
+  },
+  "leakage_and_privacy_result": {
+    "status": "PASS",
+    "temporal": "Unknown, invalid, future-ineligible, quarantined, wrong-ticker and wrong-dataset evidence remains fail closed; storage uses like-typed Neo4j temporal values.",
+    "write_boundary": "All missing-identity, invalid-time and quarantined counterexamples make zero entity/relation write calls.",
+    "observability": "Attempt1 allowlisted trace, measured latency/count and sanitized error behavior remains unchanged; static raw-exception persistence scan has zero matches."
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "external_counts": "NOT_AVAILABLE_NO_EXTERNAL_READ",
+    "legacy_data_deleted": false,
+    "route_switched": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the prior Attempt1 graph_store.py bytes and Attempt2 test/fixture bytes.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "external_execution": {
+    "network_access": "NOT_RUN",
+    "database_reads": "NOT_RUN",
+    "database_writes": "NOT_RUN",
+    "live_neo4j": "NOT_RUN_UNAUTHORIZED",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "Neo4j temporal property typing is proven by normalized parameters and exact Cypher query-shape tests; no live Neo4j integration run was authorized.",
+    "Temporal V2 remains fixture/mock validated until separately authorized migration and reconciliation.",
+    "Stage04B remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "prior_attempt_artifacts_modified": false,
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-08-31T18:49:05.6717810Z"
+}

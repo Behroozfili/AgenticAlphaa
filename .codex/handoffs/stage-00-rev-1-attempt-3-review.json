@@ -1,0 +1,70 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "00",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "reviewer",
+  "status": "APPROVED",
+  "review_status": "APPROVED",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "id": "STAGE00-KNOWN-FAILURES-001",
+      "finding": "The offline unit baseline intentionally remains non-green: 1045 passed and 40 known failures. The manifest keeps all failures visible, separates 36 product-contract failures from four missing-legacy-migration failures, and assigns owners or a recovery/retirement decision. This is permitted by the Stage 00 close rule and is not evidence of investment or product correctness."
+    },
+    {
+      "id": "STAGE00-LIVE-CLASSIFICATION-002",
+      "finding": "Legacy integration tests are explicit-only because some can perform external I/O without live markers. The default runner is safely unit-only and live-deselected; future stages should reclassify those tests only under exact locks."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [],
+  "review_blockers": [],
+  "evidence": [
+    {
+      "check": "artifact_identity_and_gate",
+      "status": "PASS",
+      "detail": "Current state is REVIEW for Stage 00 revision 1 attempt 3; matching implementation and BASELINE_READY milestone artifacts are present, the milestone is PASS, matching QA is PASS, observability_required is false, and this review path is exactly locked to reviewer."
+    },
+    {
+      "check": "scope_ownership_and_immutability",
+      "status": "PASS",
+      "detail": "Control validation reports CONTROL VALID. Every changed Stage 00 path has an exact owner lock; the only product-adjacent edits are locked tests and pytest configuration. Attempt-1 and attempt-2 artifacts remain present with timestamps predating attempt 3 and intact supersession history; dfc.md retains its pre-existing user-owned SHA-256."
+    },
+    {
+      "check": "test_contract_integrity",
+      "status": "PASS",
+      "detail": "The attempt-3 diffs restore process environment after observability tests and mock only each circuit-breaker test's non-target provider. No assertion, test case, product path, dependency, migration, or coverage target was removed or weakened. Collection remains 1085 unit plus 51 integration tests."
+    },
+    {
+      "check": "baseline_honesty",
+      "status": "PASS",
+      "detail": "The obsolete MSFT validation trace is recorded as OBSOLETE_BY_USER_DECISION and is neither recovered nor reconstructed. Historical point-in-time data is honestly NOT_AVAILABLE. Supabase, Neo4j, backup artifacts and checksums are NOT_AVAILABLE, and restore is NOT_RUN_NOT_AVAILABLE; none is falsely marked PASS."
+    },
+    {
+      "check": "migration_disposition",
+      "status": "PASS",
+      "detail": "The absent legacy supabase_phase5_provenance_migration.sql remains BLOCKED_PRE_EXISTING with NO_VALID_RETARGET. Its original test is unchanged, its four FileNotFoundError failures remain visible, and no guessed SQL, weakened assertion, silent Stage 02 replacement, or migration application occurred."
+    },
+    {
+      "check": "runner_reproducibility_and_offline_safety",
+      "status": "PASS",
+      "detail": "Matching QA independently captured 1136 tests, 1045 passes and 40 known failures with zero external DNS/connect attempts. Python 3.12.13, pytest 9.0.3, the offline uv lock check, 210 resolved packages, and all manifest runner/dependency/test/model hashes were verified; reviewer spot-check hashes match the manifest."
+    },
+    {
+      "check": "operational_safety_and_rollback",
+      "status": "PASS",
+      "detail": "No product/schema/data mutation, migration, seed, deletion, external download, deploy, commit, or push is claimed or present. Rollback is scoped to attempt-3 test-isolation edits, corresponding manifest evidence and attempt-3 Core artifacts while preserving prior artifacts, state, product files and dfc.md. Stage 01 remains PENDING/NOT_STARTED."
+    },
+    {
+      "check": "downstream_contracts",
+      "status": "NOT_APPLICABLE_NO_PRODUCT_CHANGE",
+      "detail": "Stage 00 introduced no forecast, temporal, SEC, DCF/WACC, nine-intent mapper, quant, persistence, prompt, dataset, schema, or monthly target/provider/universe/action-policy change. Those contracts therefore remain untouched rather than prematurely implemented."
+    }
+  ],
+  "rollback_reviewed": true,
+  "supersedes": null,
+  "created_at": "2026-08-27T19:17:22.7121611Z"
+}

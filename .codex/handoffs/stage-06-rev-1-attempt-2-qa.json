@@ -1,0 +1,213 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "qa_status": "PASS",
+  "execution_phase": "QA",
+  "control_revision": 109,
+  "changed_files": [
+    ".codex/handoffs/stage-06-rev-1-attempt-2-qa.json"
+  ],
+  "implementation_artifact": ".codex/handoffs/stage-06-rev-1-attempt-2-implementation.json",
+  "implementation_sha256": "8f7a2503db2b8c9d97df80e772306606f83e28f6907e1bc1f0b6ab598db0d076",
+  "input_artifact_chain": {
+    "prior_review": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-review.json",
+      "sha256": "d5b19765594a7b08075712f627a1e660040bbdd5e16ccfb3188896a0f3d36979",
+      "review_status": "REJECTED"
+    },
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-2-draft-ready.json",
+      "sha256": "537594dfb81297f2734619eea410a186d876913fed0523bfc3d998b5cddfe5cd"
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-2-observability.json",
+      "sha256": "5af79684becfea6856ef4a66d24b48e66923d1ce455bce9da89a4255759f9f76",
+      "status": "CHANGES_REQUESTED"
+    },
+    "change_request": {
+      "path": ".codex/handoffs/change-request-stage-06-rev-1-attempt-2-1.json",
+      "sha256": "81da16287e193f1aec3fe2c457681f7c1de223d6368484c65a170d0415f88a0c"
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-2-implementation.md",
+      "sha256": "0e563ff43608b3dc4050f671c20fa3b43e8463a7f8e28ebc816d5a0e7dce20b4"
+    },
+    "status": "PASS_ALL_HASHES_IDENTITIES_AND_SCHEMAS"
+  },
+  "tests_run": [
+    {
+      "command": "python -m pytest tests/unit_tests/sentiment_test tests/unit_tests/test_sentiment_phase4.py tests/unit_tests/test_aspect_sentiment_phase6.py tests/unit_tests/test_agents/test_sentiments_agent.py tests/integration_test_2/test_sentiment_agent_only.py tests/integration_tests/test_integration_sentiment_agent.py -q -m \"not live and not slow and not db\"",
+      "exit_code": 0,
+      "result": "167 passed, 5 deselected, 1 deprecation warning in 6.86s",
+      "network_mode": "OFFLINE_MOCKS_FIXTURES_AND_LOCAL_MODELS"
+    },
+    {
+      "command": "three exact Reviewer counterexamples: future effective_from with eligible published_at; same-URL past/future isolation; missing ForecastContext/run identity",
+      "exit_code": 0,
+      "result": "3 passed in 16.71s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "tests/unit_tests/test_agents/test_sentiments_agent.py::TestStage06ObservabilitySentinels",
+      "exit_code": 0,
+      "result": "3 passed in 11.52s; attempt=2 and implementation_version=stage06-r1-a2 verified with payload-free trace/lifecycle behavior",
+      "network_mode": "OFFLINE_MOCKS"
+    },
+    {
+      "command": "python -m pytest --collect-only -q",
+      "exit_code": 0,
+      "result": "1285 tests collected in 17.83s; zero collection errors"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests -q -m \"not live and not slow and not db\"",
+      "exit_code": 1,
+      "result": "1280 passed, 5 known baseline/out-of-scope failures in 62.58s: one Manager Stage08 failure and four absent legacy migration failures",
+      "classification": "NO_STAGE06_ATTEMPT2_REGRESSION"
+    },
+    {
+      "command": "SHA-256 verification of all eight implementation-recorded Attempt2 source/test paths, five Attempt2 predecessor artifacts, implementation JSON, seven Attempt1 chain artifacts and Attempt1 review",
+      "exit_code": 0,
+      "result": "PASS; zero mismatches; eight Attempt1 artifacts remain byte-identical"
+    },
+    {
+      "command": "static scans for promt_sentinemt and stale stage06-r1-a1/attempt=1 identity in Attempt2 runtime/test paths",
+      "exit_code": 0,
+      "result": "old prompt absent; zero old prompt references; zero stale Attempt1 identity references"
+    },
+    {
+      "command": "official validation of Attempt2 draft-ready, observability, change-request, implementation, Attempt1 review, control and locks",
+      "exit_code": 0,
+      "result": "CONTROL VALID for every input artifact and --check-control --check-locks"
+    }
+  ],
+  "reviewer_counterexample_audit": {
+    "REVIEW-06-B-001": "PASS_ALL_PRESENT_PUBLICATION_AND_EFFECTIVE_TIMESTAMPS_INDEPENDENTLY_VALIDATED_BEFORE_SCORING",
+    "REVIEW-06-B-002": "PASS_RAW_CHUNK_TEMPORAL_FILTER_PRECEDES_CANONICAL_GROUPING_AND_GROUP_REVALIDATION",
+    "REVIEW-06-B-003": "PASS_FORECAST_CONTEXT_AND_RUN_ID_UNCONDITIONALLY_REQUIRED_BEFORE_ALL_MCP_DISPATCH",
+    "reviewer_counterexamples_passed": 3,
+    "reviewer_counterexamples_failed": 0
+  },
+  "contract_audit": {
+    "forecast_context_required_before_provider": "PASS",
+    "run_id_required_before_provider": "PASS",
+    "ticker_context_consistency": "PASS",
+    "fixed_calendar_windows_7_14_30": "PASS",
+    "evidence_after_as_of_rejected": "PASS_ZERO_FUTURE_EVIDENCE_EXPORTED",
+    "future_effective_from_with_past_published_at_rejected": true,
+    "same_url_future_chunk_reaches_model": false,
+    "untimestamped_evidence_rejected": "PASS_MISSING_NOT_NEUTRAL",
+    "canonical_evidence_deduplication": "PASS",
+    "missing_window_behavior": "PASS_EXPLICIT_UNAVAILABLE",
+    "deterministic_finbert_identity": "PASS_IMMUTABLE_LOCAL_GIT_REVISION",
+    "deterministic_vader_identity": "PASS_EXACT_LOCAL_LEXICON_SHA256",
+    "automatic_model_or_lexicon_download": false,
+    "prompt_rename_atomic_and_collection_safe": "PASS"
+  },
+  "attempt2_identity_audit": {
+    "single_source": "agents/executor_helpers/sentiment_helper.py::SENTIMENT_IMPLEMENTATION_IDENTITY",
+    "stage": "06",
+    "stage_revision": 1,
+    "attempt": 2,
+    "agent": "sentiment",
+    "implementation_version": "stage06-r1-a2",
+    "stale_attempt1_runtime_references": 0,
+    "trace_lifecycle_sentinels": "PASS_3"
+  },
+  "observability_audit": {
+    "OBS-06-A2-001": "PASS_CURRENT_ATTEMPT_AND_IMPLEMENTATION_IDENTITY_ACROSS_TRACE_PROGRESS_AND_LIFECYCLE",
+    "OBS-06-001": "PASS_PRIVATE_QUERY_AND_FREE_FORM_ERROR_ABSENT_FROM_LOGS_PROGRESS_STATE_AND_SENTRY",
+    "OBS-06-002": "PASS_EIGHT_MEASURED_VERSIONED_PAYLOAD_FREE_LIFECYCLE_BOUNDARIES",
+    "OBS-06-003": "PASS_MCP_CHILD_FAILURE_SANITIZED_INSIDE_TRACE_BOUNDARY",
+    "OBS-06-004": "PASS_IMMUTABLE_FINBERT_AND_VADER_LOCAL_IDENTITIES",
+    "private_sentinel_persisted": false,
+    "measured_boundary_count": 8,
+    "free_form_provider_error_exported": false
+  },
+  "leakage_report": {
+    "status": "PASS_ZERO_FUTURE_SENTIMENT_EVIDENCE_EXPORTED",
+    "boundary": "every present published_at/effective_from timestamp <= ForecastContext.as_of",
+    "filter_order": "PER_RAW_CHUNK_BEFORE_GROUPING_THEN_GROUP_REVALIDATION",
+    "future_evidence_visible": false,
+    "same_url_future_text_visible": false,
+    "duplicate_evidence_counted_twice": false,
+    "untimestamped_evidence_scored": false,
+    "missing_evidence_converted_to_neutral": false,
+    "historical_current_fallback_available": false,
+    "live_provider_evidence_used": false
+  },
+  "regression_report": {
+    "stage06_offline_suite": "PASS_167",
+    "reviewer_counterexamples": "PASS_3",
+    "attempt2_trace_lifecycle_identity": "PASS_3",
+    "collection": "PASS_1285_ZERO_ERRORS",
+    "full_offline_unit": "1280_PASS_5_KNOWN_NON_STAGE06_FAILURES",
+    "new_stage06_attempt2_failures": 0
+  },
+  "known_out_of_scope_failures": [
+    {
+      "path": "tests/unit_tests/test_agents/test_manager_agent.py::TestRunFullPipeline::test_happy_path_runs_all_three_agents_and_finalises",
+      "count": 1,
+      "classification": "BASELINE_RESPONSIBLE_STAGE_08",
+      "evidence": "The Stage00 baseline manifest assigns this unchanged Manager expectation to Stage08; neither agents/manager_agent.py nor its test is an Attempt2 changed path."
+    },
+    {
+      "path": "tests/unit_tests/test_supabase_phase5_migration.py",
+      "count": 4,
+      "classification": "BLOCKED_PRE_EXISTING_NO_VALID_RETARGET",
+      "evidence": "The Stage00 baseline manifest records the absent root supabase_phase5_provenance_migration.sql and preserves these four unchanged FileNotFoundError failures; Attempt2 owns no migration path."
+    }
+  ],
+  "source_integrity": {
+    "attempt2_recorded_source_test_paths": 8,
+    "attempt2_matching_paths": 8,
+    "attempt2_mismatches": 0,
+    "attempt2_input_chain_hashes_matching": 6,
+    "attempt1_artifacts_checked": 8,
+    "attempt1_artifact_mismatches": 0,
+    "old_prompt_exists": false,
+    "old_prompt_source_test_references": 0,
+    "stale_attempt1_identity_references": 0,
+    "scope_status": "PASS_LOCKED_STAGE06_ATTEMPT2_SCOPE"
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_sentiment_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "qa_harness_notes": [
+    "One initial validator command contained an accidental /live suffix and validated nothing; the exact official validator was immediately rerun successfully for all inputs without editing any source, test, state or prior artifact.",
+    "One initial Reviewer-counterexample selection used an incorrect test class node ID and collected no tests; the corrected three exact node IDs then passed. This was a QA command-selection error, not a product failure."
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "08",
+      "issue": "One preserved Manager happy-path baseline expectation remains for Integration ownership."
+    },
+    {
+      "stage": "00_OR_EXPLICIT_USER_DECISION",
+      "issue": "Four legacy migration tests remain blocked by the deliberately unreconstructed root SQL file."
+    }
+  ],
+  "limitations": [
+    "All Stage06 Attempt2 acceptance evidence is offline; live sentiment providers and external trace services were intentionally not contacted.",
+    "Five known failures remain visible in unchanged non-Stage06 paths and are not counted as Attempt2 regressions.",
+    "The transformers WordPiece deprecation warning is non-blocking and did not affect deterministic results."
+  ],
+  "created_at": "2026-09-03T20:48:56.0738640Z"
+}

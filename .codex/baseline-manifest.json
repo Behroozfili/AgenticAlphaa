@@ -1,40 +1,150 @@
 {
   "schema_version": "1.0",
-  "status": "INCOMPLETE",
-  "captured_at": null,
-  "repository_head": null,
-  "working_tree_status_artifact": null,
+  "status": "CAPTURED_WITH_KNOWN_FAILURES",
+  "captured_at": "2026-08-27T19:00:10.4207811Z",
+  "repository_head": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "repository_branch": "main",
+  "control_plane_workspace_baseline": "c2385b3a3a648c002a8a6023f7a040c1c438f29c",
+  "working_tree_status_artifact": ".codex/handoffs/stage-00-rev-1-attempt-3-implementation.json",
+  "working_tree_at_capture": [
+    {"path": ".codex/refactor-state.json", "status": "MODIFIED", "owner": "orchestrator", "note": "Stage 00 activation and locks; excluded from core changed_files."},
+    {"path": "pytest.ini", "status": "MODIFIED", "owner": "core", "note": "Stage 00 offline/default runner configuration."},
+    {"path": "tests/unit_tests/core_test/test_observability.py", "status": "MODIFIED", "owner": "core", "note": "Attempt 3 restores LangChain tracing environment after every observability test."},
+    {"path": "tests/unit_tests/test_rag/test_pipline_rag.py", "status": "MODIFIED", "owner": "core", "note": "Attempt 3 isolates non-target providers in loader circuit-breaker tests."},
+    {"path": "dfc.md", "status": "PREEXISTING_UNTRACKED", "owner": "user", "sha256": "79b6345d56269bd7659d77877b4dba3ccc39d6d690f1c1982114f5ea2e9c076b"}
+  ],
   "items": {
     "validation_trace": {
       "path": "validation_MSFT_full_report_20260826_161633.json",
-      "status": "MISSING",
-      "resolution": "Recover the exact file and redact secrets/oversized raw payloads, or explicitly create and approve a replacement baseline during Stage 00. Never fabricate historical latency or quality numbers."
+      "status": "OBSOLETE_BY_USER_DECISION",
+      "resolution": "The user confirmed this is an obsolete legacy execution trace, not historical market data. It was not recovered, reused, or reconstructed. This manifest and the current local test evidence are the replacement Stage 00 baseline. Historical point-in-time datasets remain future Stage 07/09 work."
     },
     "legacy_supabase_migration": {
       "path": "supabase_phase5_provenance_migration.sql",
-      "status": "MISSING",
-      "resolution": "Recover the exact migration or formally retarget tests to an existing versioned migration after reviewing their assertions. Do not recreate the legacy SQL from memory."
+      "status": "BLOCKED_PRE_EXISTING",
+      "test_path": "tests/unit_tests/test_supabase_phase5_migration.py",
+      "disposition": "NO_VALID_RETARGET",
+      "evidence": [
+        "No SQL or Cypher migration exists in the workspace.",
+        "No matching migration path or object exists in local Git history.",
+        "No existing versioned SQL migration satisfies the legacy assertions.",
+        "The legacy test remains unchanged and its four failures are preserved."
+      ],
+      "resolution": "Recover the exact historical migration or make an explicit future retirement decision. Stage 02 migrations must not silently replace it, and no SQL may be guessed from the test."
     },
     "python_test_runner": {
-      "status": "UNVERIFIED",
-      "interpreter": null,
-      "collect_only_artifact": null,
-      "offline_baseline_artifact": null,
-      "resolution": "Stage 00 must identify a runnable interpreter, run collection, and record pre-existing failures separately from refactor regressions."
+      "status": "VERIFIED_WITH_KNOWN_FAILURES",
+      "interpreter": "D:/AgenticAlpha/.venv/Scripts/python.exe",
+      "python_version": "3.12.13",
+      "pytest_version": "9.0.3",
+      "collect_only_artifact": ".codex/handoffs/stage-00-rev-1-attempt-3-implementation.json",
+      "offline_baseline_artifact": ".codex/handoffs/stage-00-rev-1-attempt-3-implementation.json",
+      "pytest_plugin_controls": {
+        "disabled_plugins": ["langsmith_plugin"],
+        "configuration": "-p no:langsmith_plugin",
+        "trace_config_probe": "PASS",
+        "langsmith_pytest_plugin_registered": false,
+        "network_or_teardown_error_observed": false,
+        "external_dns_or_connect_attempts": 0,
+        "qa_findings_resolved": ["STAGE00-OFFLINE-RUNNER-001", "STAGE00-OFFLINE-UNIT-IO-002"],
+        "attempt_3_controls": [
+          "Observability fixture restores LANGCHAIN_TRACING_V2, LANGCHAIN_API_KEY, and LANGCHAIN_PROJECT.",
+          "Loader circuit-breaker tests mock the non-target Yahoo/RSS provider.",
+          "Guard blocks and records external DNS, socket.connect, socket.connect_ex, and socket.create_connection while allowing localhost."
+        ]
+      },
+      "collection": {
+        "command": "guarded pytest --collect-only -qq --disable-warnings tests/unit_tests tests/integration_tests",
+        "network_mode": "LOCALHOST_ONLY_GUARD",
+        "exit_code": 0,
+        "duration_seconds": 25.10,
+        "unit_tests": 1085,
+        "integration_tests": 51,
+        "total_tests": 1136,
+        "external_dns_or_connect_attempts": 0
+      },
+      "offline_unit_baseline": {
+        "command": "guarded pytest -q --disable-warnings --tb=no tests/unit_tests",
+        "network_mode": "LOCALHOST_ONLY_GUARD",
+        "exit_code": 1,
+        "duration_seconds": 39.01,
+        "passed": 1045,
+        "failed": 40,
+        "warnings": 6,
+        "external_dns_or_connect_attempts": 0,
+        "new_stage_00_regressions": 0,
+        "classification": "PRE_EXISTING_FAILURES_CAPTURED"
+      },
+      "failure_groups": [
+        {"responsible_stage": "01", "owner": "core", "count": 2, "paths": ["tests/unit_tests/core_test/test_error_handler.py"], "reason": "safe-extra behavior differs from existing assertions"},
+        {"responsible_stage": "05", "owner": "financial", "count": 28, "paths": ["tests/unit_tests/test_agents/test_financial_agent.py"], "reason": "legacy FinancialAnalystAgent tests no longer match current agent state/method contract"},
+        {"responsible_stage": "06", "owner": "sentiment", "count": 4, "paths": ["tests/unit_tests/sentiment_test/test_finbert_anayzer.py", "tests/unit_tests/sentiment_test/test_vader_scorer.py", "tests/unit_tests/test_sentiment_phase4.py"], "reason": "NO_DATA and confidence semantics differ from legacy assertions"},
+        {"responsible_stage": "08", "owner": "integration", "count": 1, "paths": ["tests/unit_tests/test_agents/test_manager_agent.py"], "reason": "legacy manager happy-path expectation is rejected by current deterministic publication validation"},
+        {"responsible_stage": "03", "owner": "data_rag", "count": 1, "paths": ["tests/unit_tests/test_rag/test_ingestion.py"], "reason": "legacy Sentry patch point no longer exists"},
+        {"responsible_stage": "00", "owner": "explicit_recovery_or_retirement_decision", "count": 4, "paths": ["tests/unit_tests/test_supabase_phase5_migration.py"], "reason": "legacy SQL migration file is absent"}
+      ]
     },
     "database_backup_inventory": {
-      "status": "UNVERIFIED",
-      "supabase": null,
-      "neo4j": null,
-      "restore_evidence": null,
-      "resolution": "Read-only inventory is allowed in Stage 00. No backup or restore claim may be marked PASS without evidence and any required external authorization."
+      "status": "NOT_AVAILABLE",
+      "source": "User decision plus local read-only data_rag inventory",
+      "supabase": {
+        "status": "NOT_AVAILABLE",
+        "actual_schema_rpc_index_rls_counts": "UNKNOWN",
+        "configuration_key_names_present": true,
+        "connectivity_tested": false
+      },
+      "neo4j": {
+        "status": "NOT_AVAILABLE",
+        "actual_constraints_indexes_counts": "UNKNOWN",
+        "configuration_key_names_present": true,
+        "connectivity_tested": false
+      },
+      "backup_artifacts": [],
+      "backup_checksum": null,
+      "restore_evidence": {
+        "status": "NOT_RUN_NOT_AVAILABLE",
+        "native_restore_tools_available": false,
+        "reason": "No backup artifact, checksum, endpoints, target versions, or native Supabase/PostgreSQL/Neo4j restore CLIs are available."
+      },
+      "resolution": "No external inventory or restore can be claimed. A future database-affecting stage requires separate authorization and real backup/restore evidence before any destructive operation."
     }
+  },
+  "test_inventory": {
+    "unit_test_files": 56,
+    "integration_test_files": 4,
+    "default_testpaths": ["tests/unit_tests"],
+    "explicit_full_collection_paths": ["tests/unit_tests", "tests/integration_tests"],
+    "registered_markers": ["unit", "integration", "live", "backtest", "slow", "asyncio"],
+    "live_default": "DESELECTED_BY_PYTEST_ADOPTS",
+    "legacy_live_risk": "Several integration tests make real Yahoo, SEC, news, database, or LLM calls without a live marker. They are excluded from default testpaths and remain explicit-only until their files are reclassified under future exact locks."
+  },
+  "reproducibility": {
+    "canonical_direct_dependency_source": "pyproject.toml",
+    "lock_file": "uv.lock",
+    "lock_check": {"command": "uv lock --check --offline", "status": "PASS", "resolved_packages": 210},
+    "requirements_snapshot": {"path": "requirements.txt", "status": "PRESENT_NOT_REGENERATED"},
+    "hashes": {
+      "pytest_ini_sha256": "33ce71920181af4d0554d99e14ff3c438ea79085bcf2794d90ee3e36b47cd3a1",
+      "pyproject_toml_sha256": "f170e0ad5e33658c5ace0a9f5e613311af24dc08de7be039f7668fb89e6ccb4f",
+      "requirements_txt_sha256": "5b9188cf24ba3b049e29a47a648571d6bfe387208c1572772058d9d0533b339a",
+      "uv_lock_sha256": "1cc779313c33b49f6b8c6de39f9f5895e6f7a59378693fc88648e177efb0e3d2",
+      "prompt_tree_git_sha1": "e388c368f3e0da235c5e5bb7e515c1bb63e9eddc",
+      "model_config_file": "api/config.py",
+      "model_config_sha256": "1b32cb1c1c523ffaa0ab217422fe6d0659f2d5e03771f3804d0ae35718b6b711",
+      "attempt_3_observability_test_sha256": "257864bd7cdca645f656e061eef868bdf8bae481c620cf10c77d6e5eaa5f3fe7",
+      "attempt_3_rag_pipeline_test_sha256": "47ad02e6dfd1f9ee10b1412a554ef209c6e5106286530e03416b88ea255c50a7"
+    },
+    "dataset": {"status": "NOT_AVAILABLE", "note": "No historical point-in-time dataset exists yet; acquisition/versioning belongs to Stages 07 and 09."}
   },
   "stage_00_close_policy": {
     "test_collection_must_run": true,
+    "test_collection_ran": true,
     "pre_existing_failures_may_be_documented": true,
     "pre_existing_failures_must_not_be_hidden": true,
+    "pre_existing_failures_are_documented": true,
     "missing_baseline_must_have_an_approved_disposition": true,
-    "external_database_writes_required": false
+    "legacy_trace_has_approved_disposition": true,
+    "external_database_writes_required": false,
+    "external_database_writes_performed": false
   }
 }

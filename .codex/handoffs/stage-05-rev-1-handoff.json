@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "05",
+  "stage_revision": 1,
+  "accepted_attempt": 1,
+  "primary_agent": "financial",
+  "implementation_status": "IMPLEMENTED",
+  "observability_status": "AUDITED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "draft_ready": ".codex/handoffs/stage-05-rev-1-attempt-1-draft-ready.json",
+    "observability": ".codex/handoffs/stage-05-rev-1-attempt-1-observability.json",
+    "implementation": ".codex/handoffs/stage-05-rev-1-attempt-1-implementation.json",
+    "qa": ".codex/handoffs/stage-05-rev-1-attempt-1-qa.json",
+    "review": ".codex/handoffs/stage-05-rev-1-attempt-1-review.json"
+  },
+  "implementation_markdown": ".codex/handoffs/stage-05-rev-1-attempt-1-implementation.md",
+  "retry_chain": [
+    {
+      "attempt": 1,
+      "terminal_gate": "REVIEW",
+      "result": "APPROVED",
+      "artifact": ".codex/handoffs/stage-05-rev-1-attempt-1-review.json"
+    }
+  ],
+  "resolved_findings": [
+    "OBS-05-001",
+    "OBS-05-002",
+    "OBS-05-003"
+  ],
+  "accepted_counts": {
+    "observability_sentinels_passed": 4,
+    "point_in_time_privacy_lifecycle_sentinels_passed": 9,
+    "financial_tests_passed": 281,
+    "mapper_dcf_regressions_passed": 165,
+    "graph_rag_regressions_passed": 333,
+    "collection_total": 1322,
+    "collection_errors": 0,
+    "recorded_hashes_matched": 29,
+    "recorded_hashes_mismatched": 0
+  },
+  "delivered_contract": [
+    "SEC, Yahoo, ratio, server, Financial agent and helper execution carry a validated ForecastContext plus run_id and ticker identity and fail closed when identity is absent or inconsistent.",
+    "SEC facts and filings enforce filed_at on or before as_of independently from period_end, select only the newest eligible restatement, keep future amendments invisible, and expose eligible annual and quarterly history with compact provenance.",
+    "Historical Yahoo execution uses exact adjusted start, end and as_of boundaries and cannot construct or substitute a current snapshot provider in historical mode.",
+    "All nine Financial intents and their mappers are preserved together with DCF, WACC, reverse DCF, scenarios and Monte Carlo semantics; DCF remains long-term valuation evidence and is never treated as a 21-trading-day forecast.",
+    "MonthlyFinancialFeatures is typed, deterministic and compact, retaining valuation, growth, quality, leverage, liquidity, cash-flow, filing-age, missing, degraded and versioned provenance fields; missing values remain null rather than zero.",
+    "Shared State retains compact references and features rather than raw filings, provider payloads or reasoning, and the canonical Financial checker prompt uses prompt_finance_checker.py with the legacy typo module removed.",
+    "Financial MCP, lifecycle and logging telemetry is measured, bounded and allowlisted across the required twelve boundaries, excluding raw arguments, outputs, exceptions and financial scalar payloads."
+  ],
+  "known_limitations": [
+    "No live SEC, Yahoo or other financial-provider validation was authorized or used as acceptance evidence; closure is based on deterministic offline fixtures, mocks and regressions.",
+    "No external database access, migration application, seed, deletion, deploy, commit or push was authorized or performed.",
+    "Stage 06 remains PENDING, NOT_STARTED and inactive until separately authorized."
+  ],
+  "operational_safety": {
+    "live_provider_validation": false,
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deploy_commit_or_push": false
+  },
+  "next_stage": "06",
+  "next_stage_activated": false,
+  "supersedes": null,
+  "created_at": "2026-09-02T16:09:44.8929220Z"
+}

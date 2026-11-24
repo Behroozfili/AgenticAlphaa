@@ -1,0 +1,183 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "data_rag",
+  "status": "IMPLEMENTED",
+  "execution_phase": "PRIMARY_FINAL",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-03-rev-2-handoff.json",
+  "dependency_handoff_sha256": "19a684a9f65c7e348f758725280497195a7daaa381c3dded794eab66e04a3a2a",
+  "draft_ready_artifact": ".codex/handoffs/stage-04A-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "27eeced34e07bd9417dd36a5278a34b790cbd0062e5a141e10c11ac271fbb7ff",
+  "observability_artifact": ".codex/handoffs/stage-04A-rev-1-attempt-2-observability.json",
+  "observability_sha256": "007f2a09fce5811d9e9cc471ff7fd37c8811dbbd84bb27b887d4abafa25ce147",
+  "observability_status": "AUDITED_WITH_PRIMARY_CHANGE_APPLIED",
+  "changed_files": [
+    "rag/graph_store.py",
+    "rag/hybrid_rag.py",
+    "tests/unit_tests/test_rag/test_graph_store.py",
+    "tests/unit_tests/test_rag/test_hybried.py",
+    "tests/fixtures/stage4a_temporal_graph_hybrid.json",
+    ".codex/handoffs/stage-04A-rev-1-attempt-2-implementation.md",
+    ".codex/handoffs/stage-04A-rev-1-attempt-2-implementation.json"
+  ],
+  "revalidated_unchanged_files": [
+    "rag/__init__.py"
+  ],
+  "resolved_review_findings": [
+    {
+      "id": "STAGE04A-NEO4J-TEMPORAL-PROPERTY-TYPE-001",
+      "status": "RESOLVED",
+      "resolution": "All six graph temporal inputs are parsed once into timezone-aware UTC values. EvidenceObservationV2 persists them through null-safe Cypher datetime(parameter) conversion on create, required unknown or invalid time fails closed, optional unknown remains null, and no current-time substitution exists."
+    },
+    {
+      "id": "STAGE04A-INCOMPLETE-V2-WRITE-FAIL-CLOSED-002",
+      "status": "RESOLVED",
+      "resolution": "Only write_mode=legacy plus provenance=legacy_explicit enters the aggregate legacy MERGE. V2, unknown-provenance, incomplete, invalid and quarantined inputs are rejected before entity/relation work with zero write calls and compact stable rejection codes/counts."
+    },
+    {
+      "id": "STAGE04A-EVIDENCE-MATERIALIZED-AT-003",
+      "status": "RESOLVED",
+      "resolution": "Canonical Stage03 materialized_at or ingested_at provenance is carried without a now fallback, required and normalized for temporal V2, persisted as a Neo4j DateTime on create, and left unchanged on idempotent retry."
+    }
+  ],
+  "resolved_observability_findings": [
+    {
+      "id": "OBS-04A-004",
+      "status": "RESOLVED",
+      "resolution": "The allowlisted Hybrid trace identity now reports attempt=2. An offline sentinel assertion covers Vector input, Graph output, RRF/Hybrid lifecycle and Hybrid processed metadata at stage=04A, stage_revision=1, attempt=2, agent=data_rag while proving raw query, URL, evidence and secret exclusion."
+    },
+    {
+      "id": "OBS-04A-001..003",
+      "status": "PRESERVED",
+      "resolution": "Compact allowlisted processing, measured latency/count/degradation telemetry, stable error codes and sanitized log/Sentry behavior remain unchanged."
+    }
+  ],
+  "implementation_contract": {
+    "graph_write": "Immutable temporal observations require explicit Stage03 provenance, complete stable identities, known required times and non-quarantined state; legacy aggregate writes require an explicit legacy boundary.",
+    "temporal_storage": "Publication, retrieval, filing, effective interval and materialization values use normalized UTC input and Neo4j temporal properties; unknown is never mapped to now.",
+    "retrieval": "One ForecastContext constrains Vector and Graph before ranking/traversal; temporal graph retrieval fails closed and preserves citations and explicit degradation.",
+    "observability": "Vector, Graph, RRF and Hybrid emit only compact context/version/stage identity, counts, bounded latency, degradation and stable codes attributed to Attempt 2.",
+    "legacy": "Explicit legacy inputs remain supported; legacy namespace/data and the default legacy-compatible startup path were not removed or switched."
+  },
+  "final_self_tests": [
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py::TestAttempt2ReviewBlockers --tb=short",
+      "exit_code": 0,
+      "result": "27 passed in 16.24s"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_hybried.py::TestRedactedTracingAndLifecycle::test_vector_graph_rrf_hybrid_metadata_matches_active_attempt_without_raw_capture --tb=short",
+      "exit_code": 0,
+      "result": "1 passed in 42.76s"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py --tb=short",
+      "exit_code": 0,
+      "result": "93 passed in 17.90s"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag tests/unit_tests/test_stage3_narrative_stability.py --tb=short",
+      "exit_code": 0,
+      "result": "349 passed in 58.00s"
+    },
+    {
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1293 tests collected in 20.51s; zero collection errors"
+    },
+    {
+      "command": "scoped py_compile; git diff --check; static privacy scan; control/lock validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; PRIVACY_STATIC_SCAN=PASS_ZERO_MATCHES; line-ending notices only"
+    }
+  ],
+  "self_tests_run": [
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py::TestAttempt2ReviewBlockers --tb=short",
+      "exit_code": 0,
+      "result": "27 passed in 16.24s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_hybried.py::TestRedactedTracingAndLifecycle::test_vector_graph_rrf_hybrid_metadata_matches_active_attempt_without_raw_capture --tb=short",
+      "exit_code": 0,
+      "result": "1 passed in 42.76s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py --tb=short",
+      "exit_code": 0,
+      "result": "93 passed in 17.90s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag tests/unit_tests/test_stage3_narrative_stability.py --tb=short",
+      "exit_code": 0,
+      "result": "349 passed in 58.00s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1293 tests collected in 20.51s; zero collection errors"
+    },
+    {
+      "command": "compile, scoped diff, privacy scan, control/artifact/lock validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; privacy scan zero matches"
+    }
+  ],
+  "source_sha256": {
+    "rag/graph_store.py": "50b52061db0d0dbaa557baf3a3686b894b8740818128f687033b9aba2b649f5b",
+    "rag/hybrid_rag.py": "53e7057b4649da3591b932951f308fdd6319b942a3e0bb125a534333a6ef1cdc",
+    "rag/__init__.py": "8e626b80cd9fa25d9fcb4ebb05f9f5049b33384f2b7c1fd6ca6fecfa92a375c1",
+    "tests/unit_tests/test_rag/test_graph_store.py": "37d9bbe725a1763051536c0276deb7cffda7d46b092fb4fc45e9adafe34fc1f7",
+    "tests/unit_tests/test_rag/test_hybried.py": "d476e86efd3c308249991ca50573a5c3cb1d26fb0fc5fc7b199f3f712883c280",
+    "tests/fixtures/stage4a_temporal_graph_hybrid.json": "8c5f352787640a457fb043e5634c66bab12b22d65a83e83194c26913a3c92413"
+  },
+  "leakage_and_privacy_result": {
+    "status": "PASS",
+    "temporal": "Future, unknown, invalid, quarantined, wrong-ticker and wrong-dataset observations remain ineligible before traversal or ranking.",
+    "write_boundary": "Missing-identity, invalid-time, reversed-interval, unknown-provenance and quarantined counterexamples make zero entity/relation writes.",
+    "trace": "The Attempt2 sentinel query, evidence text, private URL and secret do not appear in processed Vector, Graph, RRF or Hybrid metadata/lifecycle output.",
+    "failure": "Scoped static raw-exception/source-URL persistence scan reported zero matches."
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "external_counts": "NOT_AVAILABLE_NO_EXTERNAL_READ",
+    "legacy_data_deleted": false,
+    "route_switched": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the prior Attempt1 Graph writer and Attempt2 draft Hybrid identity/test bytes.",
+    "graph_write_recovery": "Retrying an identical valid temporal batch is idempotent because document, chunk, evidence and relation-observation identities are deterministic and materialized_at is create-only.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_access": "NOT_RUN",
+    "database_reads": "NOT_RUN",
+    "database_writes": "NOT_RUN",
+    "live_neo4j": "NOT_RUN_UNAUTHORIZED",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "blocking_issues": [],
+  "limitations": [
+    "Neo4j temporal typing is established by normalized parameters and exact offline Cypher query-shape tests; no live Neo4j operation was authorized.",
+    "Temporal V2 remains deterministic fixture/mock validated until migration application and reconciliation are separately authorized.",
+    "Stage04B remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "attempt1_artifacts_modified": false,
+  "implementation_ready": true,
+  "created_at": "2026-08-31T19:13:43.0241572Z"
+}

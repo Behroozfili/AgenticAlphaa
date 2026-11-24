@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "03",
+  "stage_revision": 2,
+  "attempt": 1,
+  "agent": "data_rag",
+  "changed_files": [
+    "rag/loader.py",
+    "rag/seed.py",
+    "rag/processor.py",
+    "rag/ingestion.py",
+    "rag/vector_store.py",
+    "tests/unit_tests/test_rag/test_ingestion.py",
+    "tests/unit_tests/test_rag/test_loader.py",
+    "tests/unit_tests/test_rag/test_processor.py",
+    "tests/unit_tests/test_rag/test_vectore_store.py",
+    "tests/unit_tests/test_root_main.py",
+    ".codex/handoffs/stage-03-rev-2-attempt-1-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "dependency_handoff": ".codex/handoffs/stage-02-rev-2-handoff.json",
+  "dependency_handoff_sha256": "ebdbaf4d75807cabdad4e726114fdcc26e6c997ad05bcdc6603aadab9b97603e",
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-3-draft-ready.json",
+  "trigger_review": ".codex/handoffs/stage-03-rev-1-attempt-3-review.json",
+  "trigger_review_sha256": "bfedbd6306988925c3cb69880893a25353dc446a16fc9a9019e7f5daa2083603",
+  "resolved_findings": [
+    {
+      "id": "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+      "status": "RESOLVED_BY_ACCEPTED_STAGE02_REVISION2",
+      "resolution": "The accepted additive migration 004 replaces the revision-1 identities with evidence-scoped document/chunk identities. The V2 adapter now targets the exact revision-2 document/evidence/chunk conflict columns, and an offline processor-to-row regression proves four same-content dataset/retrieval/effective observations remain unique under both revision-2 constraints."
+    },
+    {
+      "id": "STAGE03-TICKER-MATERIALIZATION-007",
+      "status": "RESOLVED_IN_DRAFT",
+      "resolution": "Historical loading independently rejects provider rows outside the normalized requested ticker set. The local JSON provider also filters requested tickers defensively. Processor evidence identity now includes a ticker-plus-complete-metadata association hash so multi-ticker and metadata-distinct observations coexist. Resume identity additionally hashes canonical full RawDocument and processed-record manifests, detecting ticker or metadata mutation before completed Vector reuse or Graph retry."
+    },
+    {
+      "id": "STAGE03-PREMATERIALIZATION-RESUME-008",
+      "status": "RESOLVED_IN_DRAFT",
+      "resolution": "A loaded checkpoint without materialization identity is retryable only when neither Vector nor Graph has completed work. Missing credentials and transient load/process failures can retry the same request safely; a completed Vector or Graph checkpoint without identity still fails closed with INGESTION_RESUME_FINGERPRINT_MISSING."
+    }
+  ],
+  "identity_contract": {
+    "control_identity": "stage03-r2-a1",
+    "requested_ticker_policy": "Historical provider output is independently constrained to the normalized requested ticker set; out-of-scope rows are quarantined.",
+    "evidence_association": "Evidence identity binds document identity, normalized ticker, complete metadata hash, dataset version, publication/retrieval/effective interval, and filing time.",
+    "materialization_identity": [
+      "request/provider/adapter fingerprint",
+      "embedding model/version/cache-schema identity",
+      "document/evidence/chunk identity manifests",
+      "canonical full RawDocument manifest",
+      "canonical full processed-record manifest"
+    ],
+    "v2_conflict_target": [
+      "canonical_source_id",
+      "content_hash",
+      "document_version",
+      "document_id",
+      "evidence_id",
+      "dataset_version",
+      "chunk_index",
+      "chunk_hash",
+      "embedding_version"
+    ],
+    "resume_policy": "Incomplete pre-materialization failure may retry only with the same request fingerprint and no completed work; completed work requires a complete exact materialization identity."
+  },
+  "draft_self_tests": [
+    {
+      "command": "pytest exact Stage 03 revision 2 reviewer counterexample matrix",
+      "exit_code": 0,
+      "result": "12 passed in 15.66s"
+    },
+    {
+      "command": "pytest focused loader/processor/ingestion/vector/root-main plus database migration contract",
+      "exit_code": 0,
+      "result": "135 passed in 121.67s"
+    },
+    {
+      "command": "pytest complete Stage 03 owned test set",
+      "exit_code": 0,
+      "result": "228 passed in 75.15s"
+    },
+    {
+      "command": "pytest Stage 01 and Stage 02 accepted regression set",
+      "exit_code": 0,
+      "result": "112 passed in 40.24s"
+    },
+    {
+      "command": "pytest --collect-only tests/unit_tests tests/integration_tests tests/integration_test_2",
+      "exit_code": 0,
+      "result": "1246 tests collected in 23.00s; zero collection errors"
+    },
+    {
+      "command": "python -m py_compile Stage 03 modified source; git diff --check scoped paths; validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; line-ending notices only"
+    }
+  ],
+  "source_sha256": {
+    "rag/loader.py": "2fee42e014326ce1f6c61cee2084af31538682f1ba6781be9730658f68618ae6",
+    "rag/seed.py": "88a80ccca4e947faa1dade9c8bded69ed79d09325bab073fde6efe899c592337",
+    "rag/processor.py": "24d19ad9b16e5b4db247285c76ba7bea3a67b80fcbdcb7262c5090e29715c4a3",
+    "rag/ingestion.py": "31762a646d5d393f33b9e15eb97e62d85c978acd6a1039e604b1249bfbc249bd",
+    "rag/vector_store.py": "92aa8b70c9ebe590b3d8bb222bf1a48fe25121bef9f063a12022d67d4ba8d5df",
+    "tests/unit_tests/test_rag/test_ingestion.py": "2a8e98010ec48a657f5087c324ab15d4d444346144fb717bbe9a570b47b9df5e",
+    "tests/unit_tests/test_rag/test_loader.py": "347715e2da5033fdf577d08c5757810b0bed4467f4e590a97b41fc8b13911e53",
+    "tests/unit_tests/test_rag/test_processor.py": "ff1abffc043b5c75746381b0f61202a49dba1c772e45d236c0b329d8518fdb0b",
+    "tests/unit_tests/test_rag/test_vectore_store.py": "c54e6c70b82a1427fc231c6bd3dda67f827e3b3c9e92e65d9954e7b4f0828f21",
+    "tests/unit_tests/test_root_main.py": "2a9106416f0014bcb937934c05d4219dac04d5cec7206dfe0ed3791401e1a686"
+  },
+  "leakage_result": {
+    "status": "PASS",
+    "details": "Historical mode retains complete start/end/as_of boundaries, no live fallback, out-of-scope ticker quarantine, future/late/unknown-time rejection, V2-only temporal storage, and pre-ranking ticker/dataset/effective-time filters."
+  },
+  "privacy_and_observability": {
+    "status": "READY_FOR_AUDIT",
+    "control_identity": "stage03-r2-a1",
+    "checkpoint_payload": "Hashes, normalized identifiers, counts, statuses and sanitized error codes only; no raw evidence, URL, provider identity, exception message, credential or secret is persisted.",
+    "observability_paths_modified": false
+  },
+  "prior_revision_artifacts_modified": false,
+  "external_execution": {
+    "network_access": "NOT_RUN",
+    "database_reads": "NOT_RUN",
+    "database_writes": "NOT_RUN_UNAUTHORIZED",
+    "migrations": "NOT_APPLIED_UNAUTHORIZED",
+    "seed_execution": "NOT_RUN_UNAUTHORIZED",
+    "production_read_switch": "NOT_PERFORMED"
+  },
+  "limitations": [
+    "V2 remains deterministic offline fixture/mock validated because migration application and external database execution are unauthorized.",
+    "Temporal Graph modeling remains Stage 04A scope and is not activated.",
+    "agents/state.py remains under its separate core quarantine lock and was not modified or accepted by Stage 03."
+  ],
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-08-31T07:10:15.5733518Z"
+}

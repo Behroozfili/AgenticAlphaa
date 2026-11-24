@@ -1,0 +1,81 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "04A",
+  "stage_revision": 1,
+  "accepted_attempt": 2,
+  "primary_agent": "data_rag",
+  "implementation_status": "IMPLEMENTED",
+  "observability_status": "AUDITED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "draft_ready": ".codex/handoffs/stage-04A-rev-1-attempt-2-draft-ready.json",
+    "observability": ".codex/handoffs/stage-04A-rev-1-attempt-2-observability.json",
+    "implementation": ".codex/handoffs/stage-04A-rev-1-attempt-2-implementation.json",
+    "qa": ".codex/handoffs/stage-04A-rev-1-attempt-2-qa.json",
+    "review": ".codex/handoffs/stage-04A-rev-1-attempt-2-review.json"
+  },
+  "implementation_markdown": ".codex/handoffs/stage-04A-rev-1-attempt-2-implementation.md",
+  "retry_chain": [
+    {
+      "attempt": 1,
+      "terminal_gate": "REVIEW",
+      "result": "REJECTED",
+      "artifact": ".codex/handoffs/stage-04A-rev-1-attempt-1-review.json"
+    },
+    {
+      "attempt": 2,
+      "terminal_gate": "REVIEW",
+      "result": "APPROVED",
+      "artifact": ".codex/handoffs/stage-04A-rev-1-attempt-2-review.json"
+    }
+  ],
+  "resolved_findings": [
+    "OBS-04A-001",
+    "OBS-04A-002",
+    "OBS-04A-003",
+    "STAGE04A-NEO4J-TEMPORAL-PROPERTY-TYPE-001",
+    "STAGE04A-INCOMPLETE-V2-WRITE-FAIL-CLOSED-002",
+    "STAGE04A-EVIDENCE-MATERIALIZED-AT-003",
+    "OBS-04A-004"
+  ],
+  "accepted_counts": {
+    "prior_review_counterexamples_passed": 27,
+    "frozen_database_neo4j_contract_tests_passed": 17,
+    "focused_graph_hybrid_tests_passed": 93,
+    "rag_stage03_regressions_passed": 349,
+    "collection_total": 1293,
+    "collection_errors": 0
+  },
+  "delivered_contract": [
+    "Graph relationships preserve immutable temporal evidence observations with shared document, chunk, evidence and observation identities.",
+    "Published, retrieved, filed, effective and materialized times are validated and persisted as null-safe Neo4j temporal values compatible with as-of traversal.",
+    "Only explicitly legacy inputs can use legacy aggregate writes; incomplete, quarantined or V2-origin temporal inputs fail closed with zero entity or relation writes.",
+    "Vector, Graph and RRF consume one ForecastContext and return stable citations plus explicit vector-only, graph-only and hybrid degradation metadata.",
+    "LangSmith, lifecycle, log, result and Sentry telemetry is allowlisted, compact, attributed to Stage 04A revision 1 attempt 2, and excludes raw query, evidence, URLs, secrets and original exceptions."
+  ],
+  "known_limitations": [
+    "No live Neo4j migration, read/write, reconciliation or production latency validation was authorized or run; closure is based on deterministic offline contract, counterexample and regression evidence.",
+    "Migration 004 remains unapplied because no safe SQL execution channel is configured.",
+    "Stage 04B remains PENDING, NOT_STARTED and inactive."
+  ],
+  "operational_safety": {
+    "live_neo4j_validation": false,
+    "migration_application": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "live_reconciliation": false,
+    "route_switch": false,
+    "seed": false,
+    "legacy_deletion": false,
+    "network_used": false,
+    "deploy_commit_or_push": false
+  },
+  "next_stage": "04B",
+  "next_stage_activated": false,
+  "supersedes": null,
+  "created_at": "2026-08-31T19:40:52.7950234Z"
+}

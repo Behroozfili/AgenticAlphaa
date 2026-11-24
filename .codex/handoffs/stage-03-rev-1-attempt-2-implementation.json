@@ -1,0 +1,186 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "data_rag",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "base_git_reference": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-1-implementation.json",
+  "changed_files": [
+    "rag/__init__.py",
+    "rag/loader.py",
+    "rag/processor.py",
+    "rag/embedding_manager.py",
+    "rag/vector_store.py",
+    "rag/retriever.py",
+    "rag/ingestion.py",
+    "rag/seed.py",
+    "main.py",
+    "tests/fixtures/stage3_ticker_regressions.json",
+    "tests/unit_tests/test_rag/test_embedding_manager.py",
+    "tests/unit_tests/test_rag/test_ingestion.py",
+    "tests/unit_tests/test_rag/test_loader.py",
+    "tests/unit_tests/test_rag/test_processor.py",
+    "tests/unit_tests/test_rag/test_retriever.py",
+    "tests/unit_tests/test_rag/test_vectore_store.py",
+    "tests/unit_tests/test_rag/test_pipline_rag.py",
+    "tests/unit_tests/test_root_main.py",
+    ".codex/handoffs/stage-03-rev-1-attempt-2-draft-ready.json",
+    ".codex/handoffs/stage-03-rev-1-attempt-2-implementation.md",
+    ".codex/handoffs/stage-03-rev-1-attempt-2-implementation.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-03-rev-1-attempt-2-draft-ready.json",
+  "observability_artifact": ".codex/handoffs/stage-03-rev-1-attempt-2-observability.json",
+  "observability_status": {
+    "status": "AUDITED",
+    "requested_primary_changes": [],
+    "change_request_required": false,
+    "obs_03_001": "RESOLVED_UNCHANGED",
+    "obs_03_002": "RESOLVED_UNCHANGED",
+    "privacy": "PASS"
+  },
+  "blocking_finding_resolutions": [
+    {
+      "id": "STAGE03-FIXTURE-COLLECTION-001",
+      "resolution": "Restored the exact legacy top-level cases array while preserving temporal rows and leakage expectations; narrative stability and full repository collection now pass."
+    },
+    {
+      "id": "OBS-03-001",
+      "resolution": "Preserved compact allowlisted ingestion lifecycle telemetry with monotonic latency, version/run/count/status/degraded metadata."
+    },
+    {
+      "id": "OBS-03-002",
+      "resolution": "Preserved deterministic sanitized error codes and sentinel-tested non-emission of raw exception content."
+    }
+  ],
+  "self_tests_run": [
+    {
+      "command": "python -m py_compile rag/__init__.py rag/loader.py rag/processor.py rag/embedding_manager.py rag/vector_store.py rag/retriever.py rag/ingestion.py rag/seed.py main.py",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "pytest -q focused Stage 03 RAG and root-main tests --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "203 passed in 158.75s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_stage3_narrative_stability.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "16 passed in 3.98s",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "pytest -q focused Stage 01-02 contract/observability/migration regressions --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "109 passed in 2.53s",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests --disable-warnings",
+      "exit_code": 0,
+      "result": "1218 tests collected in 25.21s; zero collection errors"
+    },
+    {
+      "command": "exact legacy cases comparison plus temporal rows coverage",
+      "exit_code": 0,
+      "result": "FIXTURE_CASES_ROWS_PASS"
+    },
+    {
+      "command": "Attempt 1 artifact SHA-256 verification",
+      "exit_code": 0,
+      "result": "ATTEMPT1_ARTIFACT_IMMUTABILITY_PASS"
+    },
+    {
+      "command": "git diff --check; python .codex/scripts/validate_refactor_control.py --check-control",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; line-ending notices only"
+    }
+  ],
+  "contract_diff": [
+    "Historical loading requires explicit start/end/as_of and a reproducible archive provider; live fallback is disabled.",
+    "Unknown required historical times are quarantined and temporal fields remain distinct.",
+    "Immutable source/document/evidence/chunk identities preserve revisions and dataset versions.",
+    "Embedding cache identity includes content hash and model version with an explicit manifest.",
+    "Legacy remains the default Vector adapter; V2 is explicit and historical retrieval enforces ticker/as_of/dataset/effective boundaries before ranking.",
+    "Ingestion is deterministic, idempotent, atomic-checkpointed, separately statuses Vector/Graph, and supports resume.",
+    "Lifecycle telemetry is allowlisted and monotonic; errors are deterministic sanitized codes.",
+    "Seed is explicit CLI-only and API startup does not auto-seed.",
+    "The shared fixture supports both legacy narrative cases and temporal leakage rows.",
+    "No database schema or production route changed in Stage 03."
+  ],
+  "data_counts": {
+    "focused_stage03_passed": 203,
+    "narrative_stability_passed": 16,
+    "focused_stage01_stage02_passed": 109,
+    "unit_integration_collected": 1218,
+    "collection_errors": 0,
+    "legacy_fixture_cases": 4,
+    "temporal_fixture_rows": 4,
+    "external_rows_read": null,
+    "external_rows_written": 0,
+    "migrations_applied": 0,
+    "seed_runs": 0
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "fixture": "tests/fixtures/stage3_ticker_regressions.json",
+    "verified": [
+      "future publication excluded before ranking",
+      "wrong ticker excluded before ranking",
+      "wrong dataset version excluded before ranking",
+      "late-retrieved evidence excluded",
+      "unknown-time historical evidence quarantined",
+      "legacy historical backend fails closed"
+    ]
+  },
+  "latency_delta": {
+    "benchmark_run": false,
+    "instrumentation": "time.perf_counter monotonic lifecycle latency_ms",
+    "status": "PRESERVED_FROM_ATTEMPT_1_AND_AUDITED"
+  },
+  "blocking_issues": [],
+  "known_limitations": [
+    "V2 is fixture/mock validated because Stage 02 migrations are not applied or reconciled.",
+    "Historical acquisition requires a caller-provided reproducible archive provider.",
+    "Temporal Graph evidence modeling remains Stage 04A scope.",
+    "Telemetry is a no-op when the existing breadcrumb backend is disabled.",
+    "No external production latency benchmark was run.",
+    "The pre-existing unrelated agents/state.py attribution mismatch remains outside Stage 03."
+  ],
+  "out_of_scope_findings": [
+    "The global agents/state.py lock-attribution mismatch predates and is unrelated to Stage 03; it was not modified or claimed."
+  ],
+  "requested_changes": [
+    {"id": "STAGE03-FIXTURE-COLLECTION-001", "status": "RESOLVED"},
+    {"id": "OBS-03-001", "status": "RESOLVED_UNCHANGED"},
+    {"id": "OBS-03-002", "status": "RESOLVED_UNCHANGED"}
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "live_reconciliation": false,
+    "seed_or_backfill": false,
+    "legacy_deletion": false,
+    "route_switch": false,
+    "deploy_commit_or_push": false
+  },
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "No operational database rollback is required because migrations, seeds, external writes, backfills, and route switches were not executed.",
+    "Keep the runtime on the default legacy Vector adapter.",
+    "If separately authorized, restore only cumulative Stage 03 product/test paths and remove only Attempt 2 primary artifacts.",
+    "Preserve Attempt 1 artifacts, observability artifacts, Stage 00-02 artifacts, migrations, data, state history, and unrelated shared-workspace edits."
+  ],
+  "rollback_tested": false,
+  "prior_attempt_artifacts_modified": false,
+  "implementation_ready": true,
+  "created_at": "2026-08-30T07:30:49.9088457Z"
+}

@@ -1,0 +1,85 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "reviewer",
+  "status": "APPROVED",
+  "review_status": "APPROVED",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "id": "STAGE01-DOWNSTREAM-OFFLINE-FIXTURE-004",
+      "finding": "The legacy RAG AlphaEmbedder fixture/import-order concern remains explicitly assigned to data_rag for Stage 03. It did not reproduce in the attempt-3 HF-offline guarded collection or full-unit run, produced zero external attempts/connections, and no RAG path changed in Stage 01; it is therefore not a Stage 01 close blocker and must remain visible downstream."
+    },
+    {
+      "id": "STAGE01-CALENDAR-VERSION-MAINTENANCE-006",
+      "finding": "XNYS-regular-v1 is intentionally bounded to 1998..2100 and contains the known exceptional closures required for the supported historical fixtures. A newly announced exceptional closure or rule change requires an explicit calendar/contract version update and downstream invalidation; callers already fail closed when traversal leaves the supported range."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [],
+  "review_blockers": [],
+  "evidence": [
+    {
+      "check": "artifact_identity_and_gate",
+      "status": "PASS",
+      "detail": "Current state is REVIEW for Stage 01 revision 1 attempt 3. Matching draft-ready, observability, final implementation and QA artifacts exist; QA status is PASS; observability_required is satisfied; the review path is exactly locked to reviewer; Stage 02 remains PENDING/NOT_STARTED."
+    },
+    {
+      "check": "attempt_history_and_immutability",
+      "status": "PASS",
+      "detail": "Attempt 1 remains rejected with its review artifact present, attempt 2 remains QA FAIL with no fabricated review, and attempt 3 follows the recorded retry chain. Prior artifact timestamps predate attempt 3. Independent SHA-256 checks for attempt-1 and attempt-2 observability artifacts are a536404d3509e86c68eb1518739d2aaa6a404dfd8c1ddceaa38b2e614105b540 and eaa19b822c29b7566f060804c365bf9669391888e969d307c675f3638f84d819, exactly matching state/artifact history."
+    },
+    {
+      "check": "reviewer_calendar_blocker_resolution",
+      "status": "PASS",
+      "detail": "Independent assertions confirm 2021-12-31 is an open XNYS regular session and December month-end cutoff, 2025-01-09 is a full closure, and the exact 21st regular session after 2024-12-31 is 2025-02-03. The supported-year traversal remains fail-closed and the ForecastContext cutoff is the actual timezone-aware UTC XNYS close."
+    },
+    {
+      "check": "historical_deserialization_and_temporal_guards",
+      "status": "PASS",
+      "detail": "ForecastContext.from_dict now requires all 13 canonical serialized fields, validates calendar and label identities, rejects missing/mismatched fields, and preserves HISTORICAL_BACKTEST without a LIVE fallback. Aware UTC normalization, naive/missing/future timestamp rejection, target validation and dataset/feature/model/schema version requirements remain intact."
+    },
+    {
+      "check": "adjusted_close_target_semantics",
+      "status": "PASS",
+      "detail": "The numeric label remains ticker adjusted total return minus SPY adjusted total return over the identical as_of-to-21st-session target interval; non-finite/non-positive prices fail closed. No DCF/WACC, financial mapper, Quant source-of-truth or LLM numeric behavior was changed."
+    },
+    {
+      "check": "recursive_state_json_hygiene",
+      "status": "PASS",
+      "detail": "The attempt-2 QA counterexample is resolved. Independent and QA adversarial checks show nested MappingProxyType, custom Mapping, ChainMap, dict/list subclasses and shared subtrees are recursively copied into fresh exact plain dict/list containers; source mutation cannot alias the result; cycles and non-JSON/non-finite/over-limit values fail closed; every accepted output serializes with json.dumps(..., allow_nan=False). Raw evidence remains represented only by compact evidence IDs, not feature payload copies."
+    },
+    {
+      "check": "state_legacy_and_export_compatibility",
+      "status": "PASS",
+      "detail": "All eight legacy SharedManagerState keys remain required, the six forecast slots remain optional, legacy and ForecastContext payloads round-trip through JSON, and public State/ForecastContext/error/validator imports and exports compile and collect. No mutable Manager singleton was introduced."
+    },
+    {
+      "check": "observability_privacy_and_legacy_compatibility",
+      "status": "PASS",
+      "detail": "The attempt-3 observability pass is a read-only audit with no source change. Forecast trace/progress metadata remains an additive explicit allowlist, does not traverse full State or emit feature values/raw evidence/brain_reasoning/headers/secrets, keeps run_id top-level, preserves legacy publish behavior, and does not fabricate latency or contact external tracing."
+    },
+    {
+      "check": "qa_regression_and_scientific_honesty",
+      "status": "PASS",
+      "detail": "Independent focused execution passed 95 tests. QA collected 1187 tests and reported 1098 passes with exactly 38 previously documented downstream/legacy failures, zero Stage 01 regressions, zero additional HuggingFace-cache failures, and zero external attempts/connections. Known failures remain separated rather than hidden and no investment-performance claim is made."
+    },
+    {
+      "check": "scope_ownership_rollback_and_operational_safety",
+      "status": "PASS",
+      "detail": "CONTROL VALID before review. Attempt 3 changed only the exact locked agents/state.py behavior, its locked regression test and revisioned artifacts; observability source files were unchanged. All broader Stage 01 paths retain exact locks. Rollback to immutable attempt-2 State/test content is documented. No dependency, DB/schema, migration, RAG, seed, data mutation/deletion, network acquisition, deploy, commit, push or Stage 02 work occurred."
+    },
+    {
+      "check": "downstream_contract_integrity",
+      "status": "NOT_APPLICABLE_UNCHANGED",
+      "detail": "Provider acquisition, universe/action policy, SEC filed-date enforcement, temporal RAG/Graph, persistence, walk-forward backtest, financial nine-intent/DCF/WACC behavior and deterministic Quant outputs belong to later stages and were neither prematurely implemented nor altered."
+    }
+  ],
+  "rollback_reviewed": true,
+  "supersedes": ".codex/handoffs/stage-01-rev-1-attempt-1-review.json",
+  "created_at": "2026-08-28T12:16:21.6894636Z"
+}

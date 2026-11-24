@@ -1,0 +1,46 @@
+{
+  "forecast_context": {
+    "ticker": "AMD",
+    "as_of": "2026-06-30T20:00:00Z",
+    "target": "2026-07-30",
+    "horizon_trading_days": 21,
+    "lookback_days": 365,
+    "benchmark": "SPY",
+    "analysis_mode": "LIVE",
+    "schema_version": "2.1",
+    "dataset_version": "sentiment-fixture-v1",
+    "feature_version": "monthly-sentiment-features-v1",
+    "model_version": "test-model-v1",
+    "calendar_version": "XNYS-regular-v1",
+    "label": "forward_21d_excess_return"
+  },
+  "run_id": "stage06-fixture-run",
+  "texts": ["day zero", "day seven", "day fourteen", "day thirty", "future", "duplicate"],
+  "sources_metadata": [
+    {"evidence_id": "e0", "ticker": "AMD", "published_at": "2026-06-30T20:00:00Z", "dataset_version": "sentiment-fixture-v1", "url": "https://a.example/e0"},
+    {"evidence_id": "e7", "ticker": "AMD", "published_at": "2026-06-23T20:00:00Z", "dataset_version": "sentiment-fixture-v1", "url": "https://b.example/e7"},
+    {"evidence_id": "e14", "ticker": "AMD", "published_at": "2026-06-16T20:00:00Z", "dataset_version": "sentiment-fixture-v1", "url": "https://c.example/e14"},
+    {"evidence_id": "e30", "ticker": "AMD", "published_at": "2026-05-31T20:00:00Z", "dataset_version": "sentiment-fixture-v1", "url": "https://d.example/e30"},
+    {"evidence_id": "future", "ticker": "AMD", "published_at": "2026-07-01T20:00:00Z", "dataset_version": "sentiment-fixture-v1", "url": "https://future.example/e"},
+    {"evidence_id": "e0", "ticker": "AMD", "published_at": "2026-06-30T19:00:00Z", "dataset_version": "sentiment-fixture-v1", "url": "https://a.example/e0-copy"}
+  ],
+  "finbert_result": {
+    "model_version": "finbert-fixture-v1",
+    "chunk_scores": [
+      {"bullish_prob": 0.8, "bearish_prob": 0.2},
+      {"bullish_prob": 0.6, "bearish_prob": 0.2},
+      {"bullish_prob": 0.4, "bearish_prob": 0.4},
+      {"bullish_prob": 0.2, "bearish_prob": 0.7},
+      {"bullish_prob": 1.0, "bearish_prob": 0.0},
+      {"bullish_prob": 0.8, "bearish_prob": 0.2}
+    ]
+  },
+  "vader_result": {
+    "model_version": "vader-fixture-v1",
+    "chunk_scores": [
+      {"compound": 0.4}, {"compound": 0.2}, {"compound": 0.0},
+      {"compound": -0.4}, {"compound": 1.0}, {"compound": 0.4}
+    ]
+  },
+  "fear_greed_result": {"confidence": 0.75, "polarity": "BULLISH", "model_version": "fusion-fixture-v1"}
+}

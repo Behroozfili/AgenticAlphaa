@@ -1,0 +1,268 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "execution_phase": "QA",
+  "control_revision": 161,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "qa_status": "PASS",
+  "implementation_artifact": ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.json",
+  "implementation_sha256": "07d70cbe85442ac368706de09fff748771d9037ba37ce5010dd9d855be996fba",
+  "implementation_markdown": ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.md",
+  "implementation_markdown_sha256": "1bbbde92cf740e52590567b312954040c4a263dd98606ff0ada811deb9a39265",
+  "validated_input_artifacts": [
+    {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-2-draft-ready.json",
+      "sha256": "67e4bb4c67d1d5d4fd3426850262e43e512324fcb13f33ed10cf21c001a22daf",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-2-observability.json",
+      "sha256": "2cb75f58f52a577ad49cece3847bf3d77d0a319d4ba1c1cbd611df3d8694b445",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-09-rev-1-attempt-2-1.json",
+      "sha256": "cf9f70850cdafbdec6ad4a8c988d8cf1278620752c502063af71223e938335c2",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.json",
+      "sha256": "07d70cbe85442ac368706de09fff748771d9037ba37ce5010dd9d855be996fba",
+      "identity_match": true,
+      "schema_valid": true
+    }
+  ],
+  "control_and_lock_validation": {
+    "execution_enabled": true,
+    "active_tuple": "09/r1/a2/QA",
+    "allowed_support_agents": ["qa"],
+    "qa_artifact_lock_owner": "qa",
+    "stale_stages": [],
+    "dependencies_closed": ["08"],
+    "stage10a_status": "PENDING",
+    "stage10a_phase": "NOT_STARTED",
+    "stage10a_activated": false,
+    "result": "PASS"
+  },
+  "dependency_handoff_validation": {
+    "stage": "08",
+    "path": ".codex/handoffs/stage-08-rev-1-handoff.json",
+    "expected_sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+    "actual_sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+    "state_status": "CLOSED",
+    "result": "PASS"
+  },
+  "attempt_1_immutability": {
+    "artifacts_checked": 7,
+    "sha256_matches": 7,
+    "mismatches": 0,
+    "artifacts": [
+      {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-draft-ready.json", "sha256": "de058ebaeeb139a2eb07913fdf7e4b201a68d605e2c5ecf11bce605a2fbe11f5"},
+      {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-observability.json", "sha256": "ce2c10d05263288c233dfe5d8b1de604c954f1230d8b037030fda6600a7e8580"},
+      {"path": ".codex/handoffs/change-request-stage-09-rev-1-attempt-1-1.json", "sha256": "685004de49a8792449ef0b0ee46a3ff7dd7f8c848acf81211f402f9b69c9dada"},
+      {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.md", "sha256": "8e03d32c4f6e257506a1466fe39bc1d63a96572abd76e75c23b0d391e1d43e3f"},
+      {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.json", "sha256": "bddd6c7e363322059927f73f9de6cbe241aea83c8cc6ae5827f1892ca8c18232"},
+      {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-qa.json", "sha256": "8300ab8489e5805193302f791f45c12c0e3194259129060bfbeedd6dbe6cbfa3"},
+      {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-review.json", "sha256": "e75f3fee31d83fe0ae59b6977c3ce4555d15e26b54b706be2bdd28c3e3589f39"}
+    ],
+    "status": "PASS"
+  },
+  "source_hash_and_lock_validation": {
+    "implementation_recorded_paths_checked": 13,
+    "sha256_matches": 13,
+    "sha256_mismatches": 0,
+    "changed_path_lock_issues": 0,
+    "implementation_markdown_hash_match": true,
+    "status": "PASS"
+  },
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex\\scripts\\validate_refactor_control.py --check-control --check-locks --artifact .codex\\handoffs\\stage-09-rev-1-attempt-2-implementation.json --agent qa",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 161; exact Attempt-2 active tuple, prerequisites and QA lock valid",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": "Draft 2020-12 schema plus exact identity validation for Attempt-2 draft-ready, observability, supplemental change-request and implementation artifacts",
+      "exit_code": 0,
+      "result": "PASS: 4 current artifact schemas valid and all identities are 09/r1/a2",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_point_in_time_dataset_stage9.py tests/unit_tests/test_monthly_backtest_stage9.py tests/unit_tests/test_forecast_metrics_stage9.py tests/unit_tests/test_temporal_leakage_stage9.py tests/unit_tests/test_backtest_cli_stage9.py tests/unit_tests/market_test/test_forecast_model.py -q",
+      "exit_code": 0,
+      "passed": 35,
+      "failed": 0,
+      "duration_seconds": 9.43,
+      "result": "PASS",
+      "network_mode": "OFFLINE_LOCKED_FIXTURES_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py tests/unit_tests/test_stage3_narrative_stability.py tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py -q",
+      "exit_code": 0,
+      "passed": 137,
+      "failed": 0,
+      "duration_seconds": 56.26,
+      "result": "PASS",
+      "network_mode": "OFFLINE_LOCKED_FIXTURES_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_financial_agent_only.py tests/integration_test_2/test_research_agent_only.py tests/integration_test_2/test_sentiment_agent_only.py",
+      "exit_code": 0,
+      "collected": 1455,
+      "collection_errors": 0,
+      "duration_seconds": 7.03,
+      "result": "PASS",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": "Independent real-engine executed walk-forward OOS boundary probe using 10 deterministic synthetic tickers and 87 source cutoffs",
+      "exit_code": 0,
+      "result": "PASS: 50 expanding folds; exact 499 common executed OOS records per variant classified PRELIMINARY; exact 500 classified SCIENTIFIC; all seven variants retained identical row identities; both audits reported zero future records",
+      "network_mode": "OFFLINE_SYNTHETIC_IN_MEMORY"
+    },
+    {
+      "command": "Independent canonical-fixture, 600-source-row counterexample, temporal/fold/target, action-policy, underperformance and Attempt-2 telemetry/failing-sink probe",
+      "exit_code": 0,
+      "result": "PASS: canonical hash 213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779; PRELIMINARY; 11 folds; 22 OOS per variant; 154 records; zero future records; exact 21-session targets; observable outcomes only; 600 source rows remained PRELIMINARY; 9 tickers or 59 cutoffs remained PRELIMINARY at 500 OOS; 231 events all 09/r1/a2/quant and stage09-r1-a2; telemetry enabled/disabled/failing-sink reports exactly equal",
+      "network_mode": "OFFLINE_DIRECT_COUNTEREXAMPLE"
+    },
+    {
+      "command": "SHA-256 reconciliation of four current artifacts, implementation Markdown, 13 implementation-recorded paths, seven immutable Attempt-1 artifacts, Stage-08 dependency handoff and active write locks",
+      "exit_code": 0,
+      "result": "PASS: zero mismatches and zero lock issues",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "gate_results": {
+    "review_09_001": "PASS_RESOLVED_EXECUTED_OOS_NOT_SOURCE_ROWS",
+    "executed_oos_499_boundary": "PASS_PRELIMINARY",
+    "executed_oos_500_boundary": "PASS_SCIENTIFIC",
+    "source_row_counterexample": "PASS_600_SOURCE_ROWS_PRELIMINARY",
+    "ticker_minimum": "PASS_9_PRELIMINARY_10_REQUIRED",
+    "monthly_cutoff_minimum": "PASS_59_PRELIMINARY_60_REQUIRED",
+    "all_three_scientific_minimums_required": "PASS",
+    "current_fixture_classification": "PASS_PRELIMINARY",
+    "expanding_monthly_walk_forward": "PASS",
+    "minimum_initial_training_cutoffs_36": "PASS",
+    "observable_training_outcomes_only": "PASS",
+    "forecast_before_outcome": "PASS",
+    "exact_21_regular_session_target": "PASS",
+    "future_evidence": "PASS_ZERO_AND_FAIL_CLOSED_COUNTEREXAMPLES",
+    "seven_model_variants_identical_rows": "PASS",
+    "full_model_comparisons_and_honest_underperformance": "PASS_PRESERVED",
+    "action_policy_v1": "PASS_EXACT_PREREGISTERED_BOUNDARIES",
+    "gross_and_10bps_net_metrics": "PASS",
+    "required_direction_probability_amount_investment_coverage_metrics": "PASS",
+    "deterministic_report_hash": "PASS_EXACT",
+    "obs_09_a2_001": "PASS_RESOLVED_CURRENT_ATTEMPT_IDENTITY",
+    "telemetry_enabled_disabled_equality": "PASS_EXACT",
+    "telemetry_failing_sink_isolation": "PASS_EXACT",
+    "telemetry_boundary_order_progress_latency": "PASS",
+    "telemetry_payload_privacy": "PASS",
+    "attempt_1_immutability": "PASS",
+    "stage07_related_regression": "PASS",
+    "full_collection": "PASS_ZERO_ERRORS",
+    "stage10a_unchanged": "PASS_PENDING_NOT_STARTED"
+  },
+  "scientific_report": {
+    "canonical_fixture_classification": "PRELIMINARY",
+    "canonical_fixture_ticker_count": 2,
+    "canonical_fixture_source_cutoffs": 48,
+    "canonical_fixture_fold_count": 11,
+    "canonical_fixture_oos_per_variant": 22,
+    "canonical_fixture_total_variant_records": 154,
+    "canonical_report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779",
+    "executed_boundary_probe": {
+      "ticker_count": 10,
+      "source_cutoffs": 87,
+      "fold_count": 50,
+      "oos_499": "PRELIMINARY",
+      "oos_500": "SCIENTIFIC",
+      "future_record_count_at_499": 0,
+      "future_record_count_at_500": 0
+    },
+    "source_row_counterexample": {
+      "ticker_count": 10,
+      "source_cutoffs": 60,
+      "eligible_source_rows": 600,
+      "classification_before_executed_oos": "PRELIMINARY"
+    },
+    "honest_full_model_result": "PRESERVED: Full Model remains worse than no-Financial on excess-return MAE and below market-only, no-Graph and no-Sentiment on mean net excess return in the synthetic fixture; this does not fail engineering methodology.",
+    "investment_interpretation": "NONE_SYNTHETIC_ENGINEERING_EVIDENCE"
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "canonical_checked_source_rows": 96,
+    "canonical_checked_forecasts": 154,
+    "canonical_future_record_count": 0,
+    "executed_499_future_record_count": 0,
+    "executed_500_future_record_count": 0,
+    "forecast_before_outcome": true,
+    "exact_21_session_targets": true,
+    "observable_training_outcomes_only": true,
+    "expanding_window_only": true
+  },
+  "observability_report": {
+    "status": "PASS",
+    "resolved_finding": "OBS-09-A2-001",
+    "runtime_identity": "09/r1/a2/quant",
+    "implementation_version": "stage09-r1-a2",
+    "canonical_event_count": 231,
+    "required_boundaries": [
+      "fixture_materialization",
+      "fold_model_fit",
+      "fold_prediction",
+      "metric_aggregation",
+      "leakage_audit",
+      "run",
+      "run_progress"
+    ],
+    "all_events_current_identity": true,
+    "ordered_run_lifecycle": true,
+    "ordered_progress_1_through_11": true,
+    "finite_nonnegative_latency": true,
+    "degraded_preliminary_signal": true,
+    "stable_payload_free_fail_closed_errors": true,
+    "private_sentinel_absent": true,
+    "closed_payload_allowlist": true,
+    "sink_failure_isolated": true,
+    "telemetry_enabled_disabled_exact_equality": true,
+    "external_trace_provider_contacted": false
+  },
+  "regression_report": {
+    "status": "PASS",
+    "focused_stage09_and_action_policy": {"passed": 35, "failed": 0},
+    "stage07_quant_and_related_legacy": {"passed": 137, "failed": 0},
+    "full_collection": {"collected": 1455, "errors": 0}
+  },
+  "qa_harness_notes": [
+    "One initial ad-hoc canonical-hash assertion used a non-canonical run_id; because run_id is intentionally part of the report, that QA probe was invalid. The corrected probe used the canonical run_id and passed with the exact registered hash."
+  ],
+  "blocking_findings": [],
+  "blocking_issues": [],
+  "candidate_downstream_stages_affected": [],
+  "environment_blockers": [],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN_UNAUTHORIZED",
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "dependency_changes": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-12T08:10:11.3489626Z"
+}

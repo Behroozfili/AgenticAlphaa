@@ -1,0 +1,218 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "05",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    ".codex/handoffs/stage-05-rev-1-attempt-1-observability.json"
+  ],
+  "requested_primary_changes": [
+    {
+      "id": "OBS-05-001",
+      "blocking": true,
+      "owner": "financial",
+      "requested_paths": [
+        "agents/financial_agent.py",
+        "tests/unit_tests/test_agents/test_financial_agent.py"
+      ],
+      "reason": "All three reachable financial MCP client call paths invoke core.observability.traced_call_tool. That helper wraps session.call_tool with a bare @traceable and has no process_inputs or process_outputs. LangSmith can therefore persist the complete arguments and complete MCP result, including ForecastContext plus raw prices, statements, XBRL facts, filing text/accessions, DCF scenarios, checker-derived arguments and provider error payloads. The five FinancialAnalystAgent decorators have allowlisted processors, but those processors do not sanitize child MCP spans.",
+      "requested_change": "Stop using the raw traced_call_tool wrapper from the Financial Stage 05 path. Trace each MCP call through a Stage05-safe wrapper or direct call whose process_inputs/process_outputs return only allowlisted identity and compact lifecycle metadata: stage=05, stage_revision=1, attempt=1, agent=financial, run_id, ticker, as_of, target, horizon, analysis_mode, dataset/feature/model/schema versions, allowlisted tool/operation/provider, measured latency_ms, compact counts, outcome, missing/degraded flags and stable error_code. Never emit task_query, plan, messages, MCP arguments, raw result, prices, statements, XBRL facts, filing text, accession payloads, DCF arrays or exceptions. Add a mocked LangSmith-processor sentinel that injects PRIVATE_SENTINEL into every prohibited input/output class and proves it is absent while identity/count/outcome remain present.",
+      "source_lock_required": true
+    },
+    {
+      "id": "OBS-05-002",
+      "blocking": true,
+      "owner": "financial",
+      "requested_paths": [
+        "tools/financial_tools/financial_server.py",
+        "agents/financial_agent.py",
+        "tests/unit_tests/financial_test/test_financial_server.py",
+        "tests/unit_tests/test_agents/test_financial_agent.py"
+      ],
+      "reason": "financial_server.py logs raw financial scalar inputs at numerous ratio/valuation callsites, including price/EPS, enterprise value/EBITDA, revenue/COGS/income/equity/assets/debt/cash/FCF/market-cap/current-liability inputs, DCF/reverse-DCF inputs and other statement-derived values. These are business payloads, not allowlisted operational metadata. The agent also logs a final calculated composite score/grade and several free-form operational messages; the numeric tool-input logs are independently sufficient to violate the no raw prices/statements/facts/DCF payload policy.",
+      "requested_change": "Replace payload-bearing financial logs with fixed event codes and allowlisted fields only. Tool names must be validated against the fixed Stage05 registry; numeric telemetry must be finite, bounded operational scalars such as latency/count/loop/score only, never financial input/output values. Keep Sentry capture_message stable-code-only and never capture exceptions. Add caplog/progress/Sentry sentinels that inject PRIVATE_SENTINEL and extreme/non-finite numeric financial values through ratio, DCF, provider failure and agent paths and prove none is persisted; separately prove bounded checker score/count/boolean lifecycle fields are normalized or omitted.",
+      "source_lock_required": true
+    },
+    {
+      "id": "OBS-05-003",
+      "blocking": true,
+      "owner": "financial",
+      "requested_paths": [
+        "tools/financial_tools/__init__.py",
+        "tools/financial_tools/sec_edgar.py",
+        "tools/financial_tools/yahoo_finance.py",
+        "tools/financial_tools/financial_server.py",
+        "agents/financial_agent.py",
+        "agents/executor_helpers/monthly_financial_features.py",
+        "tests/unit_tests/financial_test/test_sec_edgar.py",
+        "tests/unit_tests/financial_test/test_yahoo_finance.py",
+        "tests/unit_tests/financial_test/test_financial_server.py",
+        "tests/unit_tests/test_agents/test_financial_agent.py"
+      ],
+      "reason": "The Stage05 source has only one elapsed_latency_ms call, for whole-agent completion. There is no compact measured lifecycle matrix at SEC submissions, companyfacts, filing-selection/text and restatement gates; Yahoo adjusted-history and current-only fail-closed gates; ratio/MCP dispatcher; monthly adapter; or agent extraction, calculation, checker and pre-Shared-State gates. Existing progress events carry partial counts/outcomes but no measured per-boundary latency and no single allowlisted provenance contract. No Stage05 sentinel asserts the required matrix.",
+      "requested_change": "Add one deterministic compact lifecycle builder derived from the immutable Stage05 implementation identity. Instrument every required boundary with monotonic measured latency_ms and the available run/ticker/as_of/target/horizon/mode plus dataset/feature/model/schema/provider/operation, compact input/result/evidence/accession/eligible/rejected/missing counts, fixed outcome and degraded flags. Do not fabricate unavailable measurements and do not store payloads. Add an exact offline lifecycle-matrix sentinel covering SEC submissions/companyfacts/filing/restatement acceptance and rejection, Yahoo adjusted history/current-only fail-closed, dispatcher/ratio, monthly adapter, agent extraction/calculation/checker and pre-State. Assert finite non-negative measured latency, attempt identity, stable error codes and no raw payload/private marker.",
+      "source_lock_required": true
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "Stage05 immutable runtime identity and ForecastContext provenance are present.",
+      "status": "PASS",
+      "evidence": "tools/financial_tools/__init__.py provides the Stage05 implementation identity and financial_trace_metadata; the draft records stage=05, revision=1, attempt=1, agent=financial and mandatory forecast_context/run_id/ticker propagation. All 29 recorded source/test hashes matched during this audit."
+    },
+    {
+      "check": "Every reachable FinancialAnalystAgent LangSmith decorator has explicit input/output processors.",
+      "status": "PASS_WITH_BLOCKING_CHILD_SPAN_EXCEPTION",
+      "evidence": "Five @traceable callsites were found in agents/financial_agent.py and all five specify process_inputs and process_outputs. Their processors omit task_query, messages, plans, raw provider results and checker prose. OBS-05-001 remains blocking because three reachable MCP child-call paths use the bare raw traced_call_tool wrapper."
+    },
+    {
+      "check": "MCP tracing captures only allowlisted metadata.",
+      "status": "FAIL",
+      "evidence": "core/observability.py:286-288 decorates an inner session.call_tool without process_inputs/process_outputs and closes over raw arguments; agents/financial_agent.py reaches it from SEC filing, extraction and calculation paths."
+    },
+    {
+      "check": "Logs, progress and Sentry contain no raw financial/private payloads.",
+      "status": "FAIL",
+      "evidence": "Sentry uses the stable FINANCIAL_TOOL_FAIL_CLOSED capture_message and no capture_exception path was found. Progress is generally fixed-code/count/tool metadata. However financial_server.py logs raw statement-, market- and DCF-derived scalar arguments at lines 487, 508, 528, 548, 567, 586, 605, 624, 643, 662, 709, 785-789, 852, 885, 905, 1013, 1036, 1059, 1082, 1134-1137, 1190, 1215, 1237, 1259 and 1303."
+    },
+    {
+      "check": "SharedManagerState and MonthlyFinancialFeatures are typed, compact and reference-only.",
+      "status": "PASS",
+      "evidence": "MonthlyFinancialFeatures is a frozen typed dataclass; non-finite/string/bool values normalize to None, missing values remain None rather than zero, and to_state_slot emits compact values, flags, deterministic evidence IDs and accession references. FinancialAnalystAgent.run stores only the feature slot and compact financial_metrics_summary in SharedManagerState; raw Yahoo/SEC payloads, filing text, checker prose and attempt messages remain agent-local and are excluded by trace processors."
+    },
+    {
+      "check": "DCF semantics and prompt rename are safe.",
+      "status": "PASS",
+      "evidence": "The monthly adapter labels DCF as LONG_TERM_VALUATION_FEATURE_NOT_21_DAY_FORECAST. The old promt_finance_checker spelling has zero runtime or test references under agents, tools and tests; only orchestration/documentation references remain."
+    },
+    {
+      "check": "No external provider, trace service, database or live financial integration was contacted.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "FAIL_BLOCKING_ONLY_WHOLE_RUN_LATENCY_PRESENT_REQUIRED_STAGE05_BOUNDARY_MATRIX_ABSENT",
+  "provenance_audit": {
+    "implementation_identity": {
+      "single_source": "tools/financial_tools/__init__.py::FINANCIAL_IMPLEMENTATION_IDENTITY",
+      "version": "stage05-r1-a1",
+      "stage": "05",
+      "stage_revision": 1,
+      "attempt": 1,
+      "agent": "financial"
+    },
+    "forecast_identity_fields_required": [
+      "run_id",
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent"
+    ],
+    "source_hash_status": "PASS_29_OF_29",
+    "dependency_handoff_sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049"
+  },
+  "instrumentation_audit": {
+    "reachable_financial_traceable_call_sites": 5,
+    "traceable_sites_with_input_and_output_processors": 5,
+    "reachable_raw_mcp_trace_call_paths": 3,
+    "raw_exception_capture_paths_present": false,
+    "stable_sentry_capture_message_only": true,
+    "required_lifecycle_boundaries": 12,
+    "measured_required_boundary_matrix_present": false,
+    "whole_run_latency_present": true,
+    "raw_financial_numeric_log_sites_present": true,
+    "shared_state_reference_only": true,
+    "monthly_features_typed": true,
+    "observability_source_files_modified": false,
+    "feature_call_sites_modified_by_observability": false,
+    "primary_reactivation_required": true
+  },
+  "lifecycle_matrix": [
+    {"boundary": "sec_submissions", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "sec_companyfacts", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "sec_filing_selection_and_text", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "sec_restatement_gate", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "yahoo_adjusted_history", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "yahoo_current_only_fail_closed", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "financial_mcp_ratio_dispatcher", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "monthly_financial_adapter", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "agent_extraction", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "agent_calculation", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "agent_checker", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "pre_shared_state_gate", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"}
+  ],
+  "source_integrity": {
+    "draft_ready_artifact": ".codex/handoffs/stage-05-rev-1-attempt-1-draft-ready.json",
+    "draft_ready_sha256": "8502285312cb84c996fb4229c7db2a3c5cdc2f7ebcc02c1a86bbe8ff63878323",
+    "recorded_source_hash_count": 29,
+    "recorded_source_hash_match": "PASS_29_OF_29",
+    "dependency_handoff_match": "PASS"
+  },
+  "tests_run": [
+    {
+      "command": "python -m pytest four exact Stage05 adapter/SEC/Yahoo sentinels plus tests/unit_tests/financial_test/test_financial_server.py -q",
+      "exit_code": 0,
+      "result": "14 passed in 3.71s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "SHA-256 verification of all 29 draft-recorded source/test paths and the Stage04B dependency handoff",
+      "exit_code": 0,
+      "result": "PASS_29_OF_29_CURRENT; DEPENDENCY_HANDOFF_MATCH"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact .codex/handoffs/stage-05-rev-1-attempt-1-draft-ready.json",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    },
+    {
+      "command": "independent static audit of Stage05 trace/MCP/log/progress/Sentry/State/lifecycle surfaces",
+      "exit_code": 1,
+      "result": "FAIL_BLOCKING_OBS_05_001_OBS_05_002_OBS_05_003"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-05-001: raw MCP child spans can capture full arguments and outputs.",
+    "OBS-05-002: financial_server persists raw financial scalar inputs in logs.",
+    "OBS-05-003: required measured compact Stage05 lifecycle matrix and sentinels are absent."
+  ],
+  "stage_boundary": {
+    "previous_stage": "04B",
+    "previous_stage_status": "CLOSED",
+    "next_stage": "06",
+    "next_stage_status": "PENDING",
+    "next_stage_phase": "NOT_STARTED",
+    "next_stage_activated": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "database_reads": false,
+    "database_writes": false,
+    "live_financial_provider_tests": "NOT_RUN",
+    "financial_integration_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "limitations": [
+    "All observability validation was static or offline with mocks/fixtures; no live/provider or financial integration test was executed.",
+    "Passing existing unit tests do not negate the blockers because the draft has no exact MCP raw-capture, financial-log privacy or full lifecycle-matrix sentinels.",
+    "Observability modified no source, test, control-state, migration or shared instrumentation file.",
+    "Stage 06 remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "created_at": "2026-09-02T10:18:00Z"
+}

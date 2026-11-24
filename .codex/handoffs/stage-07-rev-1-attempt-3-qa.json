@@ -1,0 +1,141 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "qa",
+  "control_revision": 135,
+  "implementation_artifact": ".codex/handoffs/stage-07-rev-1-attempt-3-implementation.json",
+  "implementation_sha256": "811971661e1c697917b615c117e238699ede4c53142136a7db9490ac8769da4a",
+  "qa_status": "FAIL",
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "CONTROL VALID; execution enabled; Stage 07 revision 1 attempt 3 remained ACTIVE in QA; support agent and the non-existing QA output path were locked to qa."
+    },
+    {
+      "command": "Attempt 3 artifact schema, identity, chain, dependency, milestone and runtime-input SHA-256 validation",
+      "exit_code": 0,
+      "result": "Six prerequisite/current-chain JSON artifacts satisfy artifact.schema.json. Implementation SHA-256 811971661e1c697917b615c117e238699ede4c53142136a7db9490ac8769da4a, implementation MD 94af20caa86f7c2c1a1ce084531b094d23b5eb7cfa3e5ca9c2996c79ba839edf and Observability 43407a8a7665b56a82215b38c3353c7297517d0640c96be6f834011a28dc5f75 match. All 18 declared runtime/test/fixture, dependency, milestone and artifact bindings match."
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider --collect-only tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "69 tests collected in 3.30s; zero collection errors."
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "69 passed in 4.09s using deterministic offline local fixtures."
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test -q",
+      "exit_code": 0,
+      "result": "119 passed in 45.30s; ForecastContext, State and Stage 07 combined regression passed offline."
+    },
+    {
+      "command": "Independent canonical-label, exact-21-session and normal/reversed semantic reproduction probe over all milestone rows",
+      "exit_code": 0,
+      "result": "All 40 rows had zero canonical excess-return/direction mismatches and zero exact-21-session target mismatches. Normal and reversed order exactly reproduced readiness be7f8d048cca7b3083f3811320f38d20e2c03f615ebed7a9262b148cc90e90ed, eligible rows 93b980674b6801db52eb08c8e6b5aa652f82bcc22be2887224d88d45454166e4, training data 78af5fc9e5a1fcb7263601e65ead1732e83625cf3604cde46d2b3289f2691890 and model logistic-ridge-21d-v1+sha256:f7a06c450329b7da743944cd68a3444f2522640bba899de1b00e917f8aa64e89. Complete readiness, model artifact and prediction exactly matched both PASS milestone artifacts."
+    },
+    {
+      "command": "Independent label magnitude/sign rejection and 36-cutoff train-only preprocessing probe",
+      "exit_code": 0,
+      "result": "Loader and DATA_READINESS each rejected both an excess-return magnitude violation and a direction-sign violation. Independently recomputed training-fold medians, means, scales, selected features and residual interval matched the 36-cutoff model; later rows under that fold readiness were rejected. No separate probability calibrator is implemented."
+    },
+    {
+      "command": "Independent active-workflow versus runtime/service/lifecycle identity probe",
+      "exit_code": 1,
+      "result": "FAIL: active workflow identity is Stage 07 revision 1 attempt 3, but QUANT_IMPLEMENTATION_IDENTITY remains Stage 07 revision 1 attempt 1 with implementation_version stage07-r1-a1. MarketForecastService.forecast output and emitted lifecycle metadata both publish attempt=1. The attempt_matches_active check is false after Attempt 3 changed product/runtime code."
+    }
+  ],
+  "leakage_report": {
+    "status": "PASS",
+    "exact_21_trading_session_target": "PASS_40_OF_40",
+    "future_target_bar_isolation": "PASS",
+    "pre_target_outcome_rejection": "PASS",
+    "snapshot_finalization_boundary": "PASS",
+    "universe_membership_binding": "PASS",
+    "canonical_excess_return_magnitude": "PASS",
+    "canonical_direction_sign": "PASS",
+    "eligible_row_content_binding": "PASS",
+    "model_to_readiness_binding": "PASS",
+    "train_through_rejection": "PASS",
+    "training_only_imputer_scaler_selector": "PASS",
+    "training_only_residual_interval": "PASS",
+    "calibration": "NOT_APPLICABLE_NO_SEPARATE_CALIBRATOR",
+    "normal_reversed_order_determinism": "PASS"
+  },
+  "regression_report": {
+    "status": "PASS",
+    "focused_stage07": "69/69 passed",
+    "forecast_context_state_combined": "119/119 passed",
+    "focused_collection": "69 collected with zero errors",
+    "canonical_label_rows": "40/40 valid",
+    "milestone_reproduction": "PASS_EXACT",
+    "privacy_failure_paths": "PASS in repeated focused suite and audited Observability evidence",
+    "scientific_scope": "PRELIMINARY synthetic single-ticker 40-cutoff engineering fixture; no investment-performance claim"
+  },
+  "finding_disposition": {
+    "REVIEW-07-A2-B-001": "PASS_RESOLVED: all canonical label rows, loader/readiness magnitude and sign counterexamples, exact 21-session targets and regenerated milestone/model evidence passed independently.",
+    "QA-07-001": "PASS_PRESERVED: current milestone readiness, eligible-row, training-data, model and prediction identities reproduce exactly in normal and reversed order.",
+    "OBS-07-001..003": "PARTIAL: privacy, payload allowlisting, latency, temporal and row bindings pass, but current workflow-attempt identity is stale in service and lifecycle metadata."
+  },
+  "identity_and_privacy_report": {
+    "privacy_status": "PASS",
+    "opaque_run_and_evidence_references": "PASS",
+    "private_sentinel_rejection": "PASS",
+    "payload_free_lifecycle_events": "PASS",
+    "artifact_workflow_identity": "PASS_STAGE07_REV1_ATTEMPT3",
+    "runtime_service_lifecycle_identity": "FAIL_STALE_ATTEMPT1",
+    "runtime_identity_observed": {
+      "stage": "07",
+      "stage_revision": 1,
+      "attempt": 1,
+      "agent": "quant",
+      "implementation_version": "stage07-r1-a1"
+    },
+    "active_identity_required": {
+      "stage": "07",
+      "stage_revision": 1,
+      "attempt": 3,
+      "agent": "quant"
+    }
+  },
+  "blocking_issues": [
+    {
+      "id": "QA-07-A3-001",
+      "severity": "BLOCKING",
+      "responsible_agent": "quant",
+      "category": "STALE_RUNTIME_AND_TRACE_IDENTITY",
+      "finding": "Attempt 3 changes Stage 07 product/runtime behavior in historical_dataset_builder.py and regenerates a new model identity, but the single runtime identity remains hard-coded to attempt 1. Consequently service forecast records and all Quant lifecycle events identify the executing implementation as attempt 1 instead of the active and candidate accepted attempt 3.",
+      "contract_basis": "The Observability contract requires stage, stage revision, attempt and agent metadata where available. The active workflow supplies attempt 3, and control-plane closure must bind one accepted implementation/Observability/QA/Review chain for the same attempt. Publishing attempt 1 from a product implementation changed in attempt 3 makes runtime provenance stale and ambiguous.",
+      "impact": "Downstream Stage 08 and later audit/debug consumers cannot reliably associate forecast output or lifecycle telemetry with the implementation artifact that introduced the canonical-label repair and produced the accepted model milestones.",
+      "required_disposition": "Start a non-overwriting Stage 07 retry, update the locked Quant runtime identity and its direct tests/artifacts to the current implementation attempt, then rerun Observability and QA. Preserve all prior attempt artifacts."
+    }
+  ],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [
+    "08",
+    "09",
+    "10A",
+    "10B",
+    "11",
+    "FINAL_QA",
+    "FINAL_REVIEW"
+  ],
+  "external_execution": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "delete": false,
+    "deploy": false,
+    "commit_or_push": false,
+    "stage08_work": false
+  },
+  "created_at": "2026-09-09T13:24:39.4473784Z"
+}

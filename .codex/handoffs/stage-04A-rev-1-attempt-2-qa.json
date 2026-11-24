@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "status": "PASS",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_identity_artifact_chain_control_and_locks",
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact each matching attempt-2 draft-ready, observability and implementation artifact --agent qa",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID for all three artifacts. Execution is enabled for Stage 04A revision 1 attempt 2 in QA, allowed_support_agents is qa, the QA artifact path is locked to qa, and implementation_ready=true with no implementation blocker."
+    },
+    {
+      "check": "artifact_chain_source_integrity_and_attempt1_immutability",
+      "command": "Independent SHA-256 comparison of implementation-recorded source bytes, draft-ready/observability chain hashes and all six Attempt 1 artifacts",
+      "exit_code": 0,
+      "result": "PASS; all 6/6 source/test/fixture hashes match the final implementation. draft-ready=27eeced34e07bd9417dd36a5278a34b790cbd0062e5a141e10c11ac271fbb7ff, observability=007f2a09fce5811d9e9cc471ff7fd37c8811dbbd84bb27b887d4abafa25ce147, implementation JSON=5fb172752f3896fe58ad56a46383c0c2742c3cd7644585357f508b52bbf78763, implementation MD=25cdb65b85d68ce8c13d302ec3a18de59b0aba37750ec350c6d216233077adc8. Attempt 1 draft-ready, observability, implementation JSON/MD, QA and review hashes all match the immutable hashes recorded by Observability."
+    },
+    {
+      "check": "exact_prior_review_counterexamples",
+      "command": "python -m pytest -q tests/unit_tests/test_rag/test_graph_store.py::TestAttempt2ReviewBlockers --tb=short",
+      "exit_code": 0,
+      "result": "27 passed in 16.14s; exact query-shape, legacy/V2 routing, zero-write rejection, canonical materialized_at and idempotent retry counterexamples all pass."
+    },
+    {
+      "check": "attempt2_observability_privacy_sentinel",
+      "command": "python -m pytest -q tests/unit_tests/test_rag/test_hybried.py::TestRedactedTracingAndLifecycle::test_vector_graph_rrf_hybrid_metadata_matches_active_attempt_without_raw_capture --tb=short",
+      "exit_code": 0,
+      "result": "1 passed in 16.44s; processed Vector, Graph, RRF and Hybrid metadata/lifecycle use stage=04A, stage_revision=1, attempt=2, agent=data_rag and exclude sentinel raw query, evidence, URL and secret values."
+    },
+    {
+      "check": "focused_stage04a_graph_hybrid_suite",
+      "command": "python -m pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py --tb=short",
+      "exit_code": 0,
+      "result": "93 passed in 18.19s."
+    },
+    {
+      "check": "rag_and_stage03_regression",
+      "command": "python -m pytest -q tests/unit_tests/test_rag tests/unit_tests/test_stage3_narrative_stability.py --tb=short",
+      "exit_code": 0,
+      "result": "349 passed in 53.77s."
+    },
+    {
+      "check": "full_unit_integration_collection",
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1293 tests collected in 15.43s; zero collection errors."
+    },
+    {
+      "check": "compile_diff_and_privacy_static_scan",
+      "command": "python -m py_compile scoped Stage 04A sources/tests; git diff --check scoped paths; rg raw exception/query/URL/evidence/secret logging, trace and Sentry patterns",
+      "exit_code": 0,
+      "result": "PASS; compile and scoped diff-check succeeded with line-ending notices only; privacy scan returned PASS_ZERO_MATCHES."
+    },
+    {
+      "check": "stage04b_inactive_gate",
+      "command": "Read-only inspection of .codex/refactor-state.json stages.04B and Stage 04A authorization exclusions",
+      "exit_code": 0,
+      "result": "PASS; Stage 04B remains PENDING/NOT_STARTED at revision 0 attempt 0 and was neither activated nor audited."
+    }
+  ],
+  "prior_rejected_counterexample_report": {
+    "status": "PASS",
+    "STAGE04A-NEO4J-TEMPORAL-PROPERTY-TYPE-001": "RESOLVED; published_at, retrieved_at, filed_at, effective_from, effective_to and materialized_at are normalized to UTC and persisted with exact null-safe CASE WHEN $field IS NULL THEN null ELSE datetime($field) END conversion, compatible with traversal predicates using datetime($as_of). Unknown or invalid required times fail closed and never become now.",
+    "STAGE04A-INCOMPLETE-V2-WRITE-FAIL-CLOSED-002": "RESOLVED; legacy MERGE is reachable only through write_mode=legacy plus provenance=legacy_explicit. Quarantined, V2-origin, unknown-provenance, missing-identity and invalid-time counterexamples are rejected before any entity or relation write with stable compact codes/counts.",
+    "STAGE04A-EVIDENCE-MATERIALIZED-AT-003": "RESOLVED; canonical Stage 03 materialized_at/ingested_at is required for temporal V2, normalized, persisted as Neo4j DateTime on EvidenceObservationV2 ON CREATE, and not overwritten on idempotent retry."
+  },
+  "temporal_graph_report": {
+    "status": "PASS",
+    "immutable_shared_identity": "PASS; Graph extraction preserves Stage 03 document_id, chunk_id and evidence_id, and relation observation identity remains deterministic and evidence-scoped.",
+    "neo4j_temporal_property_shape": "PASS; all six temporal evidence properties use null-safe Neo4j datetime conversion before retrieval compares them with datetime($as_of).",
+    "as_of_filter_before_traversal": "PASS; quarantine, ticker, dataset version, publication, retrieval, filing and effective interval eligibility precede traversal/ranking.",
+    "incomplete_or_quarantined_v2": "REJECTED_ZERO_WRITES",
+    "explicit_legacy_compatibility": "PASS; only explicit legacy provenance reaches the legacy namespace.",
+    "canonical_materialized_at": "PASS_CREATE_ONLY_AND_IDEMPOTENT",
+    "fail_closed_without_temporal_enforcement": "PASS; no legacy unbounded fallback is used for temporal V2 failures."
+  },
+  "retrieval_and_fusion_report": {
+    "status": "PASS",
+    "shared_forecast_context": "PASS; one ForecastContext constrains Vector and Graph before fusion.",
+    "vector_only_graph_only_hybrid": "PASS; explicit deterministic branch modes and degradation metadata are preserved.",
+    "evidence_ids_and_citations": "PASS; document_id, chunk_id and evidence_id survive both branches and citation provenance is retained through fusion.",
+    "deterministic_rrf": "PASS"
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "future_publication_and_retrieval": "EXCLUDED_BEFORE_TRAVERSAL_OR_RANKING",
+    "unknown_required_temporal_values": "REJECTED_FAIL_CLOSED",
+    "wrong_ticker_wrong_dataset_and_quarantine": "EXCLUDED",
+    "effective_interval": "ENFORCED",
+    "legacy_fallback_for_temporal_v2": "ABSENT",
+    "live_graph_validation": "NOT_RUN_NOT_AUTHORIZED_AND_NOT_REQUIRED_FOR_OFFLINE_QA_JUDGMENT"
+  },
+  "privacy_and_observability_report": {
+    "status": "PASS",
+    "verified_findings": [
+      "OBS-04A-001",
+      "OBS-04A-002",
+      "OBS-04A-003",
+      "OBS-04A-004"
+    ],
+    "attempt_identity": "PASS; active final retrieval instrumentation reports attempt=2 across Vector, Graph, RRF and Hybrid boundaries.",
+    "trace_allowlist": "PASS; bounded operation/context/version identity, counts, non-negative latency, branch/degradation state and stable codes only.",
+    "allowlist_widening": false,
+    "raw_query_evidence_url_secret_or_exception": "ABSENT_IN_SENTINEL_TEST_AND_STATIC_SCAN",
+    "latency_and_lifecycle": "PASS; Vector, Graph, RRF/fusion, Hybrid, Graph extraction and Graph upsert boundaries retain compact measured lifecycle telemetry."
+  },
+  "regression_report": {
+    "prior_review_counterexamples": {"passed": 27, "failed": 0},
+    "attempt2_observability_sentinel": {"passed": 1, "failed": 0},
+    "focused_stage04a": {"passed": 93, "failed": 0},
+    "rag_and_stage03": {"passed": 349, "failed": 0},
+    "collection": {"collected": 1293, "errors": 0, "status": "PASS"},
+    "stage04a_regressions": 0
+  },
+  "blocking_issues": [],
+  "blocking_findings": [],
+  "environment_blockers": [
+    {
+      "id": "STAGE04A-LIVE-NEO4J-ENVIRONMENT",
+      "status": "NOT_RUN_NOT_AUTHORIZED",
+      "blocking_for_offline_qa_judgment": false,
+      "finding": "Temporal Graph storage and retrieval are fixture/mock and exact Cypher query-shape validated. No live Neo4j operation, schema application, external database read/write or production latency benchmark was authorized or performed.",
+      "required_for_live_validation": "Separately authorized development Neo4j target with additive V2 schema, scoped credentials and reconciliation plan."
+    }
+  ],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "04B",
+      "status": "MUST_REMAIN_PENDING_NOT_STARTED_UNTIL_ORCHESTRATOR_ACTIVATION",
+      "reason": "QA validated only Stage 04A revision 1 attempt 2 and did not activate, inspect or modify Stage 04B implementation scope."
+    }
+  ],
+  "non_blocking_limitations": [
+    "Neo4j temporal property typing is proven by exact normalized parameter and Cypher query-shape tests; live server execution remains separately authorized work.",
+    "The Stage 02/03 external migration and reconciliation environment was not contacted by this QA pass."
+  ],
+  "operational_safety": {
+    "explicit_network_or_provider_call": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "live_neo4j": false,
+    "migration_applied": false,
+    "seed_or_backfill_executed": false,
+    "legacy_data_deleted": false,
+    "production_route_switched": false,
+    "stage04B_activated": false,
+    "deploy_commit_or_push": false
+  },
+  "requested_primary_changes": [],
+  "supersedes": ".codex/handoffs/stage-04A-rev-1-attempt-1-qa.json",
+  "created_at": "2026-08-31T19:25:55.0573546Z"
+}

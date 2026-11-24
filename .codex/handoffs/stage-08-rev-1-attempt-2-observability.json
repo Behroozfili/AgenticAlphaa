@@ -1,0 +1,165 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 147,
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    ".codex/handoffs/change-request-stage-08-rev-1-attempt-2-1.json",
+    ".codex/handoffs/stage-08-rev-1-attempt-2-observability.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-08-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "2d28091755041bf2be0d6aa58e1c704ef63fbf585e6600484b92a327e23726c5",
+  "requested_primary_changes": [
+    {
+      "id": "OBS-08-003",
+      "blocking": true,
+      "owner": "integration",
+      "requested_paths": [
+        "agents/executor_helpers/monthly_forecast_helper.py",
+        "agents/manager_agent.py",
+        "tests/unit_tests/test_stage8_manager_integration.py"
+      ],
+      "reason": "The active attempt is 2, but canonical output implementation metadata, Manager trace metadata and Stage 08 lifecycle/progress events still identify attempt 1 and stage08-r1-a1; focused tests currently codify the stale identity.",
+      "change_request": ".codex/handoffs/change-request-stage-08-rev-1-attempt-2-1.json"
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "Manager trace input/output processors use compact allowlists and recursively redact private task/directive/State content.",
+      "status": "PASS",
+      "evidence": "The focused PRIVATE_SENTINEL counterprobe passed; task text, arbitrary directives, full State, narrative/report text, evidence IDs and Quant numeric payloads are absent from processed traces."
+    },
+    {
+      "check": "Stage 08 lifecycle and fail-closed error events remain payload-free and redact private inputs, numeric forecast values, evidence identifiers and exception text.",
+      "status": "PASS",
+      "evidence": "Success and error tests passed. The stable error event is emitted before the original exception is re-raised, without serializing the PRIVATE_SENTINEL exception text."
+    },
+    {
+      "check": "No forbidden sensitive reasoning or raw evidence was introduced by the QA-08-001 provenance retry.",
+      "status": "PASS",
+      "evidence": "The retry changes only compact canonical provenance identities/timestamp transport and exact tests. No external trace service was contacted."
+    }
+  ],
+  "latency_instrumentation_status": "PASS_MEASURED_NON_NEGATIVE_AND_PAYLOAD_FREE_BUT_BLOCKING_CURRENT_ATTEMPT_IDENTITY_MISMATCH",
+  "trace_metadata_audit": {
+    "required_fields": [
+      "run_id",
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent",
+      "latency_ms",
+      "evidence_count",
+      "degraded_flags"
+    ],
+    "safe_allowlisted_metadata": "PASS",
+    "measured_non_negative_latency": "PASS",
+    "stable_degraded_and_error_flags": "PASS",
+    "current_attempt_identity": {
+      "status": "FAIL_BLOCKING",
+      "active_attempt": 2,
+      "observed_attempt": 1,
+      "observed_implementation_version": "stage08-r1-a1"
+    }
+  },
+  "lifecycle_matrix": [
+    {"boundary": "forecast_context_accepted", "status": "PASS_MEASURED_PAYLOAD_FREE_STALE_ATTEMPT_IDENTITY"},
+    {"boundary": "specialist_feature_start_and_controlled_join", "status": "PASS_MEASURED_PAYLOAD_FREE_STALE_ATTEMPT_IDENTITY"},
+    {"boundary": "market_feature_and_quant_forecast", "status": "PASS_MEASURED_PAYLOAD_FREE_STALE_ATTEMPT_IDENTITY"},
+    {"boundary": "monthly_forecast_and_publication", "status": "PASS_MEASURED_PAYLOAD_FREE_STALE_ATTEMPT_IDENTITY"},
+    {"boundary": "degraded_completion", "status": "PASS_STABLE_PAYLOAD_FREE_STALE_ATTEMPT_IDENTITY"},
+    {"boundary": "fail_closed_error", "status": "PASS_REDACTED_RERAISE_STALE_ATTEMPT_IDENTITY"}
+  ],
+  "behavior_and_concurrency_audit": {
+    "qa_08_001_provenance_top_level_exact": "PASS",
+    "qa_08_001_provenance_versions_exact": "PASS",
+    "qa_08_001_canonical_synthesis_via_versions": "PASS",
+    "missing_or_tampered_provenance": "PASS_FAIL_CLOSED_NULL_NUMERIC_CONFIDENCE",
+    "quant_numeric_and_action_immutable": "PASS",
+    "trace_private_payload_redaction": "PASS",
+    "success_error_lifecycle": "PASS_MEASURED_REDACTED",
+    "manager_result_concurrency_isolation": "PASS_TWO_RUNS_NO_CROSS_TALK",
+    "manager_progress_concurrency_isolation": "PASS_TWO_SESSION_QUEUES_NO_CROSS_TALK",
+    "current_attempt_attribution": "FAIL_RUNTIME_AND_TEST_EXPECT_ATTEMPT_1"
+  },
+  "source_integrity": {
+    "draft_ready_hash_exact": true,
+    "draft_recorded_source_hash_count": 2,
+    "draft_recorded_source_hash_mismatches": [],
+    "immutable_attempt_1_artifacts_checked": 6,
+    "immutable_attempt_1_artifact_mismatches": [],
+    "dependency_handoffs_checked": 5,
+    "dependency_handoff_mismatches": []
+  },
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex\\scripts\\validate_refactor_control.py --check-control --check-locks --artifact .codex\\handoffs\\stage-08-rev-1-attempt-2-draft-ready.json --agent observability",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 147; current tuple, draft and exact artifact/change-request locks are valid",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "result": "67 passed in 1265.11s, including provenance preservation/fail-closed cases, privacy allowlists, lifecycle/error latency, numeric/action immutability and concurrent result/queue isolation",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "Offline active-state versus STAGE08_IMPLEMENTATION_IDENTITY counterprobe",
+      "exit_code": 1,
+      "result": "EXPECTED_FINDING: active_attempt=2; runtime identity attempt=1 and implementation_version=stage08-r1-a1; match=false",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": "SHA-256 verification of draft-ready, two recorded retry source/test paths, six immutable attempt-1 artifacts and five dependency handoffs",
+      "exit_code": 0,
+      "result": "PASS: draft hash exact; 2 of 2 current paths, 6 of 6 immutable prior artifacts and 5 of 5 dependency handoffs match",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-08-003: Stage 08 attempt-2 output, trace and progress telemetry is misattributed to attempt 1/stage08-r1-a1, and the focused identity assertions enforce that stale value."
+  ],
+  "stage_boundary": {
+    "feature_behavior_changed_by_observability": false,
+    "source_or_test_files_changed_by_observability": false,
+    "observability_source_files_changed": false,
+    "change_request_created": true,
+    "primary_reactivation_required": true,
+    "state_or_qa_or_review_changed": false,
+    "stage09_work_performed": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "limitations": [
+    "Validation used deterministic offline fixtures/mocks; no live provider, network source, database or external trace service was contacted.",
+    "The long-running focused suite passed its existing assertions, but its Stage 08 identity assertions themselves expect stale attempt-1 values and therefore require the narrowly scoped correction above.",
+    "Observability changed only its two exact locked current-attempt artifacts and did not edit Integration source/tests, control state, prior artifacts or Stage 09."
+  ],
+  "created_at": "2026-09-11T09:48:24.1559085Z"
+}

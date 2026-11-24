@@ -19,9 +19,12 @@ of failures that looked like value/assertion mismatches but were actually
 real, unmocked API calls succeeding against live SEC EDGAR data.)
 """
 from unittest.mock import patch, MagicMock
+import json
+from pathlib import Path
 import pytest
 
 import tools.financial_tools.sec_edgar as sec_edgar_module
+from core.forecast_contract import ForecastContext
 from tools.financial_tools.sec_edgar import (
     _pad_cik,
     get_cik,
@@ -29,15 +32,38 @@ from tools.financial_tools.sec_edgar import (
     get_filing_text,
     get_xbrl_financials,
     _extract_annual,
+    _extract_quarterly,
 )
+from financial_test import STAGE5_RUN_ID, stage5_context
+
+_real_get_cik = get_cik
+_real_list_filings = list_filings
+_real_get_filing_text = get_filing_text
+_real_get_xbrl_financials = get_xbrl_financials
+_real_extract_annual = _extract_annual
 
 
 def filing_text(form_type="10-K", words=600):
     return f"FORM {form_type} ITEM 1 BUSINESS " + "financial " * words
 
 
+def test_stage5_fixture_enforces_filing_and_restatement_cutoff():
+    fixture = json.loads(Path("tests/fixtures/stage5_financial_point_in_time.json").read_text())
+    context = ForecastContext.from_dict(stage5_context(fixture["ticker"]))
+    tags = ["RevenueFromContractWithCustomerExcludingAssessedTax"]
+    annual = _real_extract_annual(fixture["companyfacts"], tags, context=context)
+    quarterly = _extract_quarterly(fixture["companyfacts"], tags, context=context)
+    assert annual[0]["value"] == fixture["expected"]["annual_value"]
+    assert annual[0]["accession_number"] == fixture["expected"]["annual_accession"]
+    assert quarterly[0]["value"] == fixture["expected"]["quarterly_value"]
+    assert quarterly[0]["accession_number"] == fixture["expected"]["quarterly_accession"]
+    selected = json.dumps([annual, quarterly])
+    assert fixture["expected"]["future_accession_invisible"] not in selected
+    assert all(row["filed_at"] <= "2026-06-30" for row in annual + quarterly)
+
+
 @pytest.fixture(autouse=True)
-def reset_ticker_map_cache():
+def reset_ticker_map_cache(monkeypatch):
     """
     _load_ticker_map() caches the SEC ticker->CIK map in a module-level
     global (_ticker_map_cache) the first time it's successfully loaded —
@@ -52,8 +78,46 @@ def reset_ticker_map_cache():
     is ever called again.
     """
     sec_edgar_module._ticker_map_cache = None
+    sec_edgar_module._companyfacts_cache.clear()
+    sec_edgar_module._submissions_cache.clear()
+    monkeypatch.setattr(
+        __import__(__name__, fromlist=["x"]), "get_cik",
+        lambda ticker, *args, **kwargs: _real_get_cik(
+            ticker, *(args or (stage5_context(str(ticker).upper()), STAGE5_RUN_ID)), **kwargs,
+        ),
+    )
+    monkeypatch.setattr(
+        __import__(__name__, fromlist=["x"]), "list_filings",
+        lambda ticker, *args, **kwargs: _real_list_filings(
+            ticker, *args, forecast_context=kwargs.pop("forecast_context", stage5_context(str(ticker).upper())),
+            run_id=kwargs.pop("run_id", STAGE5_RUN_ID), **kwargs,
+        ),
+    )
+    monkeypatch.setattr(
+        __import__(__name__, fromlist=["x"]), "get_filing_text",
+        lambda accession, cik, *args, **kwargs: _real_get_filing_text(
+            accession, cik, *args, filed_at=kwargs.pop("filed_at", "2025-01-01"),
+            forecast_context=kwargs.pop("forecast_context", stage5_context()),
+            run_id=kwargs.pop("run_id", STAGE5_RUN_ID), **kwargs,
+        ),
+    )
+    monkeypatch.setattr(
+        __import__(__name__, fromlist=["x"]), "get_xbrl_financials",
+        lambda ticker, *args, **kwargs: _real_get_xbrl_financials(
+            ticker, *(args or (stage5_context(str(ticker).upper()), STAGE5_RUN_ID)), **kwargs,
+        ),
+    )
+    monkeypatch.setattr(
+        __import__(__name__, fromlist=["x"]), "_extract_annual",
+        lambda facts, tags, metric_scope="duration", **kwargs: _real_extract_annual(
+            facts, tags, metric_scope,
+            context=kwargs.pop("context", ForecastContext.from_dict(stage5_context())), **kwargs,
+        ),
+    )
     yield
     sec_edgar_module._ticker_map_cache = None
+    sec_edgar_module._companyfacts_cache.clear()
+    sec_edgar_module._submissions_cache.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +178,8 @@ class TestGetCik:
         result = get_cik("NVDA")
 
         assert result["cik"] is None
-        assert result["error"] == "network down"
+        assert result["error_code"] == "SEC_CIK_UNAVAILABLE"
+        assert "network down" not in result["error"]
 
     @patch("tools.financial_tools.sec_edgar.time.sleep")
     @patch("tools.financial_tools.sec_edgar._session.get")
@@ -130,7 +195,7 @@ class TestGetCik:
         every other error path in this module), move that line inside
         the try block instead of updating this test to expect the crash.
         """
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValueError, match="canonical symbols"):
             get_cik(12345)  # int has no .upper()
 
 
@@ -192,7 +257,10 @@ class TestListFilings:
         mock_get.return_value = mock_resp
 
         result = list_filings("NVDA", form_type="10-K", limit=2)
-        assert len(result["filings"]) == 2
+        # Ten accessions for one exact report period are restatement versions;
+        # only the newest eligible version survives the point-in-time selector.
+        assert len(result["filings"]) == 1
+        assert result["filings"][0]["accession_number"].endswith("000009")
 
     @patch("tools.financial_tools.sec_edgar.time.sleep")
     @patch("tools.financial_tools.sec_edgar.get_cik")
@@ -204,7 +272,8 @@ class TestListFilings:
 
         result = list_filings("NVDA")
         assert result["filings"] == []
-        assert result["error"] == "boom"
+        assert result["error_code"] == "SEC_SUBMISSIONS_UNAVAILABLE"
+        assert "boom" not in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +315,8 @@ class TestGetFilingText:
         result = get_filing_text("0001045810-24-000010", "0001045810")
 
         assert result["text"] is None
-        assert "404 Client Error" in result["error"]
+        assert result["error_code"] == "SEC_FILING_UNAVAILABLE"
+        assert "404 Client Error" not in result["error"]
 
     @patch("tools.financial_tools.sec_edgar._get")
     def test_document_fetch_failure_returns_underlying_error(self, mock_get_helper):
@@ -260,7 +330,8 @@ class TestGetFilingText:
         assert result["text"] is None
         assert result["validation_status"] == "INVALID"
         assert result["error"] == "No candidate document passed filing validation."
-        assert "500 Server Error" in str(result["attempted_documents"])
+        assert "500 Server Error" not in str(result["attempted_documents"])
+        assert all(item["reasons"] == ["FETCH_FAILED"] for item in result["attempted_documents"])
 
     @patch("tools.financial_tools.sec_edgar._get")
     def test_no_htm_items_falls_back_to_full_submission_txt(self, mock_get_helper):
@@ -349,11 +420,11 @@ class TestGetXbrlFinancials:
         mock_resp.json.return_value = {
             "facts": {"us-gaap": {
                 "Revenues": {"units": {"USD": [
-                    {"form": "10-K", "fp": "FY", "start": "2023-02-01", "end": "2024-01-31", "val": 60_000_000_000},
-                    {"form": "10-K", "fp": "FY", "start": "2022-02-01", "end": "2023-01-31", "val": 27_000_000_000},
+                    {"form": "10-K", "fp": "FY", "start": "2023-02-01", "end": "2024-01-31", "val": 60_000_000_000, "filed": "2024-03-01", "accn": "annual-2024"},
+                    {"form": "10-K", "fp": "FY", "start": "2022-02-01", "end": "2023-01-31", "val": 27_000_000_000, "filed": "2023-03-01", "accn": "annual-2023"},
                 ]}},
                 "NetIncomeLoss": {"units": {"USD": [
-                    {"form": "10-K", "fp": "FY", "start": "2023-02-01", "end": "2024-01-31", "val": 30_000_000_000},
+                    {"form": "10-K", "fp": "FY", "start": "2023-02-01", "end": "2024-01-31", "val": 30_000_000_000, "filed": "2024-03-01", "accn": "income-2024"},
                 ]}},
                 "Assets": {"units": {"USD": []}},
                 "Liabilities": {"units": {"USD": []}},
@@ -411,7 +482,7 @@ class TestGetXbrlFinancials:
             "facts": {"us-gaap": {
                 "Revenues": {"units": {"USD": []}},
                 "RevenueFromContractWithCustomerExcludingAssessedTax": {
-                    "units": {"USD": [{"form": "10-K", "fp": "FY", "start": "2023-02-01", "end": "2024-01-31", "val": 10_000}]}
+                    "units": {"USD": [{"form": "10-K", "fp": "FY", "start": "2023-02-01", "end": "2024-01-31", "val": 10_000, "filed": "2024-03-01", "accn": "fallback-2024"}]}
                 },
                 "NetIncomeLoss": {"units": {"USD": []}},
                 "Assets": {"units": {"USD": []}},
@@ -446,14 +517,16 @@ def test_amd_regression_all_concepts_are_ranked_before_selection():
 
 def test_annual_extraction_rejects_quarterly_fact_embedded_in_10k():
     payload = {"facts": {"us-gaap": {"Revenue": {"units": {"USD": [
+            {
+                "form": "10-K", "fp": "Q4", "fy": 2025,
+                "start": "2025-10-01", "end": "2025-12-31", "val": 40,
+                "filed": "2026-02-01", "accn": "quarter-in-annual",
+            },
         {
-            "form": "10-K", "fp": "Q4", "fy": 2025,
-            "start": "2025-10-01", "end": "2025-12-31", "val": 40,
-        },
-        {
-            "form": "10-K", "fp": "FY", "fy": 2025,
-            "start": "2025-01-01", "end": "2025-12-31", "val": 140,
-        },
+                "form": "10-K", "fp": "FY", "fy": 2025,
+                "start": "2025-01-01", "end": "2025-12-31", "val": 140,
+                "filed": "2026-02-01", "accn": "annual-2025",
+            },
     ]}}}}}
 
     rows = _extract_annual(payload, ["Revenue"])

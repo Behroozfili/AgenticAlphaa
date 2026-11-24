@@ -1,0 +1,92 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "02",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "data_rag",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "supersedes": null,
+  "changed_files": [
+    "database/supabase/001_alpha_documents_v2.sql",
+    "database/supabase/002_forecast_tables.sql",
+    "database/supabase/003_analysis_versioning.sql",
+    "database/neo4j/001_temporal_evidence.cypher",
+    "tests/unit_tests/test_database_v2_migrations.py",
+    ".codex/handoffs/stage-02-rev-1-attempt-1-milestone-SCHEMA_CONTRACT_FROZEN.json",
+    ".codex/handoffs/stage-02-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-02-rev-1-attempt-1-implementation.json"
+  ],
+  "milestone_artifact": ".codex/handoffs/stage-02-rev-1-attempt-1-milestone-SCHEMA_CONTRACT_FROZEN.json",
+  "schema_contract": {
+    "status": "FROZEN_AND_IMPLEMENTED",
+    "natural_keys": [
+      "feature_snapshots",
+      "monthly_forecasts",
+      "forecast_outcomes",
+      "backtest_runs",
+      "analyses",
+      "shared_document_chunk_evidence_identity"
+    ],
+    "unknown_time_policy": "NULL_AND_QUARANTINED",
+    "production_route": "legacy-v1"
+  },
+  "self_tests_run": [
+    {
+      "command": "python -m pytest tests/unit_tests/test_database_v2_migrations.py -q",
+      "exit_code": 0,
+      "result": "11 passed in 0.07s"
+    },
+    {
+      "command": "forced-offline focused Stage 01 plus Stage 02 pytest",
+      "exit_code": 0,
+      "result": "106 passed in 4.15s",
+      "network_mode": "FORCED_OFFLINE"
+    },
+    {
+      "command": "forced-offline pytest --collect-only tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1198 collected: 1147 unit and 51 integration",
+      "network_mode": "FORCED_OFFLINE"
+    },
+    {
+      "command": "python -m py_compile tests/unit_tests/test_database_v2_migrations.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "validate_refactor_control.py --check-control --check-locks; git diff --check; destructive SQL/Cypher statement scan",
+      "exit_code": 0,
+      "result": "CONTROL VALID; scoped diff clean; destructive statement scan empty"
+    }
+  ],
+  "blocking_issues": [],
+  "known_limitations": [
+    "Supabase and Neo4j migrations were not applied because external database writes require separate explicit authorization.",
+    "Empty-database and staging uniqueness/RLS/RPC/reconciliation execution evidence is not available and is not claimed.",
+    "Production routes remain legacy-v1; route switch requires authorized reconciliation evidence.",
+    "The missing legacy supabase_phase5_provenance_migration.sql retains its Stage 00 disposition and was not reconstructed.",
+    "Temporal ingestion, Vector adapter switching, and Graph traversal behavior remain Stage 03/04A work."
+  ],
+  "out_of_scope_findings": [],
+  "requested_changes": [],
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Do not remove legacy schema or data.",
+    "Before any future V2 switch, preserve an approved reconciliation hash and the previous route pointer.",
+    "Operational rollback restores only the prior route pointer and preserves V2 rows for audit.",
+    "Workspace rollback removes only the four new migration files, the Stage 02 test, and Stage 02 artifacts when explicitly authorized; preserve Stage 00/01 evidence, state history, user files, and product data."
+  ],
+  "operational_safety": {
+    "migration_application": false,
+    "external_database_writes": false,
+    "seed_or_backfill": false,
+    "legacy_deletion": false,
+    "route_switch": false,
+    "network_used": false,
+    "deploy_commit_or_push": false
+  },
+  "implementation_ready": true,
+  "created_at": "2026-08-28T18:57:05.2499965Z"
+}

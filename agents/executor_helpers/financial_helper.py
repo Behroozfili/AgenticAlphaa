@@ -53,6 +53,10 @@ def recovery_metadata(
     is_approximation: bool = False,
     semantic_name: str | None = None,
     normalization: str | None = None,
+    filed_at: str | None = None,
+    accession_references: list[str] | None = None,
+    evidence_ids: list[str] | None = None,
+    eligible_as_of: str | None = None,
 ) -> dict[str, Any]:
     """Build the additive metadata contract shared by recovered metrics."""
     if state not in RECOVERY_STATES:
@@ -74,6 +78,10 @@ def recovery_metadata(
         "is_approximation": is_approximation,
         **({"semantic_name": semantic_name} if semantic_name else {}),
         **({"normalization": normalization} if normalization else {}),
+        "filed_at": filed_at,
+        "accession_references": sorted(set(accession_references or [])),
+        "evidence_ids": sorted(set(evidence_ids or [])),
+        "eligible_as_of": eligible_as_of,
     }
 
 
@@ -436,6 +444,7 @@ def _combined_fact_metadata(
         for f in facts
     ]
     reasons = [str(f.get("fallback_reason")) for f in fallback_facts if f.get("fallback_reason")]
+    filed_values = sorted(str(f.get("filed_at")) for f in facts if f.get("filed_at"))
     return recovery_metadata(
         state=state,
         source=" + ".join(sources),
@@ -447,6 +456,10 @@ def _combined_fact_metadata(
         formula=formula,
         fallback_reason="; ".join(reasons) or None,
         semantic_name=semantic_name,
+        filed_at=filed_values[-1] if filed_values else None,
+        accession_references=[str(f.get("accession_number")) for f in facts if f.get("accession_number")],
+        evidence_ids=[str(f.get("evidence_id")) for f in facts if f.get("evidence_id")],
+        eligible_as_of=next((str(f.get("eligible_as_of")) for f in facts if f.get("eligible_as_of")), None),
     )
 
 

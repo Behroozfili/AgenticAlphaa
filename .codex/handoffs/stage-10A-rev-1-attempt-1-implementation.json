@@ -1,0 +1,251 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "core",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "execution_phase": "PRIMARY_FINAL",
+  "control_revision": 167,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "implementation_identity": {
+    "single_source": "langsmith_trace.py::STAGE10A_RUNTIME_IDENTITY",
+    "stage": "10A",
+    "stage_revision": 1,
+    "attempt": 1,
+    "agent": "core",
+    "implementation_version": "stage10a-r1-a1",
+    "runtime_version": "stage10a-runtime-v1"
+  },
+  "draft_ready_artifact": ".codex/handoffs/stage-10A-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "10cb19dd94d64f18ba1e88c86a1b5fa5116c83f3ba8c3424575fc096c17b1a06",
+  "observability_artifact": ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json",
+  "observability_sha256": "6952d6790995f426f5ace00dd323b2b96c317d7b35bd633cb74bc2b75816353c",
+  "change_requests": [
+    {
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json",
+      "sha256": "5293a8b273d7330ca11af9491cf9402a22a5a56ea630f8e1f5646805447a05f5"
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-2.json",
+      "sha256": "fa5a7f59fb8553138e72e691061fbb6418ad7abdd875b65d9424ddbdacca7895"
+    }
+  ],
+  "observability_owned_sources": {
+    "langsmith_trace.py": "e348fae4ac31277fa8c1a2483a225797eb13dc3969b0d47c9dfbfad45043b691",
+    "core/observability.py": "414b6b661c85138c17e81109e5dabeafba083767019fa9117fd68aa8fe6d6e88"
+  },
+  "observability_status": "AUDITED_WITH_CR1_AND_CR2_RESOLVED",
+  "implementation_md": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.md",
+  "implementation_md_sha256": "2e8f4da71959373a0a70dae039ebcbc5c9072059ce4aaf91f9f7049cb4f4b72e",
+  "dependency_handoffs": [
+    {
+      "stage": "09",
+      "path": ".codex/handoffs/stage-09-rev-1-handoff.json",
+      "sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    "api/config.py",
+    "api/core/exceptions.py",
+    "api/dependencies.py",
+    "api/main.py",
+    "api/routes/analyze.py",
+    "memory/manager_memory.py",
+    "main.py",
+    "tests/unit_tests/api_test/test_api_config.py",
+    "tests/unit_tests/api_test/test_dependencies_api.py",
+    "tests/unit_tests/api_test/test_api_main.py",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py",
+    "tests/unit_tests/api_test/test_core_eceptions.py",
+    "tests/unit_tests/test_memory/test_manager_memory.py",
+    "tests/unit_tests/test_root_main.py",
+    "tests/unit_tests/test_stage10a_runtime_foundation.py",
+    ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "OBS-10A-001",
+      "status": "RESOLVED",
+      "resolution": "Safe events are wired at API lifecycle/request and request-scoped Manager/memory creation boundaries with exactly one opaque per-request run_id, immutable 10A/r1/a1/core identity, measured finite latency and failing-sink isolation."
+    },
+    {
+      "id": "OBS-10A-002",
+      "status": "RESOLVED",
+      "resolution": "API, memory and explicitly authorized route call-sites no longer log or telemetry-export raw request/user/preference/Manager/memory/exception values; failure persistence uses stable codes and type-compatible redaction while the public API contract remains unchanged."
+    },
+    {
+      "id": "OBS-10A-003",
+      "status": "RESOLVED",
+      "resolution": "Core call-sites consume the observability-owned three-gate initializers with Settings credentials, isolate failure and remove raw exception capture."
+    },
+    {
+      "id": "OBS-10A-004",
+      "status": "NOT_APPLIED_NON_BLOCKING",
+      "resolution": "The optional seed-selection event was not added; explicit seed-only and no-auto-seed behavior remain preserved and tested."
+    }
+  ],
+  "runtime_contract": {
+    "analysis_modes": ["LIVE", "HISTORICAL_BACKTEST"],
+    "forecast_horizon_trading_days": 21,
+    "canonical_forecast_context_reused": true,
+    "live_historical_dataset_versions_distinct": true,
+    "sentry_default": "DISABLED",
+    "langsmith_default": "DISABLED",
+    "exporter_three_gate_policy": true,
+    "initializer_failure_nonfatal": true,
+    "automatic_seed": false,
+    "explicit_seed_command": "python main.py seed-rag"
+  },
+  "request_and_memory_isolation": {
+    "app_state_manager_is_stateless_factory": true,
+    "manager_created_per_request": true,
+    "memory_created_per_request": true,
+    "shared_runtime_objects": ["Supabase client", "Neo4j driver", "runtime settings", "optional local telemetry sink"],
+    "concurrent_request_ids_distinct": true,
+    "request_memory_manager_run_id_shared": true,
+    "zero_cross_talk": true,
+    "monthly_natural_key": ["ticker", "as_of", "horizon", "analysis_mode", "schema_version"],
+    "legacy_monthly_merge": false
+  },
+  "telemetry_contract": {
+    "identity": "10A/r1/a1/core",
+    "implementation_version": "stage10a-r1-a1",
+    "boundaries": [
+      "api.startup.started/completed/failed",
+      "api.shutdown.started/completed/failed",
+      "api.request.started/completed/failed",
+      "manager.factory.created/failed",
+      "manager.memory.created/failed"
+    ],
+    "one_opaque_run_id_per_request": true,
+    "opaque_run_id_format": "uuid4 hex, 32 characters",
+    "finite_nonnegative_monotonic_latency": true,
+    "closed_metadata_allowlist": true,
+    "private_sentinel_absent": true,
+    "sink_failure_isolation": true,
+    "default_sink": null,
+    "external_export_contacted": false
+  },
+  "privacy_checks": [
+    "No request query, raw user/session identity, preferences, Manager/Shared State, memory values, credentials, DSNs, exception text/stack, prompts, reasoning or raw evidence enters Stage-10A telemetry or registered logs.",
+    "Raw Sentry capture and unconditional route breadcrumbs were removed.",
+    "PRIVATE_SENTINEL tests cover logs, local event sinks, route persistence, Manager/memory creation and initializer/sink failure.",
+    "Existing persistence keys remain present; private payload fields receive deterministic opaque, redacted or empty type-compatible values.",
+    "User-visible response serialization remains compatible and is not replaced by the persistence redaction envelope."
+  ],
+  "latency_instrumentation_status": "PASS_FINITE_NONNEGATIVE_MONOTONIC_ALL_REQUIRED_BOUNDARIES",
+  "source_sha256": {
+    "api/config.py": "336d95c408c350fca263b9e1fc3bfd1a13dd01db39ebbc69fb3b45bc364eacd8",
+    "api/core/exceptions.py": "ee5a8783f0553f01cc00e706ff03c6eeef2d4d40f9b4d75caed077a1a039f886",
+    "api/dependencies.py": "d78200153f6a32c5704a25aee37f47c86d6801cc57ebc3c5eaa780a60679a021",
+    "api/main.py": "4e8800550c83b4c2b3d3385ab67a02ab88c83586761397470416e8573779c5ad",
+    "api/routes/analyze.py": "c9a991ca524ada245278fc233bc7b36d3f7814b05a38aa142ab2945cc256fdc5",
+    "memory/manager_memory.py": "ced7e7ae7e93fada60e2d1deb1af4852eb7076f378a29584020732b6a2993177",
+    "main.py": "908c114239010f3e4ac689a267aef550514895423f399cf935259a8f0ae3abb8",
+    "tests/unit_tests/api_test/test_api_config.py": "ae484534ee8e5c99be2ae61cf369c4c8d4576f66b1df8a03361fc7456d5ea80b",
+    "tests/unit_tests/api_test/test_dependencies_api.py": "d584961da31d43d7999b19eefacec6637a383b66ff97bd4a78daeb3d6ed614e8",
+    "tests/unit_tests/api_test/test_api_main.py": "e4c9e14ba7e9e978551530c7cfd143432e6e63de4f53fc9603b664a31127fba3",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py": "0e34b96600d473b558b52cec22d7f8f6558e223dfe1e1834280b707bd0a910a4",
+    "tests/unit_tests/api_test/test_core_eceptions.py": "82daa0443e4018f424a5df19e2b96823200836e49d485600402a9cb28ddeb8a8",
+    "tests/unit_tests/test_memory/test_manager_memory.py": "76dbffd9e701bf8b991d2bd3fdd1fbc1254df58e7e1b96f1d1fb66e1f79a5ccc",
+    "tests/unit_tests/test_root_main.py": "446d29f56f1f3cf6b387cf449c4f3638ca6593fb0d4818c190d14046f26baf57",
+    "tests/unit_tests/test_stage10a_runtime_foundation.py": "40b83b6f4c44132df21ce4ee3ec5b36c7474637c82e2e708d8bb683508c4d73d",
+    ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.md": "2e8f4da71959373a0a70dae039ebcbc5c9072059ce4aaf91f9f7049cb4f4b72e"
+  },
+  "self_tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <eight exact Stage10A modules plus observability helper test> -q",
+      "exit_code": 0,
+      "result": "206 passed in 27.10s",
+      "coverage": "runtime settings, UTC/calendar/serialization, lifecycle/order/identity/latency, concurrent run IDs, memory/Manager isolation, privacy persistence, failing sink, optional initializers and public API compatibility",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <direct Stage10A telemetry/privacy call-site modules> -q",
+      "exit_code": 0,
+      "result": "126 passed in 20.87s",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <API+Memory+Forecast+Stage08 Manager+Core observability+injected validation regressions> -q",
+      "exit_code": 0,
+      "result": "355 passed in 10.50s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q",
+      "exit_code": 0,
+      "result": "1438 tests collected in 27.53s; zero collection errors",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile <seven changed source modules and eight focused test modules>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "Static privacy scan plus git diff --check on all Core-owned Stage10A source/test paths",
+      "exit_code": 0,
+      "result": "PASS: no raw exception capture/logging; no whitespace errors",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent core",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 167 before final artifact creation",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "contract_diff": [
+    "Added only Stage-10A API/runtime configuration, safe exception, dependency/lifecycle, memory isolation, startup and privacy/observability call-site behavior.",
+    "The authorized analyze route change preserves request/response schema, Manager arguments, result mapping, row keys and progress/UI behavior while preventing raw private persistence/logging.",
+    "Preserved ManagerAgent constructor/run compatibility, canonical ForecastContext calculations and all accepted Stage-00 through Stage-09 product formulas.",
+    "Did not activate or implement Stage 10B business routes, versioned persistence, progress, backtest jobs, UI or E2E."
+  ],
+  "blocking_issues": [],
+  "known_limitations": [
+    "Stage 10B still owns versioned forecast persistence, authentication-aware user identity, route forecast fields, progress/backtest jobs, UI and E2E wiring.",
+    "Monthly memory persistence is intentionally deferred instead of merging into the legacy long_term_memory row.",
+    "The optional seed.command.selected telemetry event was not added.",
+    "Live providers, external databases and external trace exporters were intentionally not exercised."
+  ],
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "source_and_tests": "Restore the fifteen Core source/test paths to their pre-Stage10A workspace versions and retain all immutable workflow artifacts.",
+    "support_owned_files": "Do not roll back langsmith_trace.py or core/observability.py from the Core artifact; retain their observability-owned hashes and artifacts.",
+    "downstream": "Do not modify the accepted Stage09 handoff or activate Stage10B during rollback.",
+    "rollback_executed": false,
+    "data_loss_risk": "NONE_NO_EXTERNAL_MUTATION"
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "external_client_constructed": false,
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "dependency_change": false,
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage10b_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "supersedes": null,
+  "implementation_ready": true,
+  "created_at": "2026-09-12T20:58:15.2666351Z"
+}

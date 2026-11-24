@@ -1,0 +1,119 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "qa",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_identity_locks_and_prior_attempt_immutability",
+      "command": "refactor state, matching draft/observability/final implementation, exact locks, prior artifact SHA/timestamp inventory, and validate_refactor_control.py",
+      "exit_code": 0,
+      "result": "PASS; Stage 01 revision 1 attempt 3 is in QA, matching artifacts exist, the attempt-3 QA path is locked to qa, CONTROL VALID, attempts 1/2 evidence remains present and immutable, recorded observability hashes match, and Stage 02 remains PENDING/NOT_STARTED"
+    },
+    {
+      "check": "focused_stage01_gate",
+      "command": "pytest -q --disable-warnings tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/core_test/test_error_handler.py tests/unit_tests/core_test/test_observability.py",
+      "exit_code": 0,
+      "result": "PASS; 95 passed in 2.66s"
+    },
+    {
+      "check": "adversarial_recursive_materialization",
+      "command": "independent nested MappingProxyType/custom Mapping/ChainMap/dict-subclass/list-subclass/plain-container/alias/mutation/cycle/JSON serialization matrix",
+      "exit_code": 0,
+      "result": "PASS; Mapping objects at multiple valid depths become fresh exact plain dicts, list subclasses become fresh exact plain lists, repeated shared subtrees produce independent copies, source mutation cannot alter output, Mapping views are rejected, dict/list/cross cycles fail closed, and all accepted output succeeds with json.dumps(..., allow_nan=False)"
+    },
+    {
+      "check": "adversarial_harness_depth_calibration",
+      "command": "two initial independent adversarial fixtures with scalars beyond the declared maximum depth",
+      "exit_code": 1,
+      "result": "EXPECTED_CONTRACT_REJECTION; both harness variants exceeded maximum JSON depth 4 and correctly raised ValueError before being corrected to valid-depth fixtures; no product finding"
+    },
+    {
+      "check": "reviewer_temporal_counterexamples_preserved",
+      "command": "independent XNYS calendar and target assertions",
+      "exit_code": 0,
+      "result": "PASS; 2021-12-31 is open/month-end, 2025-01-09 is closed, and the exact 21st session after 2024-12-31 is 2025-02-03"
+    },
+    {
+      "check": "strict_context_utc_future_version_label_and_state",
+      "command": "independent removal of every canonical from_dict field, HISTORICAL_BACKTEST round-trip, UTC/as_of, future/missing evidence, version, adjusted-close label and legacy State assertions",
+      "exit_code": 0,
+      "result": "PASS; all 13 canonical field removals fail closed, historical mode cannot default to LIVE, aware UTC normalizes, naive/missing/future/version-invalid inputs fail closed, forward_21d_excess_return semantics are correct, and all eight legacy State keys remain required"
+    },
+    {
+      "check": "observability_non_traversal_privacy_and_legacy",
+      "command": "independent direct MappingProxy context, full-State non-traversal, forecast_trace_metadata, publish_forecast and legacy publish assertions",
+      "exit_code": 0,
+      "result": "PASS; direct corrected context fields are allowlisted, nested State/feature/raw/reasoning fields are not emitted, run_id stays top-level, and legacy publish behavior is unchanged"
+    },
+    {
+      "check": "guarded_full_collection",
+      "command": "HF/Transformers/Datasets offline plus localhost-only guarded pytest --collect-only -qq --disable-warnings tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "PASS; 1187 collected (1136 unit, 51 integration), QA_EXTERNAL_ATTEMPTS=[], zero external connections completed"
+    },
+    {
+      "check": "guarded_full_unit_regression",
+      "command": "HF/Transformers/Datasets offline plus localhost-only guarded pytest -q --disable-warnings --tb=no tests/unit_tests",
+      "exit_code": 1,
+      "result": "PASS_KNOWN_FAILURE_SEPARATION; 1098 passed, exactly 38 documented known/downstream failures, 6 warnings, QA_EXTERNAL_ATTEMPTS=[], zero external connections completed and no additional HuggingFace-cache failures"
+    },
+    {
+      "check": "compile_diff_and_scope_integrity",
+      "command": "python -m py_compile Stage 01/observability modules and retry test; git diff --check on attempt-3 retry paths",
+      "exit_code": 0,
+      "result": "PASS; compile succeeds, diff-check reports line-ending notices only, and attempt 3 remains limited to agents/state.py plus its exact locked regression test and artifacts"
+    }
+  ],
+  "leakage_report": {
+    "status": "PASS",
+    "aware_utc_normalization": "PASS",
+    "naive_or_missing_timestamp_rejection": "PASS",
+    "future_evidence_rejection": "PASS",
+    "historical_mode_preserved_on_round_trip": "PASS",
+    "exact_target_boundary": "PASS",
+    "version_mismatch_rejection": "PASS",
+    "external_network_attempts": 0,
+    "external_network_connections_completed": 0
+  },
+  "regression_report": {
+    "focused_stage01": {"passed": 95, "failed": 0},
+    "collection": {"unit": 1136, "integration": 51, "total": 1187, "status": "PASS"},
+    "full_unit": {
+      "passed": 1098,
+      "failed_total": 38,
+      "warnings": 6,
+      "documented_known_failures": 38,
+      "additional_huggingface_cache_failures": 0,
+      "stage01_regressions": 0
+    },
+    "resolved_findings": [
+      "STAGE01-XNYS-CALENDAR-001",
+      "STAGE01-CONTEXT-DESERIALIZATION-002",
+      "STAGE01-STATE-JSON-HYGIENE-005"
+    ],
+    "recursive_json_native_guarantee": "PASS; every accepted returned container is a fresh exact plain dict/list and the complete output serializes with allow_nan=False",
+    "state_backward_compatibility": "PASS",
+    "error_handler_regression": "PASS",
+    "observability_additive_compatibility": "PASS",
+    "attempt1_and_attempt2_artifacts_immutable": true,
+    "external_network_attempts": 0,
+    "external_network_connections_completed": 0
+  },
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "03",
+      "finding": "The previously recorded RAG fixture/import-order concern remains data_rag-owned; it did not reproduce under the attempt-3 HF-offline guarded full run and produced zero external attempts."
+    }
+  ],
+  "blocking_findings": [],
+  "requested_primary_changes": [],
+  "network_used": false,
+  "database_or_migration_changes": false,
+  "created_at": "2026-08-28T12:10:27.5187790Z"
+}

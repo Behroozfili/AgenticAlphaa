@@ -1,0 +1,185 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 4,
+  "agent": "reviewer",
+  "status": "REVIEW_APPROVED",
+  "review_status": "APPROVED",
+  "execution_phase": "REVIEW",
+  "control_revision": 140,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-07-rev-1-attempt-4-review.json"
+  ],
+  "artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-4-draft-ready.json",
+      "sha256": "3af823794c1eed6fda318b88826e654c9d92ec6d4e21b4f838f6cf1556a4ee4b",
+      "identity_valid": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-4-observability.json",
+      "sha256": "573edf099991ee51160d59e0e24a92d533b230405d54a6d56f4236400fd6eed0",
+      "identity_valid": true,
+      "status": "AUDITED",
+      "requested_primary_changes": 0
+    },
+    "data_readiness": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-DATA_READINESS.json",
+      "sha256": "c0c0813e7569158a36026293b12814b1972b819830f833173542ad8ba8d8543b",
+      "identity_valid": true,
+      "milestone_status": "PASS",
+      "manifest_hash": "c594e6002196e123ca8f6bead7e233f7272376db84250af87c6174cfb93979b7",
+      "eligible_rows_sha256": "93b980674b6801db52eb08c8e6b5aa652f82bcc22be2887224d88d45454166e4"
+    },
+    "model_ready": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-MODEL_READY.json",
+      "sha256": "835eb5449c4ff89ca888112f8397d17224fc6dd93bf9d879a0ac876603fda500",
+      "identity_valid": true,
+      "milestone_status": "PASS",
+      "training_data_hash": "78af5fc9e5a1fcb7263601e65ead1732e83625cf3604cde46d2b3289f2691890",
+      "model_version": "logistic-ridge-21d-v1+sha256:73d858322007097b578ed1aaaab9146c18fd8b2cc729c64fe348a345f386583a"
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-4-implementation.md",
+      "sha256": "e2c42713c070ba4787d23d38e7bfe049bf5f44f35717bd07833cc5cedbbf51a0"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-4-implementation.json",
+      "sha256": "5fc72223d42996c419643731d35a854b544a68772ee547c3a4b0d9d0df2bea09",
+      "identity_valid": true,
+      "implementation_status": "IMPLEMENTED"
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-4-qa.json",
+      "sha256": "a79c1b2e425f0a40a324bc8e82da51c42fcbac40b348e87ab88e9298e2d52361",
+      "identity_valid": true,
+      "qa_status": "PASS"
+    },
+    "dependency_handoffs": [
+      {
+        "stage": "04B",
+        "path": ".codex/handoffs/stage-04B-rev-1-handoff.json",
+        "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049",
+        "state_status": "CLOSED"
+      },
+      {
+        "stage": "05",
+        "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+        "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+        "state_status": "CLOSED"
+      },
+      {
+        "stage": "06",
+        "path": ".codex/handoffs/stage-06-rev-1-handoff.json",
+        "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735",
+        "state_status": "CLOSED"
+      }
+    ]
+  },
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "id": "OBS-07-A4-NB-001",
+      "severity": "NON_BLOCKING",
+      "summary": "One DATA_READINESS explanatory sentence says current Attempt 3 runtime.",
+      "assessment": "This is stale prose only. Artifact identity, run_id, immutable SHA-256, runtime constant, MarketForecastService output, lifecycle identity, readiness/model bindings and independent tests consistently identify Attempt 4. It has no behavioral, temporal, telemetry or model-binding impact and does not justify altering the already validated milestone in this retry."
+    },
+    {
+      "id": "REVIEW-07-A4-NB-001",
+      "severity": "NON_BLOCKING",
+      "summary": "Stage 07 evidence remains preliminary engineering evidence.",
+      "assessment": "The fixture is synthetic, single-ticker and 40-cutoff. Artifacts disclose this limitation, keep scientific_report_level PRELIMINARY and make no investment-performance claim. Walk-forward metrics, baselines, transaction costs and ablations remain Stage 09 scope."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [],
+  "review_blockers": [],
+  "resolved_findings": [
+    {
+      "id": "QA-07-A3-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "QUANT_IMPLEMENTATION_IDENTITY and QUANT_IMPLEMENTATION_VERSION identify Stage07/rev1/attempt4/quant and stage07-r1-a4. MarketForecastService output and every tested lifecycle boundary publish the same current identity; exact equality tests exclude stale attempt 1 and attempt 3 provenance."
+    },
+    {
+      "id": "REVIEW-07-A2-B-001",
+      "status": "PASS_PRESERVED",
+      "evidence": "All 40 fixture labels preserve canonical adjusted-close excess-return magnitude and direction identity, with fail-closed magnitude/sign counterexamples and zero mismatches."
+    },
+    {
+      "id": "QA-07-001",
+      "status": "PASS_PRESERVED",
+      "evidence": "Current DATA_READINESS, eligible-row, training-data, deterministic model and prediction identities are mutually bound and reproduce in normal and reversed input order."
+    },
+    {
+      "id": "OBS-07-001..003",
+      "status": "PASS_PRESERVED",
+      "evidence": "Nine measured compact lifecycle boundaries, privacy rejection, context identity, temporal availability, universe membership and eligible-row/model bindings remain green with Attempt 4 provenance."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_ownership": "PASS: Attempt 4 changed only the explicitly authorized Quant product path, two exact Quant test paths and matching Quant artifacts; the Observability and QA artifacts have their own exact owners, and this review path is locked to reviewer. No test was removed or weakened and no Stage 08 path was activated.",
+    "artifact_integrity": "PASS: state is ACTIVE REVIEW at control revision 140 for Stage 07 revision 1 attempt 4. Required draft-ready and Observability AUDITED artifacts exist because observability_required is true. Both current milestone artifacts are PASS, implementation is IMPLEMENTED, QA is PASS, all chain SHA-256 values match, and attempt 1 through 3 artifacts remain immutable.",
+    "temporal_safety": "PASS: market features stop at as_of, snapshots finalized after as_of fail closed, outcomes before the target close fail closed, training rows after train_through fail closed, universe effective membership is enforced and labels use the exact 21st regular session strictly after as_of with adjusted-close semantics. No current-provider fallback is present in historical execution.",
+    "versioning_and_reproducibility": "PASS: universe, dataset, feature, label, calendar, schema, model, action-policy, readiness, eligible-row and training-data identities are explicit and consistently bound. Normal and reversed order reproduce the same manifest/model identities.",
+    "financial_integrity": "PASS_BY_SCOPE: Stage 07 does not modify Financial code, nine intents/mappers, DCF or WACC. DCF remains a long-term upstream feature and is not used as the 21-session target or predicted price.",
+    "numeric_integrity": "PASS: logistic/ridge Quant code is deterministic and remains the only source of probability, return, excess-return, interval, action and confidence. MarketForecastService forwards those values without LLM involvement or alteration.",
+    "training_and_missingness": "PASS: feature selection, median imputation, standardization and residual interval use supplied training rows only; explicit train_through prevents later rows; all-missing columns are excluded; missing optional values remain null with indicators and required market missingness fails closed.",
+    "observability_and_data_hygiene": "PASS: lifecycle telemetry is measured and allowlisted, carries exact Attempt 4 identity and bounded counts, and excludes raw bars, feature vectors, labels, coefficients, exceptions, evidence IDs, full filings, article chunks, credentials, secrets, brain_reasoning and chain-of-thought.",
+    "regression": "PASS: fresh independent execution completed 121 of 121 combined ForecastContext, State and Stage 07 tests. Canonical-label, exact-target, temporal, preprocessing, privacy, deterministic-model and current-identity regressions remain covered.",
+    "operational_safety": "PASS: rollback is quarantine-based and documented. No network acquisition, live provider call, external trace call, database read/write, migration, seed, deletion, deployment, commit or push was performed. Manager and API/runtime isolation paths were not changed.",
+    "scientific_honesty": "PASS_FOR_STAGE_07: engineering evidence is explicitly PRELIMINARY and is not presented as investment success. Walk-forward performance metrics, identical-fold baselines, costs and ablations are correctly deferred to Stage 09.",
+    "contract_integrity": "PASS: exact 21-session target, adjusted-price policy, immutable Yahoo cache/no fallback policy, versioned universe membership, action_policy_v1 thresholds and required forecast identity fields match the frozen contracts. Stage 07 introduces no storage-key or schema migration change."
+  },
+  "tests_and_checks": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex\\scripts\\validate_refactor_control.py --check-control --check-locks",
+      "result": "PASS: CONTROL VALID at control revision 140 before review artifact creation."
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test -q",
+      "result": "PASS: 121 passed in 23.23s using offline deterministic local fixtures."
+    },
+    {
+      "command": "Independent SHA-256 verification of the current chain, dependency handoffs and implementation-declared runtime/test/fixture inputs",
+      "result": "PASS: draft-ready, Observability, both milestones, implementation MD/JSON and QA hashes match state/artifact bindings; 11 of 11 runtime input hashes and 3 of 3 dependency handoff hashes match."
+    },
+    {
+      "command": "Independent source and contract inspection of runtime identity, service output, lifecycle telemetry, canonical labels, exact target, readiness, deterministic fit/predict and action policy",
+      "result": "PASS: exact 07/r1/a4/quant identity is the single runtime source; canonical label mismatches are zero; horizon is exactly 21 sessions; action_policy_v1 thresholds are unchanged; no LLM numeric path or historical current fallback exists."
+    }
+  ],
+  "source_integrity": {
+    "implementation_runtime_inputs_checked": 11,
+    "implementation_runtime_input_mismatches": 0,
+    "active_chain_hash_mismatches": 0,
+    "dependency_handoff_hash_mismatches": 0,
+    "prior_attempt_artifacts_immutable": [1, 2, 3],
+    "runtime_identity": "07/r1/a4/quant",
+    "canonical_label_mismatches": 0,
+    "all_changed_paths_locked_to_correct_owner": true
+  },
+  "external_execution": {
+    "network_access_by_review": false,
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "stage08_work": "NOT_RUN"
+  },
+  "downstream_gate": {
+    "stage07_closure": "ELIGIBLE_FOR_ORCHESTRATOR_CLOSE",
+    "stage08_activation": "REMAINS_ORCHESTRATOR_ONLY_AFTER_STAGE07_CLOSE"
+  },
+  "supersedes": ".codex/handoffs/stage-07-rev-1-attempt-2-review.json",
+  "created_at": "2026-09-09T19:14:52.8332635Z"
+}

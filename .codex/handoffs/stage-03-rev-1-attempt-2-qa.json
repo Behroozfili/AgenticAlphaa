@@ -1,0 +1,168 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "status": "PASS",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_identity_artifacts_control_and_locks",
+      "command": "validate active state, matching Attempt 2 draft-ready/observability/final implementation artifacts, exact QA lock, and refactor control",
+      "exit_code": 0,
+      "result": "PASS; Stage 03 revision 1 attempt 2 is ACTIVE in QA, all required same-attempt artifacts validate, implementation_ready=true, the QA artifact path is locked to qa, and CONTROL VALID."
+    },
+    {
+      "check": "attempt1_artifact_immutability",
+      "command": "SHA-256 comparison for Attempt 1 draft-ready, observability, implementation JSON/MD, and QA artifacts against recorded Attempt 2 audit hashes",
+      "exit_code": 0,
+      "result": "PASS; all five Attempt 1 artifacts exactly match their recorded SHA-256 values."
+    },
+    {
+      "check": "attempt2_input_artifact_schema_identity",
+      "command": "validate_refactor_control.py --artifact for Attempt 2 draft-ready, observability, and implementation JSON with exact agents",
+      "exit_code": 0,
+      "result": "PASS; all three input artifacts are schema-valid and identity-valid."
+    },
+    {
+      "check": "stage03_runtime_compile",
+      "command": "python -m py_compile rag/__init__.py rag/loader.py rag/processor.py rag/embedding_manager.py rag/vector_store.py rag/retriever.py rag/ingestion.py rag/seed.py main.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "check": "focused_stage03_offline_gate",
+      "command": "pytest -q tests/unit_tests/test_rag/test_embedding_manager.py tests/unit_tests/test_rag/test_ingestion.py tests/unit_tests/test_rag/test_loader.py tests/unit_tests/test_rag/test_processor.py tests/unit_tests/test_rag/test_retriever.py tests/unit_tests/test_rag/test_vectore_store.py tests/unit_tests/test_rag/test_pipline_rag.py tests/unit_tests/test_root_main.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "203 passed in 61.90s"
+    },
+    {
+      "check": "narrative_stability_and_stage01_stage02_regression",
+      "command": "pytest -q tests/unit_tests/test_stage3_narrative_stability.py plus accepted Stage 01 forecast/state/error/observability and Stage 02 migration contract tests",
+      "exit_code": 0,
+      "result": "125 passed in 2.88s: 16 narrative-stability tests plus 109 Stage 01-02 regressions."
+    },
+    {
+      "check": "explicit_stage03_contract_matrix",
+      "command": "pytest selected HistoricalLoader, TemporalV2Boundary, pre-ranking retrieval, CheckpointResume, LifecycleTelemetry, embedding-version cache key, and seed/startup boundary tests",
+      "exit_code": 0,
+      "result": "17 passed in 31.25s"
+    },
+    {
+      "check": "fixture_cases_rows_backward_compatibility",
+      "command": "deep structural comparison of current cases against git show HEAD fixture plus temporal rows/dataset/as_of/expected IDs inspection",
+      "exit_code": 0,
+      "result": "PASS; all four legacy cases are exactly preserved, all four temporal rows remain present, and expected_chunk_ids is ['before-nvda']."
+    },
+    {
+      "check": "fixture_driven_temporal_filter",
+      "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 local assertion through AlphaRetriever._filter_temporal_candidates over fixture rows",
+      "exit_code": 0,
+      "result": "PASS; only before-nvda remains after ticker, dataset-version, as_of, and effective-interval filtering. Existing cached weights were used; no provider/live data test was run."
+    },
+    {
+      "check": "full_unit_integration_collection",
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests --disable-warnings",
+      "exit_code": 0,
+      "result": "1218 tests collected in 25.33s; zero collection errors."
+    },
+    {
+      "check": "observability_source_immutability_and_privacy_contract",
+      "command": "SHA-256 verification plus focused lifecycle telemetry/error-sentinel regressions",
+      "exit_code": 0,
+      "result": "PASS; rag/ingestion.py, its tests, core observability/progress, and langsmith_trace hashes match the Attempt 2 observability audit; allowlisted metadata, monotonic latency, resume visibility, and sanitized exception sentinels pass."
+    },
+    {
+      "check": "diff_scope_whitespace_and_external_safety",
+      "command": "actual cumulative diff review, fixture-only Attempt 2 retry review, git diff --check, Git HEAD check, and implementation operational-safety evidence review",
+      "exit_code": 0,
+      "result": "PASS; Attempt 2 resolves only the locked shared fixture, cumulative Stage 03 paths match the implementation artifact, whitespace check is clean apart from line-ending notices, Git HEAD remains the baseline commit, and no migration, external DB write, seed/backfill, route switch, deploy, commit, or push is evidenced."
+    }
+  ],
+  "leakage_report": {
+    "status": "PASS",
+    "historical_requires_start_end_as_of": "PASS",
+    "reproducible_archive_provider_required": "PASS",
+    "historical_live_fallback_disabled": "PASS",
+    "invalid_or_unknown_time_quarantine": "PASS",
+    "future_record_rejected_before_freshness_ranking": "PASS",
+    "wrong_ticker_rejected_before_freshness_ranking": "PASS",
+    "wrong_dataset_version_rejected_before_freshness_ranking": "PASS",
+    "late_retrieved_historical_evidence_excluded": "PASS",
+    "legacy_historical_backend_fail_closed": "PASS",
+    "v2_boundary": "PASS_WITH_DETERMINISTIC_MOCKS_FIXTURE_AND_STAGE02_RPC_CONTRACT",
+    "fixture_expected_chunk_ids": [
+      "before-nvda"
+    ],
+    "live_provider_or_external_database_validation": "NOT_RUN_UNAUTHORIZED_AND_NOT_REQUIRED_FOR_OFFLINE_STAGE03_GATE"
+  },
+  "regression_report": {
+    "focused_stage03": {
+      "passed": 203,
+      "failed": 0
+    },
+    "narrative_stability": {
+      "passed": 16,
+      "failed": 0
+    },
+    "focused_stage01_stage02": {
+      "passed": 109,
+      "failed": 0
+    },
+    "explicit_contract_matrix": {
+      "passed": 17,
+      "failed": 0
+    },
+    "collection": {
+      "unit_and_integration": 1218,
+      "errors": 0,
+      "status": "PASS"
+    },
+    "fixture_legacy_cases_exact_match": true,
+    "fixture_temporal_rows_preserved": true,
+    "temporal_ingestion_and_quarantine": "PASS_OFFLINE",
+    "checkpoint_resume_and_completed_run_idempotency": "PASS_OFFLINE",
+    "separate_vector_graph_status_and_graph_retry": "PASS_OFFLINE",
+    "embedding_cache_model_version_identity": "PASS_OFFLINE",
+    "explicit_seed_cli_and_no_normal_startup_auto_seed": "PASS_OFFLINE",
+    "telemetry_allowlist_latency_resume_and_exception_sentinel": "PASS_OFFLINE",
+    "attempt1_artifacts_immutable": true,
+    "stage03_regressions": 0
+  },
+  "blocking_issues": [],
+  "blocking_findings": [],
+  "environment_blockers": [],
+  "resolved_findings": [
+    "STAGE03-FIXTURE-COLLECTION-001",
+    "OBS-03-001",
+    "OBS-03-002"
+  ],
+  "candidate_downstream_stages_affected": [],
+  "non_blocking_closure_limitations": [
+    {
+      "id": "PREEXISTING-LOCK-STATE-001",
+      "path": "agents/state.py",
+      "finding": "Global --check-locks continues to report that the real Git change has no current/permanent/accepted lock owner. This mismatch predates Stage 03, is unrelated to Stage 03 behavior, and was neither modified nor attributed by QA."
+    },
+    {
+      "id": "STAGE03-LIVE-V2-NOT-RUN",
+      "finding": "V2 behavior is intentionally validated offline because Stage 02 migrations are not applied/reconciled and external database/provider execution was not authorized. No live correctness claim is made."
+    }
+  ],
+  "operational_safety": {
+    "implementation_network_or_provider_execution": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migrations_applied": false,
+    "seed_or_backfill_executed": false,
+    "legacy_data_deleted": false,
+    "production_route_switched": false,
+    "deploy_commit_or_push": false,
+    "qa_authoritative_fixture_rerun": "HF_HUB_OFFLINE_AND_TRANSFORMERS_OFFLINE_WITH_EXISTING_LOCAL_CACHE"
+  },
+  "requested_primary_changes": [],
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-1-qa.json",
+  "created_at": "2026-08-30T07:41:53.8062528Z"
+}

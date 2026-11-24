@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [],
+  "requested_primary_changes": [],
+  "privacy_checks": [
+    {
+      "check": "Recursive State materialization does not broaden the forecast trace/progress allowlist.",
+      "status": "PASS",
+      "evidence": "Nested MappingProxyType and custom Mapping feature values materialized to fresh plain JSON containers, while observability metadata remained limited to direct approved context and operational fields."
+    },
+    {
+      "check": "A full State-shaped custom Mapping is not iterated and nested forecast_context, feature slots, raw_evidence, and brain_reasoning are neither traversed nor emitted.",
+      "status": "PASS",
+      "evidence": "A probe Mapping raised on iteration and recorded key access; only direct allowlisted context probes occurred and no State/raw field key was accessed."
+    },
+    {
+      "check": "Direct MappingProxyType ForecastContext remains compatible with the existing allowlisted metadata builder and publish_forecast event path.",
+      "status": "PASS",
+      "evidence": "The corrected historical context emitted target 2025-02-03 and calendar/version metadata without raw fields."
+    },
+    {
+      "check": "Legacy publish behavior remains unchanged.",
+      "status": "PASS"
+    },
+    {
+      "check": "Attempt-1 and attempt-2 observability artifacts remained immutable during attempt 3.",
+      "status": "PASS",
+      "artifact_sha256": {
+        "attempt_1": "a536404d3509e86c68eb1518739d2aaa6a404dfd8c1ddceaa38b2e614105b540",
+        "attempt_2": "eaa19b822c29b7566f060804c365bf9669391888e969d307c675f3638f84d819"
+      }
+    },
+    {
+      "check": "No external tracing service was initialized or contacted by this pass.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "UNCHANGED_CONTRACT_READY_NO_RUNTIME_MEASUREMENT_STAGE_01",
+  "retry_audit": {
+    "recursive_materialization": "No instrumentation change required; materialized feature values and full State remain outside forecast metadata/event serialization.",
+    "mapping_types": "Direct ForecastContext mappings are allowlisted; nested MappingProxy/custom Mapping State fields are not traversed.",
+    "observability_source_files_modified_in_attempt_3": false,
+    "feature_call_sites_changed": false,
+    "change_request_required": false
+  },
+  "tests_run": [
+    {
+      "command": "python -m py_compile core/observability.py core/progress_bus.py agents/state.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "pytest --collect-only -q focused Stage01 and observability tests",
+      "exit_code": 0,
+      "result": "95 tests collected in 2.95s"
+    },
+    {
+      "command": "pytest -q focused Stage01 and observability tests --disable-warnings",
+      "exit_code": 0,
+      "result": "95 passed in 3.55s"
+    },
+    {
+      "command": "initial inline MappingProbe assertion harness",
+      "exit_code": 1,
+      "result": "HARNESS_SYNTAX_ERROR before any assertion executed; no product failure",
+      "disposition": "Corrected without changing source files and rerun successfully in the next test entry."
+    },
+    {
+      "command": "corrected inline MappingProxy/custom Mapping materialization, non-traversal, privacy, progress, and legacy compatibility assertions",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "git diff --check -- Stage01 State and observability paths",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only"
+    }
+  ],
+  "blocking_issues": [],
+  "change_request_required": false,
+  "network_used": false,
+  "database_or_migration_changes": false,
+  "supersedes": ".codex/handoffs/stage-01-rev-1-attempt-2-observability.json",
+  "created_at": "2026-08-28T11:57:23.1171402Z"
+}

@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "02",
+  "stage_revision": 2,
+  "attempt": 1,
+  "agent": "qa",
+  "status": "FAIL",
+  "qa_status": "FAIL",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_control_milestone_locks_and_final_artifact",
+      "exit_code": 1,
+      "result": "FAIL; control and milestone validate and QA ownership is locked correctly, but the implementation JSON declares execution_mode PRIMARY_DRAFT and the matching MD declares Phase PRIMARY_DRAFT with an instruction to stop before QA. This conflicts with the QA state and the required final implementation artifact contract. The separate global check-locks failure for agents/state.py is pre-existing and unrelated to Stage 02 behavior."
+    },
+    {
+      "check": "python_compile_modified_migration_test",
+      "exit_code": 0,
+      "result": "PASS; tests/unit_tests/test_database_v2_migrations.py compiled offline."
+    },
+    {
+      "check": "focused_stage02_migration_amendment_suite",
+      "exit_code": 0,
+      "result": "17 passed in 9.54s; static PostgreSQL structure, forward ordering/idempotency, rollback ordering, collision preflight, retained primary/unique identities, RLS/RPC/grants/reconciliation/routes, and no destructive row mutation all passed."
+    },
+    {
+      "check": "exact_amendment_acceptance_gates",
+      "exit_code": 0,
+      "result": "3 passed in 9.65s; actual Stage 03 AlphaProcessor -> AlphaEmbedder -> AlphaVectorStore._to_v2_row produced four same-content dataset/retrieval/effective observations that collapse under the replaced identity and remain distinct and non-null under every new primary/unique identity; reversible migration and temporal security/route preservation checks passed."
+    },
+    {
+      "check": "stage01_stage02_regression",
+      "exit_code": 0,
+      "result": "112 passed in 11.03s across forecast contract, State serialization contract, core error handling, observability, and database migration suites."
+    },
+    {
+      "check": "full_unit_integration_collection",
+      "exit_code": 0,
+      "result": "1234 tests collected in 12.32s with zero collection errors under offline Hugging Face settings."
+    },
+    {
+      "check": "migration_001_003_and_neo4j_immutability",
+      "exit_code": 0,
+      "result": "PASS; hashes match the implementation evidence for migrations 001, 002, 003 and the Neo4j migration; migration 004 hash also matches."
+    },
+    {
+      "check": "scoped_diff_and_external_safety",
+      "exit_code": 0,
+      "result": "PASS; migration/test scoped diff check is clean with no whitespace errors. No migration, external database, network, seed, deploy, commit, push, row deletion, or data rewrite was performed by QA."
+    }
+  ],
+  "blocking_issues": [
+    {
+      "id": "STAGE02-REV2-FINAL-ARTIFACT-PHASE-001",
+      "owner": "data_rag",
+      "finding": "The only implementation artifacts for Stage 02 revision 2 attempt 1 self-identify as PRIMARY_DRAFT even though the control plane entered PRIMARY_FINAL and then QA. The MD additionally says to stop before QA. Therefore the attempt does not provide the valid final implementation artifact required to start and pass the QA gate.",
+      "evidence": [
+        ".codex/handoffs/stage-02-rev-2-attempt-1-implementation.json: execution_mode PRIMARY_DRAFT",
+        ".codex/handoffs/stage-02-rev-2-attempt-1-implementation.md: Phase PRIMARY_DRAFT (implementation complete; stop before QA)"
+      ],
+      "required_resolution": "Create a new immutable attempt whose implementation JSON and MD consistently identify the finalized PRIMARY_FINAL handoff before QA. Do not overwrite attempt 1. The migration amendment itself passed all authorized offline technical gates and need not be changed solely because of this artifact-phase defect."
+    }
+  ],
+  "environment_blockers": [],
+  "technical_contract_status": "PASS",
+  "technical_contract_summary": "The Stage 02 revision 2 SQL/test amendment passed every authorized offline behavioral and regression gate. Overall QA is FAIL solely because the required final implementation artifact is internally stale and contradicts the active phase.",
+  "rollback_and_collision_preflight": {
+    "status": "PASS_STATIC_OFFLINE",
+    "details": "Rollback collision preflights fail closed before restoring the replaced identities; forward and rollback ordering are verified; no DELETE, UPDATE, TRUNCATE, or row-rewrite path was introduced."
+  },
+  "identity_compatibility": {
+    "status": "PASS",
+    "details": "The retained chunk primary key, document/evidence chunk uniqueness, evidence identity, and Stage 03 same-content observation coexistence were verified from the actual processor/embedder/V2-row conversion path."
+  },
+  "live_database_gate": {
+    "status": "NOT_RUN_UNAUTHORIZED",
+    "reason_not_environment_blocker": "The assigned QA gate requires static/offline PostgreSQL verification and explicitly prohibits applying migrations or using an external database. No live-database claim is made."
+  },
+  "external_database_execution": "NOT_RUN_UNAUTHORIZED",
+  "external_network_connections_completed": 0,
+  "closure_limitations": [
+    {
+      "id": "GLOBAL-AGENTS-STATE-ATTRIBUTION-MISMATCH",
+      "blocking_for_stage02_behavior": false,
+      "details": "Global --check-locks reports that agents/state.py has a real Git change without current, permanent, or accepted lock ownership. This pre-existing mismatch is outside the Stage 02 amendment and was not edited or claimed by QA, but it remains a repository-level closure limitation."
+    }
+  ],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "03",
+      "effect": "Stage 03 remains stale and cannot consume an accepted Stage 02 revision 2 handoff until this artifact-chain blocker is resolved and the upstream stage is reviewed and closed."
+    }
+  ],
+  "supersedes": null,
+  "created_at": "2026-08-30T12:18:33.0199138Z"
+}

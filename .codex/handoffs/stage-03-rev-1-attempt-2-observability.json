@@ -1,0 +1,122 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [
+    ".codex/handoffs/stage-03-rev-1-attempt-2-observability.json"
+  ],
+  "requested_primary_changes": [],
+  "privacy_checks": [
+    {
+      "check": "Restored legacy cases are structurally identical to the base Git fixture and introduce no new observability or privacy surface.",
+      "status": "PASS",
+      "evidence": "A direct JSON structural comparison against git show HEAD:tests/fixtures/stage3_ticker_regressions.json passed for the complete cases value; all four AMD/MSFT/NVDA/INTC cases are unchanged."
+    },
+    {
+      "check": "Temporal rows contain only compact deterministic fixture metadata and no raw or sensitive payload.",
+      "status": "PASS",
+      "evidence": "The four rows contain only chunk_id, ticker, dataset_version, published_at, effective_from, effective_to, and similarity. They contain no text/document_text, URL/source_url, token, secret, headers, prompt, raw payload, chain-of-thought, or brain_reasoning fields."
+    },
+    {
+      "check": "OBS-03-001 lifecycle metadata and latency instrumentation remains resolved after the fixture-only retry.",
+      "status": "PASS",
+      "evidence": "The unchanged ingestion telemetry retains allowlisted Stage 03 identity, run/dataset/adapter/embedding metadata, monotonic latency_ms, counts, status/degraded fields, and checkpoint/resume events; focused ingestion regressions passed."
+    },
+    {
+      "check": "OBS-03-002 untrusted exception persistence/emission remains resolved after the fixture-only retry.",
+      "status": "PASS",
+      "evidence": "The unchanged sanitized error-code path and secret/raw-payload/private-URL sentinel regression remain present; focused ingestion regressions passed."
+    },
+    {
+      "check": "No product or observability source was modified by attempt 2.",
+      "status": "PASS",
+      "evidence": "Attempt-2 draft changed_files contains only the shared fixture and draft artifact. rag/ingestion.py and its telemetry test were last modified before the attempt-2 retry transition; core observability/progress and langsmith_trace sources remain older and unchanged."
+    },
+    {
+      "check": "No external tracing service was initialized or contacted by this pass.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "UNCHANGED_ATTEMPT_1_RESOLUTION_VERIFIED_NO_ATTEMPT_2_REGRESSION",
+  "retry_audit": {
+    "retry_scope": "FIXTURE_ONLY",
+    "qa_finding": "STAGE03-FIXTURE-COLLECTION-001",
+    "qa_finding_status": "RESOLVED",
+    "legacy_cases": "PASS_EXACT_STRUCTURAL_MATCH_COUNT_4",
+    "temporal_rows": "PASS_COMPACT_METADATA_ONLY_COUNT_4",
+    "expected_chunk_ids": [
+      "before-nvda"
+    ],
+    "repository_collection": "PASS_1218_COLLECTED_ZERO_ERRORS",
+    "obs_03_001": "RESOLVED_UNCHANGED",
+    "obs_03_002": "RESOLVED_UNCHANGED",
+    "product_source_modified_in_attempt_2": false,
+    "observability_source_modified_in_attempt_2": false,
+    "feature_call_sites_modified_in_attempt_2": false,
+    "change_request_required": false
+  },
+  "source_immutability_evidence": {
+    "rag/ingestion.py": {
+      "sha256": "6039ce7353a2d433fff3c675eb538b378d5d96e0bbbbe1133e08faeca204d28a",
+      "last_write_utc": "2026-08-29T06:49:51.0610838Z"
+    },
+    "tests/unit_tests/test_rag/test_ingestion.py": {
+      "sha256": "6ff91a83d9b2325cc3fd25b8e1d3394e064fa80f5651836e83f46e34291cf557",
+      "last_write_utc": "2026-08-29T06:49:51.0620692Z"
+    },
+    "core/observability.py": {
+      "sha256": "3af7d734f1081e0d8a2ee4924b2fcea218ab0fdf0c0a93600ba46010c21222d5"
+    },
+    "core/progress_bus.py": {
+      "sha256": "1b0115704447a0b5b2ad22374c6d335273585706c38c64c3cebef3a21bdd4a16"
+    },
+    "langsmith_trace.py": {
+      "sha256": "57e334a86c2c6e20d925988270857264b29219811092d09a1c83c70ce94f4138"
+    }
+  },
+  "prior_attempt_artifact_immutability": {
+    "status": "PASS",
+    "evidence": "All attempt-1 artifact timestamps predate the attempt-2 retry transition and remained unchanged during this pass.",
+    "sha256": {
+      "draft_ready": "a1613e7e74eb061b76f7b73cbf035688c0b7f4faa25021c8dac0874894e72c8a",
+      "observability": "ed399ef82504d9960feb2f811e217c54fe8e1989c40120908eb4a063f2544dfc",
+      "implementation_json": "69c37658e32c8b594ccfa3c9c3aa46425571843c5ce61ca67fde31b6b6f4cf6f",
+      "implementation_md": "ef724232847b60478566ab510cf35dcd29cd50d69548bd0d76c39435c99871ea",
+      "qa": "207443a6f5fb7094b671f61d4d61087fc0cfda856dcdacd7935b921c75424b4e"
+    }
+  },
+  "tests_run": [
+    {
+      "command": "exact legacy-cases structural comparison, temporal coverage, and forbidden raw/sensitive row-field assertions",
+      "exit_code": 0,
+      "result": "FIXTURE_STRUCTURE_PRIVACY_PASS"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_stage3_narrative_stability.py tests/unit_tests/test_rag/test_ingestion.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "35 passed in 18.72s"
+    },
+    {
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests --disable-warnings",
+      "exit_code": 0,
+      "result": "1218 tests collected in 21.68s; zero collection errors"
+    },
+    {
+      "command": "git diff --check -- tests/fixtures/stage3_ticker_regressions.json",
+      "exit_code": 0,
+      "result": "PASS; line-ending notice only"
+    }
+  ],
+  "blocking_issues": [],
+  "network_used": false,
+  "database_reads": false,
+  "database_writes": false,
+  "migrations_or_seed_execution": false,
+  "global_lock_validation_limitation": "The pre-existing unrelated agents/state.py lock mismatch was not investigated, modified, or attributed to Stage 03.",
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-1-observability.json",
+  "created_at": "2026-08-29T07:10:07.9719550Z"
+}

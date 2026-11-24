@@ -1,0 +1,64 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "milestone",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "quant",
+  "status": "PASS",
+  "milestone_name": "DATA_READINESS",
+  "milestone_status": "PASS",
+  "evidence": [
+    {
+      "check": "pre_fit_gate",
+      "status": "PASS",
+      "detail": "build_data_readiness performs no fitting; fit_deterministic_model begins with readiness.require_pass and then validates eligible-row count, versions, fold boundary, 36 distinct monthly cutoffs, and both direction classes."
+    },
+    {
+      "check": "coverage_manifest",
+      "status": "PASS",
+      "manifest": {
+        "schema_version": "1.0",
+        "status": "PASS",
+        "run_id": "stage07-r1-a1",
+        "universe_version": "stage07-msft-demo-v1",
+        "universe_manifest_hash": "d4fd2b8a1e8dc57447a0cd194b1875e31297c14ddaf16d1bdba980d393b63cf1",
+        "dataset_version": "adjusted-ohlcv-cache-v1",
+        "feature_version": "monthly-market-features-v1",
+        "cutoff_policy_version": "monthly_last_session_v1",
+        "source_coverage": {
+          "market": {"date_start": "2019-01-31T21:00:00Z", "date_end": "2022-04-29T20:00:00Z", "row_count": 40},
+          "research_news": {"coverage": 1.0},
+          "sec_filings": {"coverage": 1.0},
+          "temporal_graph": {"coverage": 1.0}
+        },
+        "ticker_count": 1,
+        "monthly_cutoff_count": 40,
+        "eligible_forecast_count": 40,
+        "feature_missingness": {"f1": 0.0, "f2": 0.0, "optional": 0.2, "optional__missing": 0.0, "research_graph_coverage": 0.0},
+        "news_coverage": 1.0,
+        "filing_coverage": 1.0,
+        "graph_coverage": 1.0,
+        "excluded_rows_by_reason": {},
+        "content_hashes": {"fixture_sha256": "deb996a86cb98d1e13d5a6cc3483d9521bee3a4ad347dd2870905c106dfae483"},
+        "dataset_builder_version": "point-in-time-dataset-v1",
+        "scientific_report_level": "PRELIMINARY",
+        "blocking_issues": [],
+        "manifest_hash": "c55fa5a85e9002bdc762572eda1d2a9b25619341694faf64dc19bd36713ec326"
+      }
+    },
+    {
+      "check": "focused_offline_tests",
+      "status": "PASS",
+      "command": "python -m pytest tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "result": "31 passed in 0.81s"
+    },
+    {
+      "check": "limitations",
+      "status": "RECORDED",
+      "detail": "One synthetic MSFT fixture and 40 cutoffs are engineering evidence only; the scientific report level is PRELIMINARY and no investment-performance claim is made."
+    }
+  ],
+  "blocking_issues": [],
+  "created_at": "2026-09-06T08:41:45.4086062Z"
+}

@@ -9,6 +9,7 @@ from agents.financial_agent import (
     _checker_requirements,
     _select_sec_filing_type,
 )
+from financial_test import STAGE5_RUN_ID, stage5_context
 
 
 def state(intents, *, raw=None, calc=None, query="Analyze AMD"):
@@ -16,7 +17,10 @@ def state(intents, *, raw=None, calc=None, query="Analyze AMD"):
         "messages": [], "raw_numerical_data": raw or {},
         "calculated_ratios": calc or {}, "loop_counter": 1,
         "validation_feedback": "", "is_complete": False,
-        "task_query": query, "manager_directives": {},
+        "task_query": query, "manager_directives": {
+            "ticker": "AMD", "run_id": STAGE5_RUN_ID,
+            "forecast_context": stage5_context("AMD"),
+        },
         "intents": intents, "extra_tools": [], "rationale": "",
     }
 
@@ -64,15 +68,18 @@ async def test_new_ratios_flow_through_run_into_shared_state(monkeypatch):
     monkeypatch.setattr(financial_module, "stdio_client", lambda params: AsyncContext((None, None)))
     monkeypatch.setattr(financial_module, "ClientSession", lambda read, write: AsyncContext(session))
 
-    shared = {"task_query": "Analyze AMD", "manager_directives": {}}
+    shared = {
+        "task_query": "Analyze AMD", "forecast_context": stage5_context("AMD"),
+        "manager_directives": {"ticker": "AMD", "run_id": STAGE5_RUN_ID},
+    }
     output = await agent.run(shared)
     summary = output["financial_metrics_summary"]
 
-    for key, expected in calc.items():
-        assert summary[key] == expected
-        assert summary[key]["_period"] == "ttm"
-        assert summary[key]["_inputs"]
-    assert "pe_ratio" in summary  # legacy contract remains present
+    assert summary["financial_features"]["current_ratio"] == 2.1
+    assert summary["financial_features"]["dcf_semantics"] == "LONG_TERM_VALUATION_FEATURE_NOT_21_DAY_FORECAST"
+    assert summary["missing"] is True
+    assert not (set(calc) & set(summary))
+    assert "_inputs" not in json.dumps(summary)
 
 
 @pytest.mark.asyncio
@@ -83,8 +90,14 @@ async def test_missing_new_metrics_do_not_break_summary(monkeypatch):
     agent._graph = MagicMock(ainvoke=AsyncMock(return_value=final_state))
     monkeypatch.setattr(financial_module, "stdio_client", lambda params: AsyncContext((None, None)))
     monkeypatch.setattr(financial_module, "ClientSession", lambda read, write: AsyncContext(MagicMock(initialize=AsyncMock())))
-    output = await agent.run({"task_query": "AMD", "manager_directives": {}})
-    assert output["financial_metrics_summary"]["pb"] == {}
+    output = await agent.run({
+        "task_query": "AMD", "forecast_context": stage5_context("AMD"),
+        "manager_directives": {"ticker": "AMD", "run_id": STAGE5_RUN_ID},
+    })
+    summary = output["financial_metrics_summary"]
+    assert summary["missing"] is True
+    assert summary["financial_features"]["valuation_gap"] is None
+    assert "pb" not in summary
 
 
 @pytest.mark.parametrize(
@@ -184,10 +197,13 @@ async def test_sec_chain_uses_returned_cik_and_accession():
     )
     calls = session.call_tool.await_args_list
     filing_arguments = calls[2].kwargs.get("arguments") or calls[2].args[1]
-    assert filing_arguments == {
-        "accession_number": "0000002488-26-000001", "cik": "0000002488",
-        "primary_document": "amd-20251231.htm", "form_type": "10-K",
-    }
+    assert filing_arguments["accession_number"] == "0000002488-26-000001"
+    assert filing_arguments["cik"] == "0000002488"
+    assert filing_arguments["primary_document"] == "amd-20251231.htm"
+    assert filing_arguments["form_type"] == "10-K"
+    assert filing_arguments["filed_at"] == "2026-02-01"
+    assert filing_arguments["run_id"] == STAGE5_RUN_ID
+    assert filing_arguments["forecast_context"]["ticker"] == "AMD"
     assert s["raw_numerical_data"]["sec_filing"]["status"] == "complete"
     assert errors == []
 

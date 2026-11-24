@@ -79,7 +79,7 @@ class TestAnalyzeRequestValidation:
 
     def test_defaults_applied(self):
         req = AnalyzeRequest(query="x" * 15)
-        assert req.user_id == "anonymous"
+        assert not hasattr(req, "user_id")
         assert req.search_depth == "advanced"
         assert req.days_back == 14
         assert req.include_sentiment is True
@@ -165,6 +165,42 @@ class TestAnalyzeEndpointHappyPath:
         _, kwargs = manager_agent.run.call_args
         assert kwargs["user_preferences"] == {"fmt": "concise"}
 
+    def test_manager_is_resolved_from_app_state_without_route_rebinding(self):
+        manager_agent = AsyncMock()
+        manager_agent.run.return_value = {
+            "execution_status": "completed",
+            "final_publication_validation": {"passed": True},
+        }
+        client, app, memory = make_client(manager_agent=manager_agent)
+        app.state.manager_factory = MagicMock()
+
+        response = client.post("/api/v1/analyze", json=VALID_PAYLOAD)
+
+        assert response.status_code == 200
+        manager_agent.run.assert_awaited_once()
+        app.state.manager_factory.for_request.assert_not_called()
+        assert manager_agent.run.await_args.kwargs["user_preferences"] == (
+            memory.long.get_all_preferences.return_value
+        )
+
+    def test_execution_status_is_persisted_without_new_normalization(self):
+        manager_agent = AsyncMock()
+        manager_agent.run.return_value = {
+            "execution_status": "legacy_custom_status",
+            "final_publication_validation": {"passed": True},
+        }
+        mock_supabase = MagicMock()
+        client, _, _ = make_client(
+            manager_agent=manager_agent, supabase=mock_supabase
+        )
+
+        response = client.post("/api/v1/analyze", json=VALID_PAYLOAD)
+
+        assert response.status_code == 200
+        assert response.json()["status"] == "legacy_custom_status"
+        persisted = mock_supabase.table.return_value.insert.call_args[0][0]
+        assert persisted["status"] == "legacy_custom_status"
+
     def test_missing_result_fields_default_gracefully(self):
         """ManagerAgent.run() returning a sparse dict should not crash response building."""
         manager_agent = AsyncMock()
@@ -235,12 +271,57 @@ class TestAnalyzeEndpointFailurePath:
         mock_supabase.table.assert_called_with("analyses")
         insert_payload = mock_supabase.table.return_value.insert.call_args[0][0]
         assert insert_payload["status"] == "failed"
-        assert insert_payload["error_message"] == "crashed"
+        assert insert_payload["error_message"] == "ANALYSIS_EXECUTION_FAILED"
 
 
 # ---------------------------------------------------------------------------
 # _persist_analysis — Supabase write + fire-and-forget error handling
 # ---------------------------------------------------------------------------
+
+def test_private_request_manager_and_exception_values_are_not_logged_or_persisted(caplog):
+    private = "PRIVATE_SENTINEL"
+    manager_agent = AsyncMock()
+    manager_agent.run.side_effect = RuntimeError(private)
+    mock_supabase = MagicMock()
+    memory = MagicMock()
+    memory.long.get_all_preferences.return_value = {"preference": private}
+    client, _, _ = make_client(
+        manager_agent=manager_agent, supabase=mock_supabase, memory_override=memory
+    )
+    payload = {
+        "query": f"{private} confidential investment question",
+        "ticker": "NVDA",
+        "user_id": private,
+    }
+    with caplog.at_level("INFO", logger="api.analyze"):
+        response = client.post("/api/v1/analyze", json=payload)
+    assert response.status_code == 200
+    persisted = mock_supabase.table.return_value.insert.call_args[0][0]
+    assert private not in caplog.text
+    assert private not in str(persisted)
+    assert persisted["error_message"] == "ANALYSIS_EXECUTION_FAILED"
+    assert persisted["query"] == "[redacted]"
+    assert persisted["user_id"].startswith("sha256:")
+
+
+def test_private_manager_state_remains_public_response_only_not_persistence():
+    private = "PRIVATE_SENTINEL"
+    manager_agent = AsyncMock()
+    manager_agent.run.return_value = {
+        "final_report": private,
+        "financial_metrics_summary": {"private": private},
+        "sentiment_analysis_summary": {"private": private},
+        "agent_execution_history": [{"private": private}],
+        "orchestrator_logs": [private],
+    }
+    mock_supabase = MagicMock()
+    client, _, _ = make_client(manager_agent=manager_agent, supabase=mock_supabase)
+    response = client.post("/api/v1/analyze", json=VALID_PAYLOAD)
+    assert response.status_code == 200
+    assert response.json()["final_report"] == private
+    persisted = mock_supabase.table.return_value.insert.call_args[0][0]
+    assert private not in str(persisted)
+
 
 class TestPersistAnalysis:
     @pytest.mark.asyncio
@@ -261,7 +342,11 @@ class TestPersistAnalysis:
         payload = mock_db.table.return_value.insert.call_args[0][0]
         assert payload["analysis_id"] == "id-1"
         assert payload["ticker"] == "NVDA"
-        assert payload["final_report"] == "report text"
+        assert payload["user_id"].startswith("sha256:")
+        assert payload["query"] == "[redacted]"
+        assert payload["final_report"] == ""
+        assert payload["financial_metrics"] == {}
+        assert payload["agent_execution_history"] == []
         assert payload["duration_s"] == 2.5
 
     @pytest.mark.asyncio

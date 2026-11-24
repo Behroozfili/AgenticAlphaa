@@ -1,0 +1,97 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "data_rag",
+  "changed_files": [
+    "rag/__init__.py",
+    "rag/loader.py",
+    "rag/processor.py",
+    "rag/embedding_manager.py",
+    "rag/vector_store.py",
+    "rag/retriever.py",
+    "rag/ingestion.py",
+    "rag/seed.py",
+    "main.py",
+    "tests/fixtures/stage3_ticker_regressions.json",
+    "tests/unit_tests/test_rag/test_embedding_manager.py",
+    "tests/unit_tests/test_rag/test_ingestion.py",
+    "tests/unit_tests/test_rag/test_loader.py",
+    "tests/unit_tests/test_rag/test_processor.py",
+    "tests/unit_tests/test_rag/test_retriever.py",
+    "tests/unit_tests/test_rag/test_vectore_store.py",
+    "tests/unit_tests/test_rag/test_pipline_rag.py",
+    "tests/unit_tests/test_root_main.py",
+    ".codex/handoffs/stage-03-rev-1-attempt-1-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "temporal_contract": {
+    "historical_loader": "Requires start/end/as_of plus an injected reproducible archive provider; live-web fallback is disabled.",
+    "unknown_time": "Invalid or missing required historical evidence times are quarantined and never mapped to the current time.",
+    "identities": "Canonical source, immutable document/evidence/chunk IDs, revisions, effective intervals, and dataset versions are preserved.",
+    "retrieval": "V2 requires ticker/as_of/dataset_version at the RPC boundary and defensively filters them before ranking; legacy historical retrieval fails closed.",
+    "runtime_boundary": "RAG_VECTOR_SCHEMA defaults to legacy; V2 remains an explicit shadow adapter and no production pointer was switched."
+  },
+  "embedding_contract": {
+    "cache_key": "sha256(chunk/content hash + explicit embedding model version)",
+    "manifest": ["model_name", "model_version", "dimension", "cache_schema_version"]
+  },
+  "ingestion_contract": {
+    "idempotency": "Immutable shared IDs plus conflict-safe adapter upserts and deterministic run IDs.",
+    "resume": "Atomic local checkpoint manifests retain separate Vector and Graph status; a completed Vector stage is not repeated while retrying Graph.",
+    "seed": "Explicit CLI with start/end/as-of/dataset-version/checkpoint options; normal API startup no longer seeds."
+  },
+  "leakage_result": {
+    "status": "PASS",
+    "fixture": "tests/fixtures/stage3_ticker_regressions.json",
+    "coverage": [
+      "future publication excluded before freshness ranking",
+      "wrong ticker excluded before ranking",
+      "wrong dataset version excluded before ranking",
+      "late-retrieved and unknown-time historical evidence excluded",
+      "legacy historical backend fails closed"
+    ]
+  },
+  "draft_self_tests": [
+    {
+      "command": "python -m py_compile rag/__init__.py rag/loader.py rag/processor.py rag/embedding_manager.py rag/vector_store.py rag/retriever.py rag/ingestion.py rag/seed.py main.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "pytest -q locked Stage 03 RAG and root-main tests --tb=short",
+      "exit_code": 0,
+      "result": "199 passed in 56.92s"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-locks",
+      "exit_code": 1,
+      "result": "Pre-existing unrelated agents/state.py lock mismatch only; no Stage 03 locked-path mismatch reported."
+    }
+  ],
+  "external_execution": {
+    "network_access": "NOT_RUN",
+    "database_reads": "NOT_RUN",
+    "database_writes": "NOT_RUN_UNAUTHORIZED",
+    "migrations": "NOT_APPLIED_UNAUTHORIZED",
+    "seed_execution": "NOT_RUN_UNAUTHORIZED",
+    "production_read_switch": "NOT_PERFORMED"
+  },
+  "limitations": [
+    "V2 is validated through deterministic mocks/fixtures because Stage 02 migrations have not been applied or reconciled.",
+    "Historical acquisition requires a caller-supplied reproducible archive provider; no live fallback is permitted.",
+    "Graph temporal observation modeling remains Stage 04A scope; Stage 03 records an independently resumable Graph status without modifying graph_store.py.",
+    "The global lock validator continues to report the explicitly pre-existing unrelated agents/state.py mismatch."
+  ],
+  "observability_paths_modified": false,
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-08-29T06:33:35.1110074Z"
+}

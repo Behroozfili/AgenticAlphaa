@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "00",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "qa_status": "FAIL",
+  "tests_run": [
+    {
+      "check": "control_plane_and_exact_locks",
+      "command": ".venv/Scripts/python.exe .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "PASS; Stage 00 revision 1 attempt 1 is in QA, implementation and milestone identities match, and this QA path is locked to qa"
+    },
+    {
+      "check": "implementation_and_milestone_schema",
+      "command": "jsonschema.validate for implementation and BASELINE_READY artifacts",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "check": "dependency_runner_integrity",
+      "command": "uv lock --check --offline; python --version; pytest --version; verify recorded SHA-256 values",
+      "exit_code": 0,
+      "result": "PASS; 210 packages resolved, Python 3.12.13, pytest 9.0.3, and all five recorded file hashes match"
+    },
+    {
+      "check": "explicit_full_collection",
+      "command": "socket-guarded pytest --collect-only tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "PASS; 1136 collected: 1085 unit and 51 integration; external DNS/connect blocked, localhost only allowed"
+    },
+    {
+      "check": "default_collection",
+      "command": "socket-guarded pytest --collect-only",
+      "exit_code": 0,
+      "result": "PASS; 1085 collected from the default unit path"
+    },
+    {
+      "check": "offline_unit_baseline",
+      "command": "socket-guarded pytest -q --disable-warnings --tb=no tests/unit_tests",
+      "exit_code": 1,
+      "result": "COUNTS_REPRODUCED_WITH_BLOCKING_OFFLINE_DEFECT; 1045 passed, 40 known failures, 35 warnings; an attempted LangSmith multipart POST was blocked by the QA DNS/connect guard"
+    },
+    {
+      "check": "legacy_migration_disposition",
+      "command": "git integrity/history scan plus focused socket-guarded migration test",
+      "exit_code": 1,
+      "result": "EXPECTED_KNOWN_FAILURE; test unchanged, no local or Git-history SQL/Cypher retarget exists, and exactly four FileNotFoundError failures remain visible"
+    },
+    {
+      "check": "obsolete_trace_disposition",
+      "command": "local path check and manifest review",
+      "exit_code": 0,
+      "result": "PASS; obsolete trace is absent and recorded as OBSOLETE_BY_USER_DECISION without reconstructed metrics"
+    },
+    {
+      "check": "backup_restore_inventory",
+      "command": "local read-only artifact and native restore-tool inventory",
+      "exit_code": 0,
+      "result": "PASS_DISPOSITION_ONLY; no local backup/migration artifacts and no pg_restore, psql, supabase, or neo4j-admin commands; Supabase/Neo4j/restore remain NOT_AVAILABLE/NOT_RUN, never PASS"
+    }
+  ],
+  "leakage_report": {
+    "status": "NOT_APPLICABLE_STAGE_00",
+    "historical_dataset": "NOT_AVAILABLE"
+  },
+  "regression_report": {
+    "test_count_comparison": "MATCH",
+    "implementation_baseline": {
+      "passed": 1045,
+      "failed_known": 40,
+      "warnings": 35
+    },
+    "qa_reproduction": {
+      "passed": 1045,
+      "failed_known": 40,
+      "warnings": 35
+    },
+    "known_failure_separation": "PASS; 36 product-contract failures plus 4 missing legacy migration failures match the manifest ownership groups",
+    "stage_00_product_regressions": 0,
+    "runner_safety_regressions": 1
+  },
+  "blocking_issues": [
+    {
+      "id": "STAGE00-OFFLINE-RUNNER-001",
+      "severity": "BLOCKING",
+      "responsible_stage": "00",
+      "responsible_agent": "core",
+      "finding": "The declared offline unit runner is not intrinsically offline. During the complete unit suite, a test enables LANGCHAIN_TRACING_V2 and the process later attempts a LangSmith multipart POST. The QA external-network guard prevented DNS resolution and connection, so no network operation completed.",
+      "required_change": "Make the complete Stage 00 unit baseline unable to emit external tracing/telemetry, including after tests mutate tracing environment state; preserve all tests and the 40 known failures, then rerun collection and the full unit baseline under an external-network guard.",
+      "candidate_paths": [
+        "pytest.ini",
+        "tests/unit_tests/core_test/test_observability.py"
+      ]
+    }
+  ],
+  "environment_blockers": [
+    {
+      "item": "Supabase, Neo4j, backup artifact, checksum, and restore target",
+      "status": "NOT_AVAILABLE_NOT_RUN",
+      "blocking_for_stage_00_disposition": false,
+      "note": "The user explicitly directed honest NOT_AVAILABLE recording; no backup or restore PASS is claimed."
+    },
+    {
+      "item": "Historical point-in-time dataset",
+      "status": "NOT_AVAILABLE",
+      "blocking_for_stage_00_disposition": false,
+      "note": "Acquisition and versioning belong to Stages 07 and 09."
+    }
+  ],
+  "candidate_downstream_stages_affected": [
+    "01",
+    "03",
+    "04B",
+    "05",
+    "06",
+    "08",
+    "FINAL_QA"
+  ],
+  "requested_primary_changes": [
+    {
+      "target_agent": "core",
+      "reason": "Close STAGE00-OFFLINE-RUNNER-001 without hiding tests or changing known-failure classifications, then issue a new revision/attempt artifact for QA."
+    }
+  ],
+  "created_at": "2026-08-27T14:58:45.6205513Z"
+}

@@ -4,12 +4,14 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from agents.manager_agent import ManagerAgent
+from core.forecast_contract import ForecastContext
 from evaluation.validate_period_consistency import (
     detect_material_period_conflicts, validate_financial_fact_contract,
 )
 from rag.loader import RawDocument
 from rag.processor import AlphaProcessor
-from rag.vector_store import AlphaVectorStore
+from rag.vector_store import AlphaVectorStore, VectorStoreConfig
+from tests.unit_tests.financial_test import stage5_context
 from tools.financial_tools.sec_edgar import _extract_annual
 
 
@@ -31,7 +33,9 @@ def test_xbrl_extraction_preserves_full_period_and_filing_provenance():
         "form": "10-K", "fp": "FY", "fy": 2025,
         "accn": "0001-25-000001", "filed": "2026-02-01",
     }]}}}}}
-    row = _extract_annual(payload, ["Revenue"])[0]
+    row = _extract_annual(
+        payload, ["Revenue"], context=ForecastContext.from_dict(stage5_context("NVDA")),
+    )[0]
     assert row["period_start"] == "2025-01-01"
     assert row["period_end"] == "2025-12-31"
     assert row["duration_months"] == 12
@@ -56,6 +60,8 @@ def test_processor_preserves_period_metadata_additively():
 
 def test_exact_period_filters_are_sent_to_rpc_before_ranking():
     store = AlphaVectorStore.__new__(AlphaVectorStore)
+    store.config = VectorStoreConfig(schema="legacy")
+    store.rpc_name = store.config.legacy_rpc
     store.client = MagicMock()
     store.client.rpc.return_value.execute.return_value.data = []
     store.hybrid_search([0.1], "revenue", fiscal_year=2026, fiscal_quarter="Q2",

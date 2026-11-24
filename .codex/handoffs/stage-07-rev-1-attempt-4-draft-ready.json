@@ -1,0 +1,149 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 4,
+  "agent": "quant",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 136,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "retry_scope": "QA-07-A3-001 stale runtime/service/lifecycle attempt identity only; no other product or test scope, prior-attempt artifact, external system, migration, dependency, state or Stage 08 change.",
+  "supersedes_rejected_qa": {
+    "path": ".codex/handoffs/stage-07-rev-1-attempt-3-qa.json",
+    "sha256": "ada8a6c1064af7503d11abdd944aa99923f828c2c8c8f60613b9c8ddb281c935",
+    "blocking_issue": "QA-07-A3-001",
+    "disposition": "RESOLVED_IN_CURRENT_DRAFT"
+  },
+  "dependency_handoffs": [
+    {
+      "stage": "04B",
+      "path": ".codex/handoffs/stage-04B-rev-1-handoff.json",
+      "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049",
+      "state_status": "CLOSED"
+    },
+    {
+      "stage": "05",
+      "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+      "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+      "state_status": "CLOSED"
+    },
+    {
+      "stage": "06",
+      "path": ".codex/handoffs/stage-06-rev-1-handoff.json",
+      "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    "tools/market_tools/__init__.py",
+    "tests/unit_tests/market_test/test_market_server.py",
+    "tests/unit_tests/test_market_features_stage7.py",
+    ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-DATA_READINESS.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-MODEL_READY.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-4-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "runtime_identity": {
+    "stage": "07",
+    "stage_revision": 1,
+    "attempt": 4,
+    "agent": "quant",
+    "implementation_version": "stage07-r1-a4",
+    "service_output_matches": true,
+    "all_lifecycle_events_match": true,
+    "stale_attempt_counterexamples": "PASS"
+  },
+  "milestones": {
+    "DATA_READINESS": {
+      "status": "PASS",
+      "artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-DATA_READINESS.json",
+      "artifact_sha256": "c0c0813e7569158a36026293b12814b1972b819830f833173542ad8ba8d8543b",
+      "manifest_hash": "c594e6002196e123ca8f6bead7e233f7272376db84250af87c6174cfb93979b7",
+      "eligible_rows_sha256": "93b980674b6801db52eb08c8e6b5aa652f82bcc22be2887224d88d45454166e4",
+      "canonical_label_mismatches": 0
+    },
+    "MODEL_READY": {
+      "status": "PASS",
+      "artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-MODEL_READY.json",
+      "artifact_sha256": "835eb5449c4ff89ca888112f8397d17224fc6dd93bf9d879a0ac876603fda500",
+      "readiness_manifest_hash": "c594e6002196e123ca8f6bead7e233f7272376db84250af87c6174cfb93979b7",
+      "eligible_rows_sha256": "93b980674b6801db52eb08c8e6b5aa652f82bcc22be2887224d88d45454166e4",
+      "training_data_hash": "78af5fc9e5a1fcb7263601e65ead1732e83625cf3604cde46d2b3289f2691890",
+      "model_version": "logistic-ridge-21d-v1+sha256:73d858322007097b578ed1aaaab9146c18fd8b2cc729c64fe348a345f386583a"
+    }
+  },
+  "draft_self_tests": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "71 passed in 1.20s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "71 tests collected in 0.91s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test -q",
+      "exit_code": 0,
+      "result": "121 passed in 22.78s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Current-runtime normal/reversed readiness, fit, prediction and service-identity reproduction probe",
+      "exit_code": 0,
+      "result": "PASS_EXACT: 40 canonical rows and both input orders reproduced readiness c594e6002196e123ca8f6bead7e233f7272376db84250af87c6174cfb93979b7, eligible rows 93b980674b6801db52eb08c8e6b5aa652f82bcc22be2887224d88d45454166e4, training data 78af5fc9e5a1fcb7263601e65ead1732e83625cf3604cde46d2b3289f2691890 and model logistic-ridge-21d-v1+sha256:73d858322007097b578ed1aaaab9146c18fd8b2cc729c64fe348a345f386583a; service identity was Stage07/rev1/attempt4/quant.",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe .codex\\scripts\\validate_refactor_control.py --check-control --check-locks --artifact <each Attempt 4 milestone> --agent quant",
+      "exit_code": 0,
+      "result": "Both milestone artifacts reported CONTROL VALID at control_revision 136.",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "runtime_input_sha256": {
+    "tools/market_tools/__init__.py": "d5bdb8b07a2491aeecdfe414f836123c8bfcfb2444ddaa72061d4027a0c9bcaa",
+    "tools/market_tools/market_data.py": "b0e360a9b6bc97427c8e74647fd69ff065a5635aca8a935ce3e3c8673a860630",
+    "tools/market_tools/feature_builder.py": "c95e6d569591606b1c3ff36afd8414b20c6a61e7f89a9ef40987f61310025d1f",
+    "tools/market_tools/historical_dataset_builder.py": "9e54de5ba43c9ce87f9c88a60c9189f633c470919de3e3c09d7f82ec1e837eff",
+    "tools/market_tools/forecast_model.py": "200231a42c985b812af12f5f4565171be7ed72a9728d3494ace67d939a62c84a",
+    "tools/market_tools/market_server.py": "7249ec02b782de2380b2c28bae82fcfd91c17fb84080d43941c3286f62d35d56",
+    "tests/fixtures/monthly_point_in_time_fixture.json": "cac1ee7e10a20c6986ad86ac2824ac9d3b4be4a3e03aafe6663f9824e7aef845",
+    "tests/unit_tests/market_test/__init__.py": "3c57dbafdd05661e2b11ef1c1bae6ff03cb34e6a5bc7f0d9596988c67af2f32b",
+    "tests/unit_tests/market_test/test_historical_dataset_builder.py": "f9c44cc7f07bec6752dc73b0e48175e89d7acb9e1c3aa6221bd4616f03783308",
+    "tests/unit_tests/market_test/test_market_server.py": "8da21eb372eaee8346e2035a6344c2913c9d22c014995c4653819fc343f886ff",
+    "tests/unit_tests/test_market_features_stage7.py": "70191c6688b26f5dcf62f6367cba2bca810afb398429cb5a3ab909d311ba1622"
+  },
+  "finding_disposition": {
+    "QA-07-A3-001": "PASS_RESOLVED: immutable runtime identity and implementation_version now identify Stage07/rev1/attempt4/quant; service output and all lifecycle events publish the same current identity, with direct literal stale-attempt counterexamples.",
+    "REVIEW-07-A2-B-001": "PASS_PRESERVED: canonical excess identity and direction gates, zero-mismatch fixture and readiness counterexamples remain green.",
+    "QA-07-001": "PASS_PRESERVED: readiness/eligible/training/model identities reproduce exactly in both input orders.",
+    "OBS-07-001..003": "PASS_PRESERVED: compact lifecycle, measured latency, privacy rejection, feature/context identity, temporal availability and row bindings remain green."
+  },
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false,
+    "stage08_work": false,
+    "llm_generated_or_altered_forecast_numbers": false
+  },
+  "limitations": [
+    "The locked fixture is synthetic, single-ticker and 40-cutoff; it proves engineering correctness only and remains PRELIMINARY.",
+    "Research/news, SEC filing and temporal Graph coverage are reference-only and remain UNVERIFIED_REFERENCE_ONLY.",
+    "No live provider, network, database, migration, seed, deletion, deploy, commit or push operation was performed.",
+    "Because observability_required is true, final Attempt 4 implementation MD/JSON are intentionally not written in PRIMARY_DRAFT."
+  ],
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-09T13:42:52.2227708Z"
+}

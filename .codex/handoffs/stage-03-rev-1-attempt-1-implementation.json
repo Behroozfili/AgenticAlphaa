@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "data_rag",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "base_git_reference": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "supersedes": null,
+  "changed_files": [
+    "rag/__init__.py",
+    "rag/loader.py",
+    "rag/processor.py",
+    "rag/embedding_manager.py",
+    "rag/vector_store.py",
+    "rag/retriever.py",
+    "rag/ingestion.py",
+    "rag/seed.py",
+    "main.py",
+    "tests/fixtures/stage3_ticker_regressions.json",
+    "tests/unit_tests/test_rag/test_embedding_manager.py",
+    "tests/unit_tests/test_rag/test_ingestion.py",
+    "tests/unit_tests/test_rag/test_loader.py",
+    "tests/unit_tests/test_rag/test_processor.py",
+    "tests/unit_tests/test_rag/test_retriever.py",
+    "tests/unit_tests/test_rag/test_vectore_store.py",
+    "tests/unit_tests/test_rag/test_pipline_rag.py",
+    "tests/unit_tests/test_root_main.py",
+    ".codex/handoffs/stage-03-rev-1-attempt-1-draft-ready.json",
+    ".codex/handoffs/stage-03-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-03-rev-1-attempt-1-implementation.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-03-rev-1-attempt-1-draft-ready.json",
+  "observability_artifact": ".codex/handoffs/stage-03-rev-1-attempt-1-observability.json",
+  "observability_status": {
+    "status": "AUDITED",
+    "requested_primary_changes": ["OBS-03-001", "OBS-03-002"],
+    "resolved": true,
+    "privacy": "ALLOWLIST_AND_SENTINEL_PASS",
+    "latency_instrumentation": "MONOTONIC_LIFECYCLE_PASS"
+  },
+  "blocking_finding_resolutions": [
+    {
+      "id": "OBS-03-001",
+      "resolution": "Added compact allowlisted ingestion lifecycle telemetry for pipeline/load/process/vector/graph/checkpoint/resume boundaries with monotonic latency, Stage 03 identity, safe run/version/adapter/embedding metadata, counts, status, and explicit degraded flags."
+    },
+    {
+      "id": "OBS-03-002",
+      "resolution": "Replaced untrusted exception-string persistence/emission with deterministic sanitized error codes, sanitized captured exceptions, legacy-checkpoint error sanitization, and secret/raw-payload/private-URL sentinel non-emission regressions."
+    }
+  ],
+  "self_tests_run": [
+    {
+      "command": "python -m py_compile rag/__init__.py rag/loader.py rag/processor.py rag/embedding_manager.py rag/vector_store.py rag/retriever.py rag/ingestion.py rag/seed.py main.py",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "pytest -q locked Stage 03 RAG and root-main tests --tb=short",
+      "exit_code": 0,
+      "result": "203 passed in 51.09s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "focused ingestion telemetry/privacy tests before final legacy-checkpoint hardening",
+      "exit_code": 0,
+      "result": "18 passed in 20.35s",
+      "network_mode": "OFFLINE_MOCKS"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    }
+  ],
+  "contract_diff": [
+    "Historical loader requires explicit start/end/as_of plus a reproducible archive provider and never falls back to live web.",
+    "Unknown/invalid required historical times are quarantined; publication, retrieval, and effective intervals remain distinct.",
+    "Immutable canonical source/document/evidence/chunk identities and revisions are shared in Vector-ready metadata.",
+    "Embedding cache identity includes content/chunk hash and explicit model version; manifest exposes model/version/dimension/cache schema.",
+    "Vector access is behind explicit legacy/v2 config; legacy remains default and V2 is not required at startup.",
+    "Historical retrieval requires ticker/as_of/dataset version at the V2 RPC and defensively filters temporal eligibility before ranking; legacy fails closed.",
+    "Ingestion has deterministic run IDs, atomic checkpoints, separate Vector/Graph status, resume, idempotency, sanitized error codes, and allowlisted lifecycle telemetry.",
+    "Seed is explicit CLI-only and normal API startup no longer auto-seeds.",
+    "No database schema or production pointer changed in Stage 03."
+  ],
+  "data_counts": {
+    "focused_tests_passed": 203,
+    "focused_tests_failed": 0,
+    "external_rows_read": null,
+    "external_rows_written": 0,
+    "migrations_applied": 0,
+    "seed_runs": 0
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "fixture": "tests/fixtures/stage3_ticker_regressions.json",
+    "verified": [
+      "future publication excluded before ranking",
+      "wrong ticker excluded before ranking",
+      "wrong dataset version excluded before ranking",
+      "late-retrieved evidence excluded",
+      "unknown-time historical evidence quarantined",
+      "legacy historical backend fails closed"
+    ]
+  },
+  "latency_delta": {
+    "benchmark_run": false,
+    "instrumentation": "time.perf_counter monotonic latency_ms on lifecycle boundaries",
+    "test_result": "presence, float type, and non-negative values verified"
+  },
+  "blocking_issues": [],
+  "known_limitations": [
+    "V2 is fixture/mock validated because Stage 02 migrations are not applied or reconciled.",
+    "Historical acquisition requires a caller-supplied reproducible archive provider; live fallback is forbidden.",
+    "Temporal Graph observation modeling remains Stage 04A scope.",
+    "Telemetry uses the existing breadcrumb backend and is a no-op when that backend is disabled.",
+    "No external production latency benchmark was run.",
+    "The pre-existing unrelated agents/state.py global lock mismatch remains outside Stage 03."
+  ],
+  "out_of_scope_findings": [
+    "Global lock validation continues to report the pre-existing unrelated agents/state.py mismatch; Stage 03 did not modify or investigate it."
+  ],
+  "requested_changes": [
+    {"id": "OBS-03-001", "status": "RESOLVED"},
+    {"id": "OBS-03-002", "status": "RESOLVED"}
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "live_reconciliation": false,
+    "seed_or_backfill": false,
+    "legacy_deletion": false,
+    "route_switch": false,
+    "deploy_commit_or_push": false
+  },
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "No operational database rollback is required because migrations, seeds, external writes, backfills, and route switches were not executed.",
+    "Keep the runtime on the existing default legacy Vector adapter.",
+    "If separately authorized, restore only the listed Stage 03 product/test paths to pre-Stage-03 content and remove only Stage 03 attempt-1 primary artifacts.",
+    "Preserve Stage 00-02 artifacts, the observability artifact, migrations, legacy/V2 data, state history, and unrelated user/shared-workspace edits."
+  ],
+  "rollback_tested": false,
+  "implementation_ready": true,
+  "created_at": "2026-08-29T06:51:26.7973305Z"
+}

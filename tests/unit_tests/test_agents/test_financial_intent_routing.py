@@ -28,6 +28,7 @@ from agents.financial_agent import (
     _FULL_REPORT_PROFILES,
     _MONTE_CARLO_TOOLS,
 )
+from financial_test import STAGE5_RUN_ID, stage5_context
 
 
 # ---------------------------------------------------------------------------
@@ -45,10 +46,15 @@ def make_agent(llm=None, max_loops=3):
 
 
 def make_agent_state(task_query="Analyze AMD", directives=None, **overrides):
+    identity = {
+        "ticker": "AMD", "run_id": STAGE5_RUN_ID,
+        "forecast_context": stage5_context("AMD"),
+    }
+    identity.update(directives or {})
     state = {
         "messages": [], "raw_numerical_data": {}, "calculated_ratios": {},
         "loop_counter": 0, "validation_feedback": "", "is_complete": False,
-        "task_query": task_query, "manager_directives": directives or {},
+        "task_query": task_query, "manager_directives": identity,
         "intents": [], "extra_tools": [], "rationale": "",
     }
     state.update(overrides)

@@ -185,3 +185,145 @@ class TestSeenCapEviction:
         for i in range(5):
             proc._add_to_seen(f"url_{i}", f"content_{i}")
         assert len(proc._seen) == 5
+
+
+class TestRevisionPreservation:
+    def test_changed_content_creates_distinct_immutable_revision_ids(self):
+        first = make_doc(content="revision one")
+        first.retrieved_at = "2024-03-16T00:00:00+00:00"
+        first.effective_from = "2024-03-15T14:32:00+00:00"
+        first.source_id = "a" * 64
+        first.dataset_version = "snapshot-v1"
+        first.revision = "1"
+        second = make_doc(content="revision two")
+        second.retrieved_at = "2024-03-17T00:00:00+00:00"
+        second.effective_from = "2024-03-16T00:00:00+00:00"
+        second.source_id = "a" * 64
+        second.dataset_version = "snapshot-v1"
+        second.revision = "2"
+        chunks = AlphaProcessor(chunk_size=512, chunk_overlap=0).process([first, second])
+        assert len(chunks) == 2
+        assert len({chunk.metadata["document_id"] for chunk in chunks}) == 2
+        assert len({chunk.metadata["chunk_id"] for chunk in chunks}) == 2
+        assert [chunk.metadata["effective_from"] for chunk in chunks] == [first.effective_from, second.effective_from]
+
+    def test_shared_ids_are_deterministic_across_processor_instances(self):
+        doc = make_doc()
+        doc.source_id = "b" * 64
+        doc.retrieved_at = doc.published_at
+        doc.effective_from = doc.published_at
+        left = AlphaProcessor(chunk_size=512, chunk_overlap=0).process([doc])[0]
+        right = AlphaProcessor(chunk_size=512, chunk_overlap=0).process([doc])[0]
+        assert left.metadata["document_id"] == right.metadata["document_id"]
+        assert left.metadata["chunk_id"] == right.metadata["chunk_id"]
+
+    def test_same_content_distinct_document_versions_are_preserved(self):
+        first = make_doc(content="same immutable content")
+        second = make_doc(content="same immutable content")
+        for doc in (first, second):
+            doc.source_id = "c" * 64
+            doc.dataset_version = "snapshot-v1"
+            doc.retrieved_at = "2024-03-16T00:00:00+00:00"
+            doc.effective_from = doc.published_at
+        first.revision = "1"
+        second.revision = "2"
+        chunks = AlphaProcessor(chunk_size=512, chunk_overlap=0).process([first, second])
+        assert len(chunks) == 2
+        assert len({chunk.metadata["document_id"] for chunk in chunks}) == 2
+        assert len({chunk.metadata["evidence_id"] for chunk in chunks}) == 2
+        assert len({chunk.metadata["chunk_id"] for chunk in chunks}) == 2
+
+    def test_same_content_distinct_dataset_versions_are_preserved(self):
+        first = make_doc(content="same immutable content")
+        second = make_doc(content="same immutable content")
+        for doc in (first, second):
+            doc.source_id = "d" * 64
+            doc.revision = "1"
+            doc.retrieved_at = "2024-03-16T00:00:00+00:00"
+            doc.effective_from = doc.published_at
+        first.dataset_version = "snapshot-v1"
+        second.dataset_version = "snapshot-v2"
+        chunks = AlphaProcessor(chunk_size=512, chunk_overlap=0).process([first, second])
+        assert len(chunks) == 2
+        assert chunks[0].metadata["document_id"] == chunks[1].metadata["document_id"]
+        assert chunks[0].metadata["evidence_id"] != chunks[1].metadata["evidence_id"]
+        assert chunks[0].metadata["chunk_id"] != chunks[1].metadata["chunk_id"]
+
+    def test_same_content_later_retrieval_observation_is_preserved(self):
+        first = make_doc(content="same immutable content")
+        second = make_doc(content="same immutable content")
+        for doc in (first, second):
+            doc.source_id = "e" * 64
+            doc.revision = "1"
+            doc.dataset_version = "snapshot-v1"
+            doc.effective_from = doc.published_at
+        first.retrieved_at = "2024-03-16T00:00:00+00:00"
+        second.retrieved_at = "2024-03-17T00:00:00+00:00"
+        chunks = AlphaProcessor(chunk_size=512, chunk_overlap=0).process([first, second])
+        assert len(chunks) == 2
+        assert chunks[0].metadata["document_id"] == chunks[1].metadata["document_id"]
+        assert chunks[0].metadata["evidence_id"] != chunks[1].metadata["evidence_id"]
+        assert chunks[0].metadata["chunk_id"] != chunks[1].metadata["chunk_id"]
+
+    def test_same_content_distinct_effective_observation_is_preserved(self):
+        first = make_doc(content="same immutable content")
+        second = make_doc(content="same immutable content")
+        for doc in (first, second):
+            doc.source_id = "9" * 64
+            doc.revision = "1"
+            doc.dataset_version = "snapshot-v1"
+            doc.retrieved_at = "2024-03-16T00:00:00+00:00"
+        first.effective_from = "2024-03-15T00:00:00+00:00"
+        second.effective_from = "2024-03-16T00:00:00+00:00"
+        chunks = AlphaProcessor(chunk_size=512, chunk_overlap=0).process([first, second])
+        assert len(chunks) == 2
+        assert chunks[0].metadata["document_id"] == chunks[1].metadata["document_id"]
+        assert chunks[0].metadata["evidence_id"] != chunks[1].metadata["evidence_id"]
+        assert chunks[0].metadata["chunk_id"] != chunks[1].metadata["chunk_id"]
+
+    def test_only_exact_evidence_identity_is_deduplicated(self):
+        doc = make_doc(content="same immutable content")
+        doc.source_id = "f" * 64
+        doc.revision = "1"
+        doc.dataset_version = "snapshot-v1"
+        doc.retrieved_at = "2024-03-16T00:00:00+00:00"
+        doc.effective_from = doc.published_at
+        processor = AlphaProcessor(chunk_size=512, chunk_overlap=0)
+        chunks = processor.process([doc, doc])
+        assert len(chunks) == 1
+        assert processor.metrics.duplicates_skipped == 1
+
+    def test_same_evidence_associated_with_multiple_tickers_is_preserved(self):
+        first = make_doc(content="shared evidence", ticker="NVDA")
+        second = make_doc(content="shared evidence", ticker="AMD")
+        for doc in (first, second):
+            doc.source_id = "8" * 64
+            doc.dataset_version = "snapshot-v1"
+            doc.retrieved_at = "2024-03-16T00:00:00+00:00"
+            doc.effective_from = doc.published_at
+
+        chunks = AlphaProcessor(chunk_size=512, chunk_overlap=0).process([first, second])
+
+        assert len(chunks) == 2
+        assert chunks[0].metadata["document_id"] == chunks[1].metadata["document_id"]
+        assert {chunk.metadata["ticker"] for chunk in chunks} == {"NVDA", "AMD"}
+        assert len({chunk.metadata["association_hash"] for chunk in chunks}) == 2
+        assert len({chunk.metadata["evidence_id"] for chunk in chunks}) == 2
+        assert len({chunk.metadata["chunk_id"] for chunk in chunks}) == 2
+
+    def test_metadata_change_creates_distinct_evidence_observation(self):
+        first = make_doc(content="shared evidence")
+        second = make_doc(content="shared evidence")
+        for doc in (first, second):
+            doc.source_id = "7" * 64
+            doc.dataset_version = "snapshot-v1"
+            doc.retrieved_at = "2024-03-16T00:00:00+00:00"
+            doc.effective_from = doc.published_at
+        first.metadata = {"association": "primary"}
+        second.metadata = {"association": "secondary"}
+
+        chunks = AlphaProcessor(chunk_size=512, chunk_overlap=0).process([first, second])
+
+        assert len(chunks) == 2
+        assert chunks[0].metadata["document_id"] == chunks[1].metadata["document_id"]
+        assert chunks[0].metadata["evidence_id"] != chunks[1].metadata["evidence_id"]

@@ -1,0 +1,135 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 128,
+  "status": "AUDITED",
+  "changed_files": [],
+  "draft_ready_artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "4058fb9ed2d19f47900599204b697101bc380dbd4749a21eddb79a6c4a87265f",
+  "retry_scope": "QA-07-001 milestone/runtime semantic-integrity evidence only; no product, test, shared, state, implementation, QA, review, handoff or prior-attempt artifact was changed.",
+  "milestone_artifacts": {
+    "DATA_READINESS": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-DATA_READINESS.json",
+      "sha256": "cd406506c1b9c001ea4f62861796aadf9243e7d9c049b705cb93611b692b8b6e",
+      "declared_status": "PASS",
+      "observability_status": "AUDITED",
+      "manifest_hash": "ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6",
+      "eligible_rows_sha256": "1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4"
+    },
+    "MODEL_READY": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-MODEL_READY.json",
+      "sha256": "3c52a74ebc9c3f74ae5db54bff131696e6362997d4edd8af860121813d27f6b1",
+      "declared_status": "PASS",
+      "observability_status": "AUDITED",
+      "readiness_manifest_hash": "ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6",
+      "eligible_rows_sha256": "1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4",
+      "model_version": "logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126"
+    }
+  },
+  "semantic_integrity_audit": {
+    "status": "PASS",
+    "qa_finding": "QA-07-001",
+    "qa_finding_disposition": "RESOLVED_IN_ATTEMPT_2_DRAFT_EVIDENCE",
+    "cross_artifact_readiness_binding": "PASS",
+    "cross_artifact_eligible_rows_binding": "PASS",
+    "model_to_readiness_binding": "PASS",
+    "normal_and_reversed_order_reproduction": "PASS_RECORDED_BY_PRIMARY_CURRENT_RUNTIME_PROBE",
+    "reproduction_result": "Both current-runtime input orders reproduced readiness ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6, eligible rows 1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4 and model logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126. The milestone, draft-ready and state bindings agree exactly.",
+    "attempt_1_artifacts_overwritten": false
+  },
+  "runtime_immutability": {
+    "status": "PASS",
+    "attempt_1_final_implementation": ".codex/handoffs/stage-07-rev-1-attempt-1-implementation.json",
+    "attempt_1_declared_source_hashes_checked": 15,
+    "attempt_1_source_hash_mismatches": [],
+    "attempt_2_declared_runtime_input_hashes_checked": 7,
+    "attempt_2_runtime_input_hash_mismatches": [],
+    "product_or_test_files_changed_in_attempt_2": false,
+    "preserved_fixes": [
+      "OBS-07-001",
+      "OBS-07-002",
+      "OBS-07-003"
+    ]
+  },
+  "metadata_coverage": {
+    "run_id": "stage07-r1-a2",
+    "ticker_scope": ["MSFT"],
+    "analysis_mode": "DETERMINISTIC_OFFLINE_LOCKED_FIXTURE_ONLY",
+    "horizon_trading_days": 21,
+    "dataset_version": "adjusted-ohlcv-cache-v1",
+    "dataset_builder_version": "point-in-time-dataset-v1",
+    "feature_version": "monthly-market-features-v1",
+    "model_version": "logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126",
+    "action_policy_version": "action_policy_v1",
+    "artifact_schema_version": "1.0",
+    "readiness_schema_version": "1.0",
+    "stage": "07",
+    "stage_revision": 1,
+    "attempt": 2,
+    "agent": "observability",
+    "evidence_counts": {
+      "DATA_READINESS": 5,
+      "MODEL_READY": 5
+    },
+    "forecast_probe_degraded": false
+  },
+  "requested_primary_changes": [],
+  "change_request_required": false,
+  "privacy_checks": [
+    {
+      "check": "Attempt 2 artifact content remains compact and payload-free.",
+      "status": "PASS",
+      "evidence": "The audited draft-ready and milestone artifacts contain hashes, versions, bounded identifiers, aggregate counts and deterministic numeric model evidence; they do not contain secrets, credentials, headers, chain-of-thought, brain_reasoning, raw article chunks, full filing text or duplicated tool payloads."
+    },
+    {
+      "check": "OBS-07-002 bounded opaque run/evidence identity protections remain in the runtime.",
+      "status": "PASS",
+      "evidence": "All seven current runtime input hashes match the Attempt 1 final implementation, and all fifteen declared source/test/fixture hashes have zero mismatches; the prior privacy fix is byte-preserved."
+    },
+    {
+      "check": "External tracing and unnecessary private-content export remain disabled.",
+      "status": "PASS",
+      "evidence": "No external tracing service, network source, database or provider was contacted during this audit."
+    }
+  ],
+  "latency_instrumentation_status": "PRESERVED_UNCHANGED_NO_NEW_MEASUREMENTS_FABRICATED",
+  "latency_instrumentation": {
+    "status": "PASS",
+    "detail": "The nine compact measured lifecycle boundaries introduced by OBS-07-001 remain byte-identical to the Attempt 1 final runtime. Attempt 2 changes only milestone evidence, so this audit records no new latency values and fabricates no measurements."
+  },
+  "control_validation": {
+    "status": "PASS",
+    "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+    "result": "CONTROL VALID at control_revision 128; execution enabled; Stage 07 revision 1 attempt 2 ACTIVE in OBSERVABILITY; primary quant; support observability; exact observability artifact path locked to observability.",
+    "artifact_schema_validation": "PASS for Attempt 2 draft-ready, DATA_READINESS and MODEL_READY artifacts",
+    "output_lock_validation": "PASS for .codex/handoffs/stage-07-rev-1-attempt-2-observability.json"
+  },
+  "evidence": [
+    "Current state links the Attempt 2 draft-ready and both PASS milestones by their exact on-disk SHA-256 values.",
+    "DATA_READINESS, MODEL_READY and draft-ready bind the same readiness manifest hash and eligible-row content hash.",
+    "MODEL_READY binds the reproduced model version to that exact readiness and eligible-row identity.",
+    "The primary current-runtime normal/reversed-order probe records identical readiness, eligible rows, model artifacts and predictions.",
+    "All 15 source/test/fixture hashes from the Attempt 1 final implementation and all 7 Attempt 2 runtime-input hashes match current files with zero mismatches."
+  ],
+  "blocking_issues": [],
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false,
+    "stage08_work": "NOT_RUN"
+  },
+  "environment_note": "The requested setup-refresh entrypoint was attempted with require_escalated but was not present in this PowerShell environment. The official repository control/lock validator executed successfully with require_escalated, so the audit was not blocked.",
+  "created_at": "2026-09-07T14:03:11.0041334Z"
+}

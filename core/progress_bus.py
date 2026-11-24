@@ -21,17 +21,66 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Any, AsyncIterator
+from collections import OrderedDict
+from collections.abc import Mapping, Sequence
+from typing import Any, AsyncIterator, TypedDict
 
 _QUEUES: dict[str, asyncio.Queue] = {}
+_EXPIRY_HANDLES: dict[str, asyncio.TimerHandle] = {}
+_CLOSED: OrderedDict[str, None] = OrderedDict()
+_MAX_SESSIONS = 512
+_IDLE_TTL_SECONDS = 1800
+_TERMINAL_GRACE_SECONDS = 30
+_TERMINAL_EVENTS = {"pipeline_complete", "pipeline_error", "backtest_complete", "forecast_error"}
+
+
+def _schedule_cleanup(session_id: str, delay: float) -> None:
+    previous = _EXPIRY_HANDLES.pop(session_id, None)
+    if previous is not None:
+        previous.cancel()
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # Synchronous callers are still bounded by _MAX_SESSIONS.
+    _EXPIRY_HANDLES[session_id] = loop.call_later(delay, close_session, session_id)
+
+
 _MAX_QUEUE_SIZE = 300  # backpressure guard so a stalled/absent SSE client can't leak memory
 
 
+class ForecastProgressEvent(TypedDict):
+    """Stable wire shape for opt-in monthly forecast progress events."""
+
+    ts: float
+    type: str
+    run_id: str
+    agent: str | None
+    message: str
+    detail: dict[str, Any]
+
+
+FORECAST_PROGRESS_EVENT_TYPES = frozenset({
+    "forecast_context",
+    "feature_start",
+    "feature_complete",
+    "monthly_forecast_start",
+    "monthly_forecast_complete",
+    "backtest_start",
+    "backtest_complete",
+    "forecast_degraded",
+    "forecast_error",
+})
+
+
 def _get_queue(session_id: str) -> asyncio.Queue:
+    _CLOSED.pop(session_id, None)
     q = _QUEUES.get(session_id)
     if q is None:
+        if len(_QUEUES) >= _MAX_SESSIONS:
+            close_session(next(iter(_QUEUES)))
         q = asyncio.Queue(maxsize=_MAX_QUEUE_SIZE)
         _QUEUES[session_id] = q
+    _schedule_cleanup(session_id, _IDLE_TTL_SECONDS)
     return q
 
 
@@ -41,6 +90,8 @@ def publish(
     agent: str | None = None,
     message: str = "",
     detail: dict[str, Any] | None = None,
+    *,
+    run_id: str | None = None,
 ) -> None:
     """
     Fire-and-forget: push a progress event onto session_id's queue.
@@ -67,9 +118,13 @@ def publish(
     message : str
         Short human-readable description for display.
     detail : dict | None
-        Optional structured payload (tool name, score, reasoning, etc).
+        Optional structured payload. New forecast callers must use
+        publish_forecast() so only compact allowlisted metadata is emitted.
+    run_id : str | None
+        Optional stable run identifier for versioned forecast events. Legacy
+        callers may omit it; publish_forecast() requires and validates it.
     """
-    if not session_id:
+    if not session_id or session_id in _CLOSED:
         return
     q = _get_queue(session_id)
     event = {
@@ -79,10 +134,66 @@ def publish(
         "message": message,
         "detail":  detail or {},
     }
+    if run_id is not None:
+        event["run_id"] = run_id
     try:
         q.put_nowait(event)
     except asyncio.QueueFull:
-        pass
+        if event_type in _TERMINAL_EVENTS:
+            q.get_nowait()
+            q.put_nowait(event)
+    if event_type in _TERMINAL_EVENTS:
+        _schedule_cleanup(session_id, _TERMINAL_GRACE_SECONDS)
+
+
+def publish_forecast(
+    session_id: str | None,
+    event_type: str,
+    *,
+    run_id: str,
+    context: Mapping[str, Any] | object,
+    stage: str,
+    stage_revision: int,
+    attempt: int,
+    agent: str,
+    message: str = "",
+    started_at: float | None = None,
+    evidence_count: int | None = None,
+    degraded_flags: Sequence[str] | None = None,
+) -> None:
+    """Publish an allowlisted forecast event without raw State or evidence.
+
+    This additive API leaves the legacy publish() path unchanged. It accepts a
+    ForecastContext (or its compact mapping), derives only approved metadata,
+    and records measured latency only when a monotonic start time is supplied.
+    """
+    if event_type not in FORECAST_PROGRESS_EVENT_TYPES:
+        raise ValueError(f"unsupported forecast progress event: {event_type!r}")
+
+    # Local import keeps progress_bus lightweight for existing legacy callers.
+    from core.observability import elapsed_latency_ms, forecast_trace_metadata
+
+    latency_ms = elapsed_latency_ms(started_at) if started_at is not None else None
+    detail = forecast_trace_metadata(
+        context,
+        run_id=run_id,
+        stage=stage,
+        stage_revision=stage_revision,
+        attempt=attempt,
+        agent=agent,
+        latency_ms=latency_ms,
+        evidence_count=evidence_count,
+        degraded_flags=degraded_flags,
+    )
+    event_run_id = detail.pop("run_id")
+    publish(
+        session_id,
+        event_type,
+        agent=agent,
+        message=message,
+        detail=dict(detail),
+        run_id=event_run_id,
+    )
 
 
 async def subscribe(session_id: str) -> AsyncIterator[dict[str, Any]]:
@@ -129,6 +240,13 @@ def session_from_shared(shared_manager_ref: dict[str, Any] | None) -> str | None
 def close_session(session_id: str) -> None:
     """Drop the queue for a finished session so memory doesn't grow unbounded."""
     _QUEUES.pop(session_id, None)
+    handle = _EXPIRY_HANDLES.pop(session_id, None)
+    if handle is not None:
+        handle.cancel()
+    _CLOSED[session_id] = None
+    _CLOSED.move_to_end(session_id)
+    while len(_CLOSED) > _MAX_SESSIONS:
+        _CLOSED.popitem(last=False)
     
 def session_from_directives(directives: dict[str, Any] | None) -> str | None:
     """Extract the progress session_id directly from manager_directives."""

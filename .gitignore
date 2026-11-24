@@ -6,3 +6,4 @@ venv/
 evaluation/.venv_eval/
 evaluation/*.json
 evaluation/*.csv
+.cache/

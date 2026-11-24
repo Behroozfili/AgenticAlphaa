@@ -12,7 +12,20 @@ from datetime import datetime, timedelta
 from unittest.mock import patch, AsyncMock, MagicMock
 import pytest
 
-from tools.research_tools.news_search import news_search
+from tools.research_tools.news_search import news_search as _news_search
+from core.forecast_contract import ForecastContext
+
+LIVE_CONTEXT = ForecastContext(
+    ticker="NVDA", as_of="2024-11-29T18:00:00Z", lookback_days=30,
+    schema_version="v1", dataset_version="dataset-v1",
+    feature_version="feature-v1", model_version="model-v1",
+)
+
+
+async def news_search(*args, **kwargs):
+    kwargs.setdefault("forecast_context", LIVE_CONTEXT)
+    kwargs.setdefault("run_id", "run-news-test")
+    return await _news_search(*args, **kwargs)
 
 
 def make_async_client_mock(get_return):
@@ -55,8 +68,8 @@ class TestNewsSearch:
         resp.json.return_value = {
             "totalResults": 2,
             "articles": [
-                {"title": "[Removed]", "url": "x", "source": {"name": "y"}, "publishedAt": "z"},
-                {"title": "Real Article", "url": "x2", "source": {"name": "y2"}, "publishedAt": "z2"},
+                {"title": "[Removed]", "url": "x", "source": {"name": "y"}, "publishedAt": "2024-11-01T12:00:00Z"},
+                {"title": "Real Article", "url": "x2", "source": {"name": "y2"}, "publishedAt": "2024-11-02T12:00:00Z"},
             ],
         }
         resp.raise_for_status.return_value = None
@@ -68,10 +81,11 @@ class TestNewsSearch:
 
     @pytest.mark.asyncio
     @patch("tools.research_tools.news_search.httpx.AsyncClient")
-    async def test_missing_api_key_raises_keyerror(self, mock_client_cls, monkeypatch):
+    async def test_missing_api_key_fails_closed(self, mock_client_cls, monkeypatch):
         monkeypatch.delenv("NEWSAPI_KEY", raising=False)
-        with pytest.raises(KeyError):
-            await news_search("query")
+        result = await news_search("query")
+        assert result["error_code"] == "RESEARCH_PROVIDER_FAIL_CLOSED"
+        assert result["telemetry"]["outcome"] == "FAIL_CLOSED"
         mock_client_cls.assert_not_called()
 
     @pytest.mark.asyncio
@@ -87,8 +101,31 @@ class TestNewsSearch:
         await news_search("query")
 
         sent_params = client_mock.__aenter__.return_value.get.call_args.kwargs["params"]
-        expected_from = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+        expected_from = (LIVE_CONTEXT.as_of - timedelta(days=30)).date().isoformat()
         assert sent_params["from"] == expected_from
+        assert "apiKey" not in sent_params
+        assert mock_client_cls.call_args.kwargs["headers"] == {
+            "X-Api-Key": "test-key"
+        }
+
+    @pytest.mark.asyncio
+    @patch("tools.research_tools.news_search.httpx.AsyncClient")
+    async def test_retention_limit_is_explicit_data_unavailable(self, mock_client_cls, monkeypatch):
+        import httpx
+        monkeypatch.setenv("NEWSAPI_KEY", "test-key")
+        request = httpx.Request("GET", "https://newsapi.org/v2/everything")
+        response = httpx.Response(426, request=request)
+        resp = MagicMock()
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "retention limit", request=request, response=response
+        )
+        mock_client_cls.return_value = make_async_client_mock(resp)
+
+        result = await news_search("NVDA")
+
+        assert result["status"] == "DATA_UNAVAILABLE"
+        assert result["error_code"] == "NEWSAPI_RETENTION_LIMIT"
+        assert result["evidence"] == []
 
     @pytest.mark.asyncio
     @patch("tools.research_tools.news_search.httpx.AsyncClient")
@@ -133,4 +170,4 @@ class TestNewsSearch:
         await news_search("query")  # no to_date
 
         sent_params = client_mock.__aenter__.return_value.get.call_args.kwargs["params"]
-        assert "to" not in sent_params
+        assert sent_params["to"] == LIVE_CONTEXT.as_of.date().isoformat()

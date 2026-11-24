@@ -19,11 +19,44 @@ project's development — see each test's docstring for which one.
 import pytest
 from unittest.mock import patch
 
-from tools.research_tools.news_search import news_search
-from tools.research_tools.sec_edgar import sec_edgar_filing, sec_edgar_search
-from tools.research_tools.tavily_search import tavily_search
-from tools.research_tools.comprehensive_analysis import comprehensive_analysis
+from tools.research_tools.news_search import news_search as _news_search
+from tools.research_tools.sec_edgar import sec_edgar_filing as _sec_edgar_filing, sec_edgar_search as _sec_edgar_search
+from tools.research_tools.tavily_search import tavily_search as _tavily_search
+from tools.research_tools.comprehensive_analysis import comprehensive_analysis as _comprehensive_analysis
 from agents.research_agent import ResearchAgent
+from core.forecast_contract import ForecastContext
+
+INTEGRATION_CONTEXT = ForecastContext(
+    ticker="MSFT", as_of="2026-08-31T20:00:00Z",
+    schema_version="v1", dataset_version="integration-live-v1",
+    feature_version="research-features-v1", model_version="model-v1",
+)
+
+
+def _identity(kwargs):
+    kwargs.setdefault("forecast_context", INTEGRATION_CONTEXT)
+    kwargs.setdefault("run_id", "stage04b-live-integration")
+    return kwargs
+
+
+async def news_search(*args, **kwargs):
+    return await _news_search(*args, **_identity(kwargs))
+
+
+async def tavily_search(*args, **kwargs):
+    return await _tavily_search(*args, **_identity(kwargs))
+
+
+async def sec_edgar_search(*args, **kwargs):
+    return await _sec_edgar_search(*args, **_identity(kwargs))
+
+
+async def sec_edgar_filing(*args, **kwargs):
+    return await _sec_edgar_filing(*args, **_identity(kwargs))
+
+
+async def comprehensive_analysis(*args, **kwargs):
+    return await _comprehensive_analysis(*args, **_identity(kwargs))
 
 
 # =============================================================================
@@ -44,7 +77,7 @@ class TestNewsSearch:
             query="Microsoft earnings revenue guidance outlook",
             from_date=wide_from_date,  # wide window so this isn't flaky on slow news days
         )
-        assert result.get("error") is None
+        assert result.get("error_code") is None
         assert len(result.get("articles", [])) > 0, (
             "sentence-style query returned 0 results — query restructuring may be broken"
         )
@@ -73,16 +106,16 @@ class TestSecEdgarFiling:
     @pytest.mark.asyncio
     async def test_explicit_sections_returns_risk_factors_and_mda(self):
         result = await sec_edgar_filing("MSFT", form_type="10-Q", sections=["mda", "risk_factors"])
-        assert result.get("error") is None
+        assert result.get("error_code") is None
         assert "mda" in result["sections"]
         assert "risk_factors" in result["sections"]
-        assert len(result["sections"]["mda"]) > 500, "mda section suspiciously short"
+        assert result["sections"]["mda"]["total_chars"] > 500, "mda section suspiciously short"
 
     @pytest.mark.asyncio
-    async def test_default_sections_is_all(self):
+    async def test_unscoped_sections_fail_closed(self):
         result = await sec_edgar_filing("MSFT", form_type="10-Q")
-        assert result.get("error") is None
-        assert len(result["sections"]) >= 2, "default sections=['all'] should return multiple sections"
+        assert result["error_code"] == "SEC_SECTIONS_REQUIRED"
+        assert result["status"] == "FAIL_CLOSED"
 
 
 class TestSecEdgarSearch:
@@ -93,14 +126,15 @@ class TestSecEdgarSearch:
     @pytest.mark.asyncio
     async def test_unresolvable_ticker_returns_error_not_unscoped_search(self):
         result = await sec_edgar_search(query="revenue guidance", ticker="ZZZNOTAREALTICKERZZZ")
-        assert result.get("error") is not None
+        assert result["error_code"] == "SEC_CIK_NOT_FOUND"
+        assert "error" not in result
         assert result["filings"] == []
 
     @pytest.mark.asyncio
     async def test_long_query_is_truncated_not_rejected(self):
         long_query = " ".join(["term"] * 20)
         result = await sec_edgar_search(query=long_query, ticker="MSFT")
-        assert result.get("error") is None
+        assert result.get("error_code") is None
 
 
 # =============================================================================
@@ -154,8 +188,8 @@ class TestComprehensiveAnalysis:
         result = await comprehensive_analysis(ticker="MSFT", company_name="Microsoft")
         assert result["ticker"] == "MSFT"
         assert "news" in result and "filing" in result
-        assert result["filing"].get("error") is None
-        assert result["news"].get("error") is None
+        assert result["filing"].get("error_code") is None
+        assert result["news"].get("error_code") is None
 
     @pytest.mark.asyncio
     async def test_tavily_failure_does_not_break_sec_edgar_result(self):
@@ -164,9 +198,9 @@ class TestComprehensiveAnalysis:
             side_effect=RuntimeError("simulated Tavily outage"),
         ):
             result = await comprehensive_analysis(ticker="MSFT", company_name="Microsoft")
-        assert result["news"].get("error") is not None
-        assert "simulated Tavily outage" in result["news"]["error"]
-        assert result["filing"].get("error") is None
+        assert result["news"]["error_code"] == "TAVILY_FAIL_CLOSED"
+        assert "simulated Tavily outage" not in str(result)
+        assert result["filing"].get("error_code") is None
         assert "sections" in result["filing"]
 
     @pytest.mark.asyncio
@@ -176,8 +210,9 @@ class TestComprehensiveAnalysis:
             side_effect=RuntimeError("simulated EDGAR outage"),
         ):
             result = await comprehensive_analysis(ticker="MSFT", company_name="Microsoft")
-        assert result["filing"].get("error") is not None
-        assert result["news"].get("error") is None
+        assert result["filing"]["error_code"] == "SEC_FAIL_CLOSED"
+        assert "simulated EDGAR outage" not in str(result)
+        assert result["news"].get("error_code") is None
 
     @pytest.mark.asyncio
     async def test_default_sections_is_mda_only(self):
@@ -207,15 +242,16 @@ class TestResearchAgentEndToEnd:
         agent = ResearchAgent()
         result = await agent.run({
             "task_query": f"INVESTMENT ANALYSIS REPORT: {known_ticker} CORPORATION ({known_ticker})",
-            "manager_directives": {"ticker": known_ticker},
+            "manager_directives": {"ticker": known_ticker, "run_id": "stage04b-live-integration"},
+            "forecast_context": INTEGRATION_CONTEXT.to_dict(),
             "aggregated_research_context": [],
         })
         contexts = result.get("aggregated_research_context", [])
         assert len(contexts) > 0, "no research context was gathered at all"
 
         tool_names_used = {
-            c.split("[TOOL: ")[1].split("]")[0]
-            for c in contexts if "[TOOL: " in c
+            c.get("source") for c in contexts
+            if isinstance(c, dict) and c.get("source")
         }
         assert len(tool_names_used) >= 2, (
             f"expected context from multiple tool types, only saw: {tool_names_used}"
@@ -231,16 +267,21 @@ class TestResearchAgentEndToEnd:
         agent = ResearchAgent()
         result = await agent.run({
             "task_query": f"INVESTMENT ANALYSIS REPORT: {known_ticker} CORPORATION ({known_ticker})",
-            "manager_directives": {"ticker": known_ticker},
+            "manager_directives": {"ticker": known_ticker, "run_id": "stage04b-live-integration"},
+            "forecast_context": INTEGRATION_CONTEXT.to_dict(),
             "aggregated_research_context": [],
         })
         contexts = result.get("aggregated_research_context", [])
-        filing_chunks = [c for c in contexts if "sec_edgar_filing" in c]
+        filing_chunks = [
+            c for c in contexts
+            if isinstance(c, dict) and c.get("source") == "sec_edgar_filing"
+        ]
         assert filing_chunks, "no sec_edgar_filing call was made at all"
-        assert any(
-            "risk_factors" in c.lower() or "risk factors" in c.lower()
-            for c in filing_chunks
-        ), "risk_factors was never requested/returned in any sec_edgar_filing call this run"
+        assert all(set(c) <= {
+            "evidence_id", "citation_reference_id", "source", "provider",
+            "timestamp", "dataset_version", "run_id",
+        } for c in filing_chunks)
+        assert "risk factors" not in str(filing_chunks).lower()
 
     @pytest.mark.asyncio
     async def test_repeated_runs_produce_consistent_tool_selection(self, known_ticker):
@@ -255,13 +296,14 @@ class TestResearchAgentEndToEnd:
         for _ in range(2):
             result = await agent.run({
                 "task_query": f"INVESTMENT ANALYSIS REPORT: {known_ticker} CORPORATION ({known_ticker})",
-                "manager_directives": {"ticker": known_ticker},
+                "manager_directives": {"ticker": known_ticker, "run_id": "stage04b-live-integration"},
+                "forecast_context": INTEGRATION_CONTEXT.to_dict(),
                 "aggregated_research_context": [],
             })
             contexts = result.get("aggregated_research_context", [])
             tools_used = {
-                c.split("[TOOL: ")[1].split("]")[0]
-                for c in contexts if "[TOOL: " in c
+                c.get("source") for c in contexts
+                if isinstance(c, dict) and c.get("source")
             }
             tool_sets.append(tools_used)
 

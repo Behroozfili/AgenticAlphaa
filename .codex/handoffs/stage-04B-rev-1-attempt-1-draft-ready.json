@@ -1,0 +1,168 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "04B",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "research",
+  "execution_phase": "PRIMARY_DRAFT",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-04A-rev-1-handoff.json",
+  "dependency_handoff_sha256": "c8e2bd6da7095e5d23447bfb8c3900402a34b11fea19c4ae40714dd48ed4e3",
+  "changed_files": [
+    "tools/research_tools/__init__.py",
+    "tools/research_tools/research_server.py",
+    "tools/research_tools/news_search.py",
+    "tools/research_tools/sec_edgar.py",
+    "tools/research_tools/tavily_search.py",
+    "tools/research_tools/comprehensive_analysis.py",
+    "tools/research_tools/context_synthesizer.py",
+    "agents/research_agent.py",
+    "agents/executor_helpers/search_executor_helpers.py",
+    "agents/prompts/propt_search_agent.py",
+    "agents/prompts/prompt_research_agent.py",
+    "agents/prompts/__init__.py",
+    "tests/unit_tests/test_agents/test_search_executor_helpers.py",
+    "tests/unit_tests/test_agents/test_research_agent.py",
+    "tests/unit_tests/search_test/test_tavily_search.py",
+    "tests/unit_tests/search_test/test_search_sec_edgar.py",
+    "tests/unit_tests/search_test/test_news_search.py",
+    "tests/integration_test_2/test_research_agent_only.py",
+    "tests/integration_tests/test_integration_search_agent.py",
+    "tests/fixtures/stage4b_research_point_in_time.json",
+    ".codex/handoffs/stage-04B-rev-1-attempt-1-draft-ready.json"
+  ],
+  "revalidated_unchanged_files": [
+    "tools/__init__.py"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "forecast_identity_contract": {
+    "mandatory_for_live_and_historical": ["forecast_context", "run_id"],
+    "propagated": ["ticker", "as_of", "lookback_days", "dataset_version", "analysis_mode", "run_id"],
+    "manager_identity_overrides_model_arguments": true,
+    "ticker_mismatch": "FAIL_CLOSED",
+    "server_schemas_require_identity": true
+  },
+  "historical_provider_boundary": {
+    "policy_source": ".codex/contracts/monthly-backtest-contract.md",
+    "approved_news": ["gdelt_archive", "project_archive"],
+    "approved_filings": ["sec_archive"],
+    "approved_retrieval": ["rag_vector_search", "rag_graph_traverse", "rag_hybrid_query"],
+    "current_tavily_or_newsapi_as_history": "FORBIDDEN",
+    "unavailable_archive_behavior": "DATA_UNAVAILABLE_WITHOUT_CURRENT_FALLBACK",
+    "bulk_download_or_external_archive_acquisition": "NOT_RUN_UNAUTHORIZED"
+  },
+  "evidence_contract": {
+    "eligibility": "ticker and dataset version match; known filed/published timestamp is within lookback and not after as_of",
+    "sec_boundary": "filed_at <= as_of for archive metadata, search results, latest filing selection and explicit accession selection",
+    "second_leakage_gate": "Applied immediately before synthesis and again before State materialization",
+    "identity": "Existing immutable evidence IDs are preserved; missing IDs are deterministic SHA-256 identities including ticker, dataset version, source identity, timestamp, title and citation",
+    "dedupe": "Stable evidence_id ordering; citation, provider, source and dataset version survive every eligibility pass",
+    "future_evidence": "QUARANTINED",
+    "wrong_provider_in_historical_mode": "QUARANTINED"
+  },
+  "research_features_contract": {
+    "type": "ResearchFeatures",
+    "fields": [
+      "catalysts", "risks", "timestamps", "evidence_ids", "citations",
+      "source_diversity", "vector_coverage", "graph_coverage",
+      "missing", "degraded", "dataset_version", "run_id"
+    ],
+    "state_storage": "Compact ResearchFeatures plus evidence references and synthesized reference metadata only",
+    "raw_articles_or_filing_text_in_state": false,
+    "vector_only": "vector_coverage=true, graph_coverage=false, degraded=true",
+    "graph_only": "vector_coverage=false, graph_coverage=true, degraded=true",
+    "hybrid": "both coverage flags true; low source diversity remains explicitly degraded"
+  },
+  "prompt_rename": {
+    "from": "agents/prompts/propt_search_agent.py",
+    "to": "agents/prompts/prompt_research_agent.py",
+    "old_runtime_imports_remaining": 0,
+    "direct_import_and_export_updated": true,
+    "collection_safe": true
+  },
+  "observability_surface": {
+    "trace_identity": {"stage": "04B", "stage_revision": 1, "attempt": 1, "agent": "research"},
+    "tool_latency_ms": true,
+    "lifecycle_outcome": true,
+    "identity_metadata": ["ticker", "dataset_version", "run_id"],
+    "raw_arguments_or_evidence_logged": false,
+    "privacy_scan": "PASS; only local variable name raw_articles matched"
+  },
+  "draft_self_tests": [
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_search_executor_helpers.py tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/search_test/test_tavily_search.py tests/unit_tests/search_test/test_news_search.py tests/unit_tests/search_test/test_search_sec_edgar.py -q",
+      "exit_code": 0,
+      "result": "100 passed in 13.77s"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_rag -q",
+      "exit_code": 0,
+      "result": "333 passed in 48.04s"
+    },
+    {
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_research_agent_only.py",
+      "exit_code": 0,
+      "result": "1304 tests collected in 11.94s; zero collection errors"
+    },
+    {
+      "command": "py_compile scoped source/tests; git diff --check; privacy scan; control/lock validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; line-ending notices only"
+    }
+  ],
+  "source_sha256": {
+    "tools/research_tools/__init__.py": "0879c087e2636a80186a5d706836a32ceba17d9cd0bd4b0afe322aaa80324e3a",
+    "tools/research_tools/research_server.py": "8ec0fa9b1a1027abffc067bdd63b78b5cc2fa0bfe08df3980243694fc1203341",
+    "tools/research_tools/news_search.py": "46a508fb9e60a122a3b569334141df8b59c96dc908355e068e2c260c3d4a340c",
+    "tools/research_tools/sec_edgar.py": "5813596aa95a3310557fca5d68193d655a4d001c74390cf49b7d8c2377483cba",
+    "tools/research_tools/tavily_search.py": "a7c3170bac7064dadf04864ae1e7e23ce5244151fb9b1c2b93bcd012f66282ea",
+    "tools/research_tools/comprehensive_analysis.py": "ccd6ca386a471dc6d78c76aab83b0e09ea2ca0cd6709403a5163f8834b0b01fe",
+    "tools/research_tools/context_synthesizer.py": "85a2d879d63887b2cb1a8764d50e82f4abb407eca22885e13624fc62d96d0e89",
+    "agents/research_agent.py": "2becf8a310c75d0a0ba1c87f6bf3a66faf6f6319fc3f33260370202ab4aaf819",
+    "agents/executor_helpers/search_executor_helpers.py": "9ae3b32f7ea7913bc597d32ea20c30a2cf6ade30ea1bafb5ddd1da51cea9b17d",
+    "agents/prompts/prompt_research_agent.py": "ce7e2b03d38e80a93d1da8e4e33245bae3418aba7b6308f11a5a63c056acada7",
+    "agents/prompts/__init__.py": "0f5b66c87c4e60dec7c67267e12a13b983cea56b3cb1007e2484d2bbf38944a2",
+    "tests/unit_tests/test_agents/test_search_executor_helpers.py": "82a33ef051f185c0c695a8bc20531398f813b04e8526bf8aa4c74b29b0597bb4",
+    "tests/unit_tests/test_agents/test_research_agent.py": "74ad2aa5c6ecabdb27d5f219da696e48f9b8a05f028b397cdfdf9c436182a241",
+    "tests/unit_tests/search_test/test_tavily_search.py": "0eef051297c704133ac4df2cc361b477f47e3eef1f759ebf81b3391ff59dfb62",
+    "tests/unit_tests/search_test/test_search_sec_edgar.py": "327c7d17e4c01f3ab238c45afef0fdc6487d8ef56e853f8c836b4e591a6a17ef",
+    "tests/unit_tests/search_test/test_news_search.py": "ce86e324f17417874e0e0406f73fe96458512ecd57630f54a2e54925a3b909c6",
+    "tests/integration_test_2/test_research_agent_only.py": "9c9ffe9ebb6a3622bc957c1dc77ee009ad99761b949a10f233b6ba26b71aa506",
+    "tests/integration_tests/test_integration_search_agent.py": "474751294e1adc9d88f5190dcab6914b530efb47bae6b4b45901d182323c800d",
+    "tests/fixtures/stage4b_research_point_in_time.json": "eb6e64300e625d6c7f640ce02c49013b2b3ab022b0521e0dbc862b0f7a609f17"
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "external_counts": "NOT_AVAILABLE_NO_EXTERNAL_READ",
+    "legacy_data_deleted": false,
+    "route_switched": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore prior Research source/test bytes and reverse the prompt rename.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "external_execution": {
+    "network_access": "NOT_RUN",
+    "database_reads": "NOT_RUN",
+    "database_writes": "NOT_RUN",
+    "live_provider_validation": "NOT_RUN_UNAUTHORIZED",
+    "archive_download": "NOT_RUN_UNAUTHORIZED",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "Historical providers are proven with deterministic local fixtures; no large GDELT/project archive was acquired or queried.",
+    "Live Tavily, NewsAPI, SEC and live Graph/database validation were not run because external execution was not authorized.",
+    "A missing retained historical provider deliberately yields DATA_UNAVAILABLE rather than a current-web fallback.",
+    "Stage 05 remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-01T06:54:54.5713385Z"
+}

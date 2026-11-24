@@ -1,0 +1,135 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "02",
+  "stage_revision": 2,
+  "attempt": 2,
+  "agent": "qa",
+  "status": "PASS",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_control_milestone_final_artifact_and_locks",
+      "exit_code": 0,
+      "result": "PASS; active control is Stage 02 revision 2 attempt 2 QA, the SCHEMA_CONTRACT_FROZEN milestone is PASS, implementation JSON and MD consistently declare PRIMARY_FINAL, implementation_ready=true, artifact identities match Stage 02/revision 2/attempt 2, and both JSON artifacts validate. QA ownership is locked correctly. The separate global check-locks finding for agents/state.py is pre-existing and unrelated to Stage 02 behavior."
+    },
+    {
+      "check": "attempt_1_artifact_immutability",
+      "exit_code": 0,
+      "result": "PASS; all Attempt 1 artifact timestamps precede the retry transition and remain unchanged during Attempt 2 QA. The prior independently recorded Attempt 1 QA SHA-256 remains 08db0bd8ad58a76a647ac978e334143e3f850745b9d7ed7edb1586d3ff1423c4."
+    },
+    {
+      "check": "technical_source_hash_immutability",
+      "exit_code": 0,
+      "result": "PASS; migration 004 SHA-256 fced2fc6fcca6ef6bda11b887746b03a1fa98d7eaaa4b717a5c7dfb7c646f481 and migration-test SHA-256 3f543f17f26d6ea4cf7afdcc7c069e50256f929491a012a6d3e269a180e43ece exactly match Attempt 1 evidence. No Attempt 2 product, migration, or test byte change occurred."
+    },
+    {
+      "check": "python_compile_modified_migration_test",
+      "exit_code": 0,
+      "result": "PASS; tests/unit_tests/test_database_v2_migrations.py compiled offline."
+    },
+    {
+      "check": "focused_stage02_migration_amendment_suite",
+      "exit_code": 0,
+      "result": "17 passed in 9.30s; additive/static SQL structure, forward ordering and idempotency, fail-closed rollback collision preflight, no row deletion or rewrite, retained chunk primary key and evidence identities, temporal RPC/RLS/grants/reconciliation/routes, unknown-time quarantine, and shared Vector/Graph identities passed."
+    },
+    {
+      "check": "actual_stage03_rows_against_revision2_identities",
+      "exit_code": 0,
+      "result": "1 passed in 14.08s; four same-content observations differing by dataset, retrieval, or effective time traversed the actual Stage 03 AlphaProcessor -> cached AlphaEmbedder -> AlphaVectorStore._to_v2_row path and remained distinct and non-null under every new primary/unique identity while the replaced revision-1 identity collapsed."
+    },
+    {
+      "check": "stage01_stage02_regression",
+      "exit_code": 0,
+      "result": "112 passed in 12.46s across forecast contract, State serialization contract, core error handling, observability, and database migration suites."
+    },
+    {
+      "check": "full_unit_integration_collection",
+      "exit_code": 0,
+      "result": "1234 tests collected in 11.88s with zero collection errors under offline Hugging Face settings."
+    },
+    {
+      "check": "accepted_migration_immutability_and_scoped_diff",
+      "exit_code": 0,
+      "result": "PASS; migrations 001, 002, 003 and the Neo4j migration retain accepted SHA-256 values fe6b214d..., 226011cb..., acd6e3ca..., and e1b5f08d... respectively. Scoped migration/test diff check has no whitespace errors."
+    },
+    {
+      "check": "external_safety",
+      "exit_code": 0,
+      "result": "PASS; QA performed no migration application, external database or network access, live reconciliation, seed/backfill, rollback execution, route switch, deploy, commit, or push."
+    }
+  ],
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "resolved_findings": [
+    {
+      "id": "STAGE02-REV2-FINAL-ARTIFACT-PHASE-001",
+      "status": "RESOLVED",
+      "evidence": "Attempt 2 implementation JSON contains both phase=PRIMARY_FINAL and execution_mode=PRIMARY_FINAL with implementation_ready=true; the matching MD declares Phase PRIMARY_FINAL and states it is ready for QA."
+    },
+    {
+      "id": "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+      "status": "RESOLVED_AT_STAGE02_CONTRACT",
+      "evidence": "The unchanged migration amendment and independently re-run actual Stage 03 row path preserve all four same-content evidence observations under the revision-2 identities."
+    }
+  ],
+  "artifact_chain": {
+    "status": "PASS",
+    "milestone": ".codex/handoffs/stage-02-rev-2-attempt-2-milestone-SCHEMA_CONTRACT_FROZEN.json",
+    "milestone_status": "PASS",
+    "implementation_json": ".codex/handoffs/stage-02-rev-2-attempt-2-implementation.json",
+    "implementation_markdown": ".codex/handoffs/stage-02-rev-2-attempt-2-implementation.md",
+    "implementation_execution_mode": "PRIMARY_FINAL",
+    "implementation_ready": true,
+    "identity_match": true
+  },
+  "technical_contract_status": "PASS",
+  "technical_contract_summary": "The artifact-only retry resolves the prior final-phase metadata defect without changing technical bytes, and the Stage 02 revision 2 amendment remains PASS under independently re-run offline acceptance and regression gates.",
+  "schema_identity_contract": {
+    "status": "PASS",
+    "primary_key": ["chunk_id"],
+    "document_evidence_chunk_unique": [
+      "canonical_source_id",
+      "content_hash",
+      "document_version",
+      "document_id",
+      "evidence_id",
+      "dataset_version",
+      "chunk_index",
+      "chunk_hash",
+      "embedding_version"
+    ],
+    "evidence_chunk_unique": [
+      "evidence_id",
+      "dataset_version",
+      "chunk_index",
+      "chunk_hash",
+      "embedding_version"
+    ]
+  },
+  "rollback_and_collision_preflight": {
+    "status": "PASS_STATIC_OFFLINE",
+    "details": "Rollback checks both revision-1 collision identities before constraint replacement and aborts without data mutation if coexistence rows would be lost; forward and rollback paths introduce no DELETE, UPDATE, TRUNCATE, merge, or rewrite."
+  },
+  "live_database_gate": {
+    "status": "NOT_RUN_UNAUTHORIZED",
+    "reason_not_environment_blocker": "The authorized gate is static/offline and explicitly prohibits migration application or external database use. No live-database claim is made."
+  },
+  "external_database_execution": "NOT_RUN_UNAUTHORIZED",
+  "external_network_connections_completed": 0,
+  "closure_limitations": [
+    {
+      "id": "GLOBAL-AGENTS-STATE-ATTRIBUTION-MISMATCH",
+      "blocking_for_stage02_behavior": false,
+      "details": "Global --check-locks reports that agents/state.py has a real Git change without current, permanent, or accepted lock ownership. This pre-existing mismatch is outside the Stage 02 amendment and was not edited or claimed by QA, but remains a repository-level closure limitation."
+    }
+  ],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "03",
+      "effect": "Stage 03 may consume the accepted revision-2 evidence-identity contract after Stage 02 reviewer approval and closure; its separate ticker/materialization and pre-materialization resume findings remain unresolved Stage 03 work."
+    }
+  ],
+  "supersedes": ".codex/handoffs/stage-02-rev-2-attempt-1-qa.json",
+  "created_at": "2026-08-30T12:29:51.2567916Z"
+}

@@ -1,0 +1,212 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "04B",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [
+    ".codex/handoffs/stage-04B-rev-1-attempt-1-observability.json"
+  ],
+  "requested_primary_changes": [
+    {
+      "id": "OBS-04B-001",
+      "blocking": true,
+      "owner": "research",
+      "requested_paths": [
+        "agents/research_agent.py",
+        "tools/research_tools/context_synthesizer.py",
+        "tests/unit_tests/test_agents/test_research_agent.py"
+      ],
+      "reason": "Five Stage 04B @traceable decorators have no process_inputs/process_outputs redaction. ResearchAgent.run receives and returns the full SharedManagerState; brain/checker receive query, prompts, feedback, messages and retrieved context; executor receives plan and context and returns tool-derived evidence; the synthesizer receives task_query plus evidence/citation data and returns summary/citations. LangSmith therefore has a direct raw input/output capture path for query, prompt/plan, evidence, citations and State.",
+      "requested_change": "Add strict compact allowlisted input/output processors to every Stage 04B decorator. Emit only stage=04B, stage_revision=1, attempt=1, agent=research, run_id, ticker, as_of, target, horizon, analysis_mode, dataset/schema/feature/model/calendar versions where available, provider/operation, measured latency_ms, compact counts, lifecycle outcome, stable error/rejection codes and degraded flags. Add sentinel tests proving query, prompts, messages, plan/checker text, summaries, evidence/citation payloads, URLs, secrets and exception text cannot reach processed LangSmith inputs or outputs.",
+      "source_lock_required": true
+    },
+    {
+      "id": "OBS-04B-002",
+      "blocking": true,
+      "owner": "research",
+      "requested_paths": [
+        "agents/research_agent.py",
+        "tools/research_tools/research_server.py",
+        "tools/research_tools/sec_edgar.py",
+        "tools/research_tools/context_synthesizer.py",
+        "tools/research_tools/comprehensive_analysis.py",
+        "tests/unit_tests/test_agents/test_research_agent.py",
+        "tests/unit_tests/test_agents/test_search_executor_helpers.py",
+        "tests/unit_tests/search_test/test_search_sec_edgar.py"
+      ],
+      "reason": "Raw/private values are persisted outside LangSmith: ResearchAgent logs task_query, feedback, plan text and full tool arguments; logs, progress details and context chunks include str(exception); Sentry captures original exception objects; research_server logs/captures original exceptions and returns str(exception); SEC and synthesis logs include query or exception text; comprehensive_analysis returns str(exception). ResearchAgent also places rejection detail strings in State. These paths violate the no-query/no-exception/no-CoT/no-payload persistence rule.",
+      "requested_change": "Replace raw query/argument/plan/feedback/exception logging, progress payloads, tool error returns and State error details with stable compact codes plus allowlisted counts. Do not pass original exception objects or messages to Sentry; if a sanitized Sentry event is retained, emit only stable code and allowlisted tags. Preserve causal exception chaining only in-process if needed, never in persisted/logged/returned text. Add caplog, progress, State, tool-result and mocked-Sentry sentinel tests demonstrating zero private query, prompt, argument value, raw evidence/citation, secret, exception message or planner/checker text persistence.",
+      "source_lock_required": true
+    },
+    {
+      "id": "OBS-04B-003",
+      "blocking": true,
+      "owner": "research",
+      "requested_paths": [
+        "agents/research_agent.py",
+        "tools/research_tools/research_server.py",
+        "tools/research_tools/context_synthesizer.py",
+        "tests/unit_tests/test_agents/test_research_agent.py",
+        "tests/unit_tests/test_agents/test_search_executor_helpers.py"
+      ],
+      "reason": "Only the outer executor success progress event measures latency, and it omits provider mode, as_of, stage identity, evidence/quarantine counts and degraded flags. DATA_UNAVAILABLE, historical provider rejection, the second leakage gate, fail-closed errors and synthesis have no compact lifecycle event. Vector/Graph/Hybrid have Stage 04A internal telemetry, but the Stage 04B wrapper neither propagates run_id nor provides a compact Stage 04B lifecycle adapter. The provider/search/SEC/vector/graph/hybrid/synthesis matrix is therefore incomplete and cannot prove the two leakage gates without exposing rejected details.",
+      "requested_change": "Instrument measured boundaries for news/Tavily provider calls, SEC search/filing, Vector, Graph, Hybrid, comprehensive analysis and synthesis. For success, degraded, DATA_UNAVAILABLE and FAIL_CLOSED outcomes emit compact allowlisted identity, provider/operation, measured latency_ms, input/result/evidence/citation/quarantine counts, stable rejection codes and degraded flags. Surface the historical provider boundary and both pre-synthesis/pre-State leakage gates as counts and stable codes only. Tests must assert non-negative measured latency and exact lifecycle/count metadata for every branch, including vector-only, graph-only, hybrid, future evidence, wrong historical provider, unavailable archive and sanitized exception paths.",
+      "source_lock_required": true
+    },
+    {
+      "id": "OBS-04B-004",
+      "blocking": true,
+      "owner": "research",
+      "requested_paths": [
+        "agents/research_agent.py",
+        "tools/research_tools/__init__.py",
+        "tests/unit_tests/test_agents/test_research_agent.py"
+      ],
+      "reason": "The returned SharedManagerState appends compact evidence and a synthesis object to aggregated_research_context, including citation dictionaries and generated summary text; research_features also stores citation dictionaries and raw rejection detail strings. This contradicts the Stage 04B requirement that State retain compact ResearchFeatures/evidence references without citation payload, exception text or unnecessary generated/private content.",
+      "requested_change": "Materialize only compact deterministic evidence/citation reference identifiers and allowlisted feature values in State. Keep full citation/evidence payloads and synthesis text out of SharedManagerState; replace rejection details with stable reason-code counts. Preserve citation attribution through deterministic reference IDs rather than URL/accession/title payload duplication. Add recursive sentinel tests over the full returned State.",
+      "source_lock_required": true
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "LangSmith inputs and outputs are compact and allowlisted.",
+      "status": "FAIL",
+      "evidence": "ResearchAgent.run, research.brain, research.executor, research.checker and research.context_synthesizer use @traceable without processors; core.observability.traced_call_tool also traces raw MCP arguments and result payloads. OBS-04B-001 is blocking."
+    },
+    {
+      "check": "Logs, progress, Sentry and tool errors contain no query, raw payload, exception or reasoning content.",
+      "status": "FAIL",
+      "evidence": "Static audit found direct task_query/feedback/plan/arguments logging, str(exception) in logs/progress/results/context, and original exception capture in Sentry. OBS-04B-002 is blocking."
+    },
+    {
+      "check": "Shared State contains compact features and references only.",
+      "status": "FAIL",
+      "evidence": "aggregated_research_context and research_features retain citation dictionaries, synthesis text and rejection detail strings. OBS-04B-004 is blocking."
+    },
+    {
+      "check": "Historical provider boundary and second leakage gate are observable without raw evidence.",
+      "status": "FAIL",
+      "evidence": "Behavioral filtering exists and tests pass, but no compact lifecycle event exposes provider-boundary or pre-synthesis/pre-State rejection counts with stable reason codes. OBS-04B-003 is blocking."
+    },
+    {
+      "check": "No external tracing provider, network provider, database, migration, seed, deployment, commit or push was contacted by this audit.",
+      "status": "PASS"
+    }
+  ],
+  "required_metadata_matrix": {
+    "available_in_forecast_context": [
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "calendar_version"
+    ],
+    "available_at_agent_callsite": [
+      "run_id",
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent",
+      "tool/provider",
+      "measured outer tool latency_ms"
+    ],
+    "not_safely_emitted_end_to_end": [
+      "redacted LangSmith input/output metadata",
+      "provider and analysis mode at every boundary",
+      "evidence/citation/quarantine counts",
+      "stable lifecycle outcome and rejection codes",
+      "degraded flags",
+      "synthesis latency",
+      "Stage 04B run_id propagation into Vector/Graph/Hybrid lifecycle"
+    ]
+  },
+  "latency_instrumentation_status": "FAIL_OUTER_TOOL_LATENCY_ONLY; PROVIDER_SEARCH_SEC_RETRIEVAL_SYNTHESIS_MATRIX_INCOMPLETE",
+  "lifecycle_audit": {
+    "provider_search": "Behavior returns OK/DATA_UNAVAILABLE/degraded, but no safe measured compact lifecycle span/event with counts.",
+    "sec": "Eligibility behavior is covered; logs/errors expose query or exception text and compact latency/count lifecycle is absent.",
+    "vector_graph_hybrid": "Stage 04A internals measure retrieval, but Stage 04B uses a raw traced_call_tool wrapper and does not propagate Stage 04B run_id/lifecycle metadata safely.",
+    "synthesis": "Second eligibility gate exists, but its trace captures raw inputs/outputs and has no measured compact latency/count lifecycle.",
+    "future_and_provider_quarantine": "Filtering and deterministic fixture tests pass; only detailed returned rejection arrays/State errors expose the outcome, not safe reason-code counts.",
+    "failure": "Raw exception messages/objects are logged, returned, published and captured; FAIL_CLOSED stable-code lifecycle is absent.",
+    "resume": "NOT_APPLICABLE_STATELESS_RESEARCH_CALLS"
+  },
+  "instrumentation_audit": {
+    "stage04b_traceable_decorators_without_redaction_processors": 5,
+    "raw_mcp_trace_wrapper_sites": 1,
+    "measured_outer_tool_latency_boundary": true,
+    "measured_synthesis_latency_boundary": false,
+    "raw_exception_capture_paths_present": true,
+    "raw_query_plan_argument_logging_paths_present": true,
+    "compact_provider_and_second_gate_rejection_events_present": false,
+    "observability_source_files_modified": false,
+    "feature_call_sites_modified_by_observability": false,
+    "primary_reactivation_required": true
+  },
+  "source_integrity": {
+    "draft_ready_artifact": ".codex/handoffs/stage-04B-rev-1-attempt-1-draft-ready.json",
+    "draft_ready_sha256": "1a1c585620b89810533c8e89520001a5e3fb58a0a83bcf8927651634998f45f9",
+    "draft_hash_match": "PASS_ALL_RECORDED_SOURCE_HASHES_MATCH"
+  },
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact .codex/handoffs/stage-04B-rev-1-attempt-1-draft-ready.json --agent research",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_search_executor_helpers.py tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/search_test/test_tavily_search.py tests/unit_tests/search_test/test_news_search.py tests/unit_tests/search_test/test_search_sec_edgar.py -q",
+      "exit_code": 0,
+      "result": "100 passed in 17.76s"
+    },
+    {
+      "command": "read-only draft source SHA-256 verification",
+      "exit_code": 0,
+      "result": "PASS_ALL_RECORDED_SOURCE_HASHES_MATCH"
+    },
+    {
+      "command": "scoped static privacy/instrumentation audit of Stage 04B trace, log, progress, Sentry, State and lifecycle call-sites",
+      "exit_code": 1,
+      "result": "FAIL_BLOCKING: unredacted trace inputs/outputs, raw exception/query/plan/argument persistence, payload-bearing State and incomplete compact lifecycle matrix"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-04B-001: Stage 04B LangSmith decorators and MCP wrapper can capture raw State/query/plan/evidence/citation inputs and outputs.",
+    "OBS-04B-002: Logs, progress, Sentry, returned errors and State persist raw query/argument/plan/exception content.",
+    "OBS-04B-003: Safe measured lifecycle metadata/count coverage is incomplete across provider/search/SEC/Vector/Graph/Hybrid/synthesis and both leakage gates.",
+    "OBS-04B-004: Shared State retains citation/synthesis payloads and raw rejection details instead of compact references and stable codes."
+  ],
+  "stage05_gate": {
+    "status_at_audit": "PENDING",
+    "phase_at_audit": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false,
+    "scope_audited": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "database_reads": false,
+    "database_writes": false,
+    "live_provider_validation": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "migration_application": "NOT_RUN_UNAUTHORIZED",
+    "seed_execution": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "limitations": [
+    "Existing focused tests establish point-in-time behavior but do not exercise LangSmith processors, persisted logging, Sentry sanitization or recursive State privacy sentinels.",
+    "No live provider, external trace, SEC, Graph or database operation was authorized or performed.",
+    "Observability edited no feature, test, state, migration or shared instrumentation file."
+  ],
+  "created_at": "2026-09-01T07:02:09.5245324Z"
+}

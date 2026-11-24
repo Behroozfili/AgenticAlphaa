@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "milestone",
+  "stage": "02",
+  "stage_revision": 2,
+  "attempt": 2,
+  "agent": "data_rag",
+  "status": "PASS",
+  "execution_mode": "PRIMARY_DRAFT",
+  "milestone_name": "SCHEMA_CONTRACT_FROZEN",
+  "milestone_status": "PASS",
+  "changed_files": [
+    ".codex/handoffs/stage-02-rev-2-attempt-2-milestone-SCHEMA_CONTRACT_FROZEN.json"
+  ],
+  "technical_sources_unchanged": {
+    "database/supabase/004_alpha_documents_v2_evidence_identity.sql": "fced2fc6fcca6ef6bda11b887746b03a1fa98d7eaaa4b717a5c7dfb7c646f481",
+    "tests/unit_tests/test_database_v2_migrations.py": "3f543f17f26d6ea4cf7afdcc7c069e50256f929491a012a6d3e269a180e43ece"
+  },
+  "evidence": [
+    {
+      "check": "artifact_only_retry_scope",
+      "status": "PASS",
+      "detail": "Attempt 2 changes only this locked milestone in PRIMARY_DRAFT. Migration 004, its contract test, all accepted migrations, Stage 03 paths, and Attempt 1 artifacts remain unchanged."
+    },
+    {
+      "check": "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+      "status": "PASS_UNCHANGED_TECHNICAL_EVIDENCE",
+      "detail": "Attempt 1 QA independently accepted the evidence-scoped constraint amendment: four same-content dataset/retrieval/effective observations remain distinct under every revision-2 primary/unique identity through the actual processor, cached embedder, and V2 row mapping."
+    },
+    {
+      "check": "forward_and_rollback_contract",
+      "status": "PASS_UNCHANGED_TECHNICAL_EVIDENCE",
+      "detail": "Attempt 1 QA accepted static forward ordering/idempotency/definition checks and fail-closed rollback collision preflights. No row mutation, destructive reconciliation, or silent evidence loss exists."
+    },
+    {
+      "check": "temporal_security_reconciliation_preservation",
+      "status": "PASS_UNCHANGED_TECHNICAL_EVIDENCE",
+      "detail": "RLS, temporal RPC filters, security-invoker views, least-privilege grants, reconciliation hashes, chunk primary key, and legacy-v1 route defaults remain unchanged."
+    },
+    {
+      "check": "attempt_1_qa_technical_contract",
+      "status": "PASS",
+      "result": "17 migration tests passed; 3 exact amendment gates passed; 112 Stage 01-02 regressions passed; 1234 tests collected with zero errors. QA failed only for stale implementation artifact phase metadata."
+    },
+    {
+      "check": "technical_byte_immutability",
+      "status": "PASS",
+      "result": "Migration 004 and migration-test SHA-256 values match Attempt 1 implementation evidence."
+    },
+    {
+      "check": "external_database_execution",
+      "status": "NOT_RUN_UNAUTHORIZED",
+      "detail": "No migration application, external database/network access, reconciliation, seed, route switch, commit, push, or deployment occurred."
+    }
+  ],
+  "retry_context": {
+    "finding": "STAGE02-REV2-FINAL-ARTIFACT-PHASE-001",
+    "attempt_1_technical_status": "PASS",
+    "attempt_1_artifact_status": "FAIL_STALE_PRIMARY_DRAFT_METADATA",
+    "attempt_2_action": "Create this immutable matching milestone now; defer Attempt 2 implementation MD/JSON until explicit PRIMARY_FINAL activation."
+  },
+  "blocking_issues": [],
+  "ready_for_primary_final": true,
+  "implementation_artifacts_written": false,
+  "prior_attempt_artifacts_modified": false,
+  "supersedes": ".codex/handoffs/stage-02-rev-2-attempt-1-milestone-SCHEMA_CONTRACT_FROZEN.json",
+  "supersedes_handoff": ".codex/handoffs/stage-02-rev-1-handoff.json",
+  "created_at": "2026-08-30T12:21:32.8627163Z"
+}

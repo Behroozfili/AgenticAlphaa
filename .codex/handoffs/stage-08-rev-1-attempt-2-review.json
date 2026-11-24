@@ -1,0 +1,223 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "reviewer",
+  "status": "REVIEW_APPROVED",
+  "review_status": "APPROVED",
+  "execution_phase": "REVIEW",
+  "control_revision": 150,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-08-rev-1-attempt-2-review.json"
+  ],
+  "artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-2-draft-ready.json",
+      "sha256": "2d28091755041bf2be0d6aa58e1c704ef63fbf585e6600484b92a327e23726c5",
+      "identity_valid": true,
+      "ready_for_observability": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-2-observability.json",
+      "sha256": "d61d18e15f6361c904fd1ffc8f356490cf9405acd135a93bcc10615fb0a1826d",
+      "identity_valid": true,
+      "status": "CHANGES_REQUESTED",
+      "requested_primary_changes": [
+        "OBS-08-003"
+      ]
+    },
+    "change_request": {
+      "path": ".codex/handoffs/change-request-stage-08-rev-1-attempt-2-1.json",
+      "sha256": "0f908a19e9e22d3c1ad302c6946e06e4733b6402677814f22f59a72d5f8c3617",
+      "identity_valid": true,
+      "blocking": true,
+      "finding": "OBS-08-003",
+      "disposition": "RESOLVED_IN_FINAL_IMPLEMENTATION"
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.md",
+      "sha256": "8c3e4486dbfd1eb17fe71f44ca61eac136f4d93b82712a6fe97c6d858374717d"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.json",
+      "sha256": "577a24764ce9b70c5cb2a3e5e1ae340d1e1e2b4cc22e846028263349b5af8548",
+      "identity_valid": true,
+      "implementation_status": "IMPLEMENTED",
+      "implementation_ready": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-2-qa.json",
+      "sha256": "cb660ee47aafc110ba45b91dd28757ef7810a5a8272ae2be3801730a031fb2e7",
+      "identity_valid": true,
+      "qa_status": "PASS"
+    },
+    "dependency_handoffs": [
+      {
+        "stage": "01",
+        "path": ".codex/handoffs/stage-01-rev-1-handoff.json",
+        "sha256": "9042aa034aa246fbc48c9ed03f5121c078925f33473c07fcbe6392e38a6a1112",
+        "state_status": "CLOSED"
+      },
+      {
+        "stage": "04B",
+        "path": ".codex/handoffs/stage-04B-rev-1-handoff.json",
+        "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049",
+        "state_status": "CLOSED"
+      },
+      {
+        "stage": "05",
+        "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+        "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+        "state_status": "CLOSED"
+      },
+      {
+        "stage": "06",
+        "path": ".codex/handoffs/stage-06-rev-1-handoff.json",
+        "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735",
+        "state_status": "CLOSED"
+      },
+      {
+        "stage": "07",
+        "path": ".codex/handoffs/stage-07-rev-1-handoff.json",
+        "sha256": "3fb148bab21cc48cb985a866b5b02581e8d535d685ae936a3f2b2f6bb8e305fc",
+        "state_status": "CLOSED"
+      }
+    ],
+    "prior_attempt_immutable": [
+      {
+        "path": ".codex/handoffs/stage-08-rev-1-attempt-1-draft-ready.json",
+        "sha256": "1b1f6632636c4d869dfdc76bd8cbe98d5e719dd6e39c7986218515a2f68e1de6"
+      },
+      {
+        "path": ".codex/handoffs/stage-08-rev-1-attempt-1-observability.json",
+        "sha256": "fb3091eaf1bbedb688fbc43baf311ff1f4658c9e8cd53de6999ff70516ff9d6c"
+      },
+      {
+        "path": ".codex/handoffs/change-request-stage-08-rev-1-attempt-1-1.json",
+        "sha256": "e1c25be55da2375e09f37125357993b5be25bffcf9dd288b9c0ee8577ad7bd50"
+      },
+      {
+        "path": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.md",
+        "sha256": "e01ee884bdf43c629c8c650bf9f03dd9fb4121ff71e205c5dfeec776088d81b1"
+      },
+      {
+        "path": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.json",
+        "sha256": "07fd2b1b30eea050d282039717fc9717878268cad3ac087deba69b984fb5e633"
+      },
+      {
+        "path": ".codex/handoffs/stage-08-rev-1-attempt-1-qa.json",
+        "sha256": "8211385cdeadd90964b908f68b080dcc805a2b8d9d43d67360e7512afbe60720"
+      }
+    ]
+  },
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-08-A2-NB-001",
+      "severity": "NON_BLOCKING",
+      "summary": "Stage 08 evidence is deterministic and offline.",
+      "assessment": "The implementation, Observability and QA artifacts explicitly disclose that live providers, external trace export and external databases were not exercised. This is appropriate for Stage 08 domain-integration acceptance; scientific walk-forward performance, baselines and ablations remain Stage 09 scope and no investment-success claim is made."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [],
+  "review_blockers": [],
+  "resolved_findings": [
+    {
+      "id": "QA-08-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "Authoritative Quant universe_manifest_hash, model_variant and feature_materialized_at are compactly validated, preserved exactly at the canonical forecast top level and in versions consumed by canonical_synthesis, and missing or inconsistent provenance fails closed to INSUFFICIENT_DATA with null numeric confidence."
+    },
+    {
+      "id": "OBS-08-003",
+      "status": "PASS_RESOLVED",
+      "evidence": "STAGE08_IMPLEMENTATION_IDENTITY is 08/r1/a2/integration with implementation_version stage08-r1-a2, and both Manager trace metadata and monthly progress/lifecycle events derive from that single immutable identity."
+    },
+    {
+      "id": "OBS-08-001",
+      "status": "PASS_PRESERVED",
+      "evidence": "Manager trace processors retain compact allowlists and recursively exclude private task/directive/State content, narrative, evidence IDs and Quant numeric payloads."
+    },
+    {
+      "id": "OBS-08-002",
+      "status": "PASS_PRESERVED",
+      "evidence": "Measured non-negative payload-free lifecycle/error telemetry and per-session progress-queue isolation remain covered and green."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_ownership": "PASS: official full-worktree control/lock validation returned CONTROL VALID at control_revision 150. Attempt 2 product changes are confined to the three exact Integration-owned source/test paths authorized for QA-08-001 and accepted OBS-08-003 remediation, while workflow artifacts are locked to their exact writers. No test was removed or weakened and no Stage 09, 10A or 10B artifact or path was created.",
+    "artifact_integrity": "PASS: state is ACTIVE REVIEW for Stage 08 revision 1 attempt 2; observability_required is true and the exact matching draft-ready, Observability, accepted change request, final implementation MD/JSON and QA PASS artifacts exist. All active-chain, dependency-handoff and six immutable Attempt 1 hashes match with zero mismatches.",
+    "temporal_safety": "PASS: ForecastContext enforces the month-end as_of and exact 21st regular-session target; Stage 08 checks typed feature timestamps recursively and fails closed for invalid or future evidence, run/dataset identity mismatches, missing Quant output and invalid Quant provenance. It introduces no current-provider fallback, no historical acquisition path and no SEC filed-date change; accepted point-in-time Research/Financial/Sentiment/Quant dependencies remain hash-bound.",
+    "versioning_and_reproducibility": "PASS: schema, dataset, feature, model, action-policy and monthly-forecast versions are preserved; the universe manifest hash, model variant and feature materialization timestamp are now preserved exactly at the forecast top level and inside versions. Run, ticker, as_of, target, horizon, mode, benchmark and version identities must match the authoritative Quant prediction.",
+    "financial_integrity": "PASS: Attempt 2 does not modify Financial source or the nine intents/mappers. DCF/WACC remains long-term valuation context and canonical synthesis explicitly distinguishes it from the deterministic 21-session forecast.",
+    "numeric_integrity": "PASS: probability, expected return, expected excess return, confidence interval, confidence and action are copied from the authoritative deterministic Quant prediction after finite/range/version/identity checks. action_policy_v1 is recomputed only to reject tampering; LLM output is confined to narrative and cannot replace structured Quant values or action.",
+    "data_hygiene_and_observability": "PASS: traces and monthly lifecycle events use compact allowlisted metadata, bounded counts and stable degraded flags; task text, directives, full State, raw evidence, full filings, narrative/report text, evidence IDs, Quant numeric payloads, exception strings, secrets, brain_reasoning and chain-of-thought are not emitted. Exact current-attempt attribution resolves OBS-08-003.",
+    "manager_api_and_concurrency": "PASS: the existing positional ManagerAgent constructor and run(task_query, manager_directives, user_preferences, client_session_id) contract remain compatible. Monthly runs construct per-call state, copy specialist state before concurrent execution, controlled-join only owned slots, keep results local and publish to per-session queues; same-instance two-run result and queue counterexamples pass without cross-talk. No mutable module-level Manager singleton was introduced.",
+    "regression": "PASS: matching independent QA reports 188/188 ForecastContext, State, Stage 07 Quant, Stage 08, Manager, privacy, telemetry and concurrency tests; 47/47 current API compatibility tests; 1432 tests collected with zero errors; compilation and scoped diff checks passed.",
+    "operational_safety": "PASS: hash-addressed rollback to immutable Attempt 1 source/test content is documented and no database action is needed. No network acquisition, live provider or trace service call, database read/write, migration application, seed, deletion, deploy, commit or push occurred.",
+    "scientific_honesty": "PASS_FOR_STAGE_08: Stage 08 claims domain-integration correctness only and explicitly identifies offline fixture limitations. It does not claim investment performance; expanding-window folds, identical-fold baselines, costs, metrics and ablations remain correctly deferred to inactive Stage 09.",
+    "contract_integrity": "PASS: the frozen monthly target, provider boundaries, universe identity, action_policy_v1, output/storage identity fields and Stage 08 domain boundary remain intact. No unversioned contract, schema, persistence, API/runtime foundation, route, UI or downstream Stage 09/10 implementation deviation was introduced."
+  },
+  "tests_and_checks": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex\\scripts\\validate_refactor_control.py --check-control --check-locks --artifact .codex\\handoffs\\stage-08-rev-1-attempt-2-qa.json --agent reviewer",
+      "result": "PASS: CONTROL VALID at control_revision 150 before review artifact creation; active tuple, full Git changed-path ownership, dependencies and reviewer lock are valid."
+    },
+    {
+      "command": "Independent SHA-256 reconciliation of matching workflow artifacts, five dependency handoffs, six immutable Attempt 1 artifacts and four implementation-declared current source/report paths",
+      "result": "PASS: 16 of 16 chain/dependency/prior-attempt references and 4 of 4 current source/report hashes match; zero mismatches."
+    },
+    {
+      "command": "Independent source/contract inspection of provenance, temporal fail-closed gates, Quant numeric/action authority, Manager compatibility, privacy, lifecycle identity and concurrent isolation",
+      "result": "PASS: QA-08-001 and OBS-08-003 are resolved without changing Quant policy, DCF/WACC, the nine Financial intents, provider boundaries or downstream scope."
+    },
+    {
+      "command": "Matching QA execution evidence (not rerun by Reviewer)",
+      "result": "PASS: QA reports 188 passed/0 failed in the combined contract-State-Quant-Manager suite, 47 passed/0 failed in API compatibility, and 1432 collected/0 errors."
+    }
+  ],
+  "source_integrity": {
+    "implementation_source_hashes": {
+      "agents/executor_helpers/monthly_forecast_helper.py": "c08ece4602b70100298db105d376579316e691c71e98c2f0a3d587461a40a2aa",
+      "agents/manager_agent.py": "e398db4d9f11b0b22402c5494afa323d537b2313e7ecfa6d307ab06dc9d1afe0",
+      "tests/unit_tests/test_stage8_manager_integration.py": "d43d00b2cd54bd7f3e8f97225df9378c4f17b354752fb973c830d6420e83f0da",
+      ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.md": "8c3e4486dbfd1eb17fe71f44ca61eac136f4d93b82712a6fe97c6d858374717d"
+    },
+    "implementation_source_hash_mismatches": 0,
+    "active_chain_hash_mismatches": 0,
+    "dependency_handoff_hash_mismatches": 0,
+    "prior_attempt_artifact_hash_mismatches": 0,
+    "prior_attempt_artifacts_immutable": [
+      1
+    ],
+    "runtime_identity": "08/r1/a2/integration",
+    "implementation_version": "stage08-r1-a2",
+    "all_changed_paths_locked_to_correct_owner": true
+  },
+  "external_execution": {
+    "network_access_by_review": false,
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "stage09_work": "NOT_RUN"
+  },
+  "downstream_gate": {
+    "stage08_closure": "ELIGIBLE_FOR_ORCHESTRATOR_CLOSE",
+    "stage09_status": "PENDING",
+    "stage09_phase": "NOT_STARTED",
+    "stage09_activation": "REMAINS_ORCHESTRATOR_ONLY_AND_WAS_NOT_PERFORMED"
+  },
+  "supersedes": null,
+  "created_at": "2026-09-11T10:39:06.8117276Z"
+}

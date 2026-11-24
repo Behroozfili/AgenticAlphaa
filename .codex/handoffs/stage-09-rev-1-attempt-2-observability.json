@@ -1,0 +1,205 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 159,
+  "status": "AUDITED",
+  "changed_files": [
+    ".codex/handoffs/stage-09-rev-1-attempt-2-observability.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-09-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "67e4bb4c67d1d5d4fd3426850262e43e512324fcb13f33ed10cf21c001a22daf",
+  "requested_primary_changes": [],
+  "privacy_checks": [
+    {
+      "check": "Telemetry uses a closed compact allowlist and excludes scientific/private payloads.",
+      "status": "PASS",
+      "evidence": "All 231 canonical-fixture events contained only allowlisted identity, boundary, outcome, latency, count and degraded fields. Report/records, raw feature vectors, labels, predictions, coefficients, evidence IDs/content, prompts, chain-of-thought, private payloads and exception text were absent."
+    },
+    {
+      "check": "Failure events are stable, payload-free and precede re-raising without exposing private inputs.",
+      "status": "PASS",
+      "evidence": "Focused offline tests passed fixture-materialization, metric-aggregation and future-record fail-closed cases. PRIVATE_SENTINEL values and original exception text were absent while stable error codes were retained. Static review confirms fold fit/predict and run handlers use the same emitter before bare re-raise."
+    },
+    {
+      "check": "Telemetry sink failures cannot change scientific execution or expose sink exceptions.",
+      "status": "PASS",
+      "evidence": "An independent sink that raised RuntimeError(PRIVATE_SENTINEL) on every event was isolated; the report remained exactly equal to telemetry-disabled output with the same report hash and zero future records."
+    },
+    {
+      "check": "No external telemetry or private system was contacted.",
+      "status": "PASS",
+      "evidence": "The sink is local and injectable. Audit execution used only deterministic local fixtures and in-memory probes; no trace provider, network source or database was contacted."
+    }
+  ],
+  "latency_instrumentation_status": "PASS_FINITE_NONNEGATIVE_MONOTONIC_ALL_LOCKED_STAGE09_BOUNDARIES",
+  "review_finding_audit": {
+    "finding": "REVIEW-09-001",
+    "status": "PASS_RESOLVED",
+    "classification_owner": "EXECUTED_WALK_FORWARD_REPORT",
+    "source_dataset_can_claim_scientific": false,
+    "classification_timing": "AFTER_IDENTICAL_VARIANT_ROW_AND_COVERAGE_CHECKS",
+    "eligible_oos_definition": "COMMON_EXECUTED_FOLD_TICKER_AS_OF_RECORD_COUNT_PER_VARIANT",
+    "manifest_oos_field": "forecast_count_per_variant",
+    "manifest_threshold_field": "scientific_minimums",
+    "source_rows_used_as_oos_proxy": false,
+    "boundary_499": "PRELIMINARY",
+    "boundary_500": "SCIENTIFIC",
+    "nine_tickers_at_500": "PRELIMINARY",
+    "fifty_nine_cutoffs_at_500": "PRELIMINARY",
+    "all_three_minimums_required": true
+  },
+  "runtime_identity_audit": {
+    "workflow_artifact_identity": "09/r1/a2/observability",
+    "telemetry_implementation_identity": "09/r1/a1/quant",
+    "implementation_version": "stage09-r1-a1",
+    "status": "PASS_LOCKED_IDENTITY_PRESERVED",
+    "reason": "Attempt 2 is a narrowly authorized scientific-classification retry. The accepted Attempt-1 telemetry contract identifies the unchanged instrumentation implementation as 09/r1/a1/quant, and all telemetry modules outside the four REVIEW-09-001 source/test paths retain their Attempt-1 hashes. Changing telemetry attempt/version in this retry would exceed the authorized scope. Workflow attempt 2 remains explicit in this observability artifact and the matching draft-ready artifact."
+  },
+  "telemetry_audit": {
+    "sink": "LOCAL_INJECTABLE_IN_PROCESS_ONLY",
+    "canonical_fixture_event_count": 231,
+    "required_boundaries": [
+      "fixture_materialization",
+      "fold_model_fit",
+      "fold_prediction",
+      "metric_aggregation",
+      "leakage_audit",
+      "run",
+      "run_progress"
+    ],
+    "all_required_boundaries_present": true,
+    "run_lifecycle": [
+      "started",
+      "degraded"
+    ],
+    "ordered_completed_folds": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11
+    ],
+    "finite_nonnegative_latency": true,
+    "bounded_counts_and_flags": true,
+    "degraded_preliminary_signal": true,
+    "stable_fail_closed_error_codes": true,
+    "payload_allowlist_enforced": true,
+    "sink_failure_isolated": true,
+    "external_export": false
+  },
+  "scientific_and_temporal_audit": {
+    "telemetry_enabled_disabled_exact_equality": true,
+    "report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779",
+    "report_hash_matches_attempt_1": true,
+    "deterministic_report_hash": true,
+    "scientific_report_level": "PRELIMINARY",
+    "ticker_count": 2,
+    "source_monthly_cutoff_count": 48,
+    "fold_method": "expanding_window_observable_outcomes_only",
+    "fold_count": 11,
+    "eligible_oos_forecasts_per_variant": 22,
+    "total_variant_records": 154,
+    "identical_variant_row_identity": true,
+    "future_record_count": 0,
+    "zero_future_audit_status": "PASS_UNCHANGED",
+    "gross_and_net_results_reported": true,
+    "honest_full_model_underperformance_disclosure": "PASS_UNCHANGED",
+    "investment_interpretation": "NONE_SYNTHETIC_ENGINEERING_FIXTURE",
+    "model_or_numeric_change": false,
+    "action_policy_or_transaction_cost_change": false,
+    "llm_generated_or_altered_numbers": false
+  },
+  "source_integrity": {
+    "draft_recorded_current_hashes_checked": 4,
+    "draft_recorded_current_hash_mismatches": [],
+    "immutable_attempt_1_artifacts_checked": 7,
+    "immutable_attempt_1_artifact_mismatches": [],
+    "unchanged_attempt_1_source_test_fixture_hashes_checked": 8,
+    "unchanged_attempt_1_source_test_fixture_hash_mismatches": [],
+    "trigger_review_sha256": "e75f3fee31d83fe0ae59b6977c3ce4555d15e26b54b706be2bdd28c3e3589f39",
+    "trigger_review_hash_match": true,
+    "stage08_dependency_handoff_sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+    "stage08_dependency_hash_match": true,
+    "prior_attempt_artifacts_unchanged": true
+  },
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_point_in_time_dataset_stage9.py tests/unit_tests/test_monthly_backtest_stage9.py tests/unit_tests/test_forecast_metrics_stage9.py tests/unit_tests/test_temporal_leakage_stage9.py tests/unit_tests/test_backtest_cli_stage9.py -q",
+      "exit_code": 0,
+      "result": "23 passed in 8.09s; exact scientific threshold, source-row counterexample, deterministic report, enabled/disabled invariance, lifecycle/progress/latency, fail-closed leakage and privacy cases passed",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Independent in-memory telemetry-enabled versus disabled and exact 499/500 boundary probe",
+      "exit_code": 0,
+      "result": "PASS: outputs exactly equal; report_hash=213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779; PRELIMINARY; future_record_count=0; 499=PRELIMINARY; 500=SCIENTIFIC; 231 safe events; seven boundaries; ordered progress 1..11; runtime identity 09/r1/a1/quant; all latencies finite and nonnegative",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Independent always-failing local telemetry sink probe",
+      "exit_code": 0,
+      "result": "PASS: sink RuntimeError(PRIVATE_SENTINEL) was isolated; scientific output stayed exactly equal with unchanged report hash and future_record_count=0",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "SHA-256 reconciliation of four Attempt-2 draft-recorded paths, seven immutable Attempt-1 artifacts, eight unchanged Attempt-1 source/test/fixture paths, trigger review and Stage-08 dependency handoff",
+      "exit_code": 0,
+      "result": "PASS: 4/4 current, 7/7 immutable artifacts, 8/8 unchanged telemetry/source/test/fixture paths, review and dependency hashes match",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent observability",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 159 before observability artifact creation",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "blocking_issues": [],
+  "stage_boundary": {
+    "feature_or_scientific_behavior_changed_by_observability": false,
+    "quant_source_or_test_files_changed_by_observability": false,
+    "observability_source_files_changed": false,
+    "change_request_created": false,
+    "primary_reactivation_required": true,
+    "state_or_qa_or_review_changed": false,
+    "attempt_1_artifacts_changed": false,
+    "stage10a_work_performed": false
+  },
+  "stage10a_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "Validation used only deterministic local fixtures; no live provider, network source, database or external tracing service was contacted.",
+    "The two-ticker fixture remains PRELIMINARY engineering evidence and is not evidence of investment performance.",
+    "Observability modified only its exact locked Attempt-2 artifact and did not edit Quant source/tests, state, Attempt-1 artifacts or Stage 10A."
+  ],
+  "created_at": "2026-09-12T07:50:58.1105677Z"
+}

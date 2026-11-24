@@ -1,0 +1,182 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "quant",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 153,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "scope": "Deterministic local point-in-time dataset, expanding walk-forward evaluation, metrics, future-leakage audit, CLI, locked Stage 3 compare compatibility extension, exact Stage 09 fixture/tests, and this draft-ready artifact only.",
+  "dependency_handoffs": [
+    {
+      "stage": "08",
+      "path": ".codex/handoffs/stage-08-rev-1-handoff.json",
+      "sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    "evaluation/point_in_time_dataset.py",
+    "evaluation/monthly_backtest.py",
+    "evaluation/forecast_metrics.py",
+    "evaluation/temporal_leakage.py",
+    "evaluation/backtest_cli.py",
+    "evaluation/stage3_compare_cli.py",
+    "tests/fixtures/stage9_walk_forward.json",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py",
+    "tests/unit_tests/test_monthly_backtest_stage9.py",
+    "tests/unit_tests/test_forecast_metrics_stage9.py",
+    "tests/unit_tests/test_temporal_leakage_stage9.py",
+    "tests/unit_tests/test_backtest_cli_stage9.py",
+    ".codex/handoffs/stage-09-rev-1-attempt-1-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "contract_evidence": {
+    "fold_method": "expanding_window_observable_outcomes_only",
+    "minimum_training_cutoffs": 36,
+    "fold_count": 11,
+    "forecast_count_per_variant": 22,
+    "total_forecast_records": 154,
+    "model_variants": [
+      "class_prior_always_hold",
+      "momentum_21d",
+      "market_only",
+      "no_graph",
+      "no_sentiment",
+      "no_financial",
+      "full_model"
+    ],
+    "identical_fold_and_row_identity_all_variants": "PASS",
+    "forecast_before_outcome": "PASS",
+    "training_outcomes_observable_at_forecast": "PASS",
+    "exact_21_session_target": "PASS",
+    "future_record_count": 0,
+    "transaction_cost_bps_one_way": 10.0,
+    "gross_results_reported": true,
+    "action_policy_version": "action_policy_v1",
+    "ragas_used_for_forecast_accuracy": false,
+    "llm_generated_or_altered_forecast_numbers": false
+  },
+  "reproducibility": {
+    "run_id": "stage09-r1-a1",
+    "backtest_version": "stage09-expanding-walk-forward-v1",
+    "dataset_builder_version": "stage09-point-in-time-dataset-v1",
+    "metrics_version": "stage09-forecast-metrics-v1",
+    "leakage_audit_version": "stage09-temporal-leakage-v1",
+    "universe_version": "stage09-two-ticker-demo-v1",
+    "universe_manifest_hash": "7deb5faf8bdf04f10a291ba423ccaaf89f1c6517fc3483bc5aaf907fa289c03f",
+    "dataset_manifest_hash": "82b64efc7a935a1f57d4e765d7206077f92f3f6dc0d11698bcdf5d0afa7a23ec",
+    "eligible_rows_sha256": "4faef677150e12d14b778c3e62d1894cf550ba918c30c1fafe57d1f559138569",
+    "variant_row_identity_sha256": "1480cc6401a8126b10389873fd835a452268418d44f6605e4dd973e0b26690ea",
+    "report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779"
+  },
+  "scientific_result": {
+    "classification": "PRELIMINARY",
+    "reason": "The locked deterministic fixture has 2 tickers, 48 cutoffs and 22 eligible out-of-sample forecasts per variant; it is below the contract thresholds of 10 tickers, 60 cutoffs and 500 eligible forecasts.",
+    "full_model": {
+      "balanced_accuracy": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "roc_auc": 1.0,
+      "brier": 0.009131935171661608,
+      "ece_10_bin": 0.05620365740772412,
+      "mae_excess_return": 0.0025066123075812787,
+      "rmse_excess_return": 0.0029392225449368097,
+      "spearman_ic": 0.9909655561829477,
+      "hit_rate": 1.0,
+      "gross_excess_return_mean": 0.015644064963036258,
+      "net_excess_return_mean": 0.015189519508490802,
+      "turnover_mean": 0.45454545454545453,
+      "max_drawdown_net": 0.0010000000000000009,
+      "sharpe_net_annualized": 3.842834634421049,
+      "coverage": 1.0
+    },
+    "honest_relative_result": "On this synthetic fixture Full Model trails no-Financial on MAE (0.0025066 versus 0.0023714) and trails market-only/no-Graph/no-Sentiment on mean net excess return (0.0151895 versus 0.0153886). This is reported without changing the engineering gate.",
+    "investment_interpretation": "NONE: synthetic regression outcomes are not evidence of real investment performance."
+  },
+  "draft_self_tests": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_point_in_time_dataset_stage9.py tests/unit_tests/test_monthly_backtest_stage9.py tests/unit_tests/test_forecast_metrics_stage9.py tests/unit_tests/test_temporal_leakage_stage9.py tests/unit_tests/test_backtest_cli_stage9.py -q",
+      "result": "16 passed in 24.32s",
+      "exit_code": 0,
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py <five exact Stage09 modules> -q",
+      "result": "87 passed in 21.83s",
+      "exit_code": 0,
+      "network_mode": "OFFLINE_LOCKED_FIXTURES_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage3_narrative_stability.py tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py -q",
+      "result": "66 passed in 33.06s",
+      "exit_code": 0,
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile <six evaluation modules> <five exact Stage09 test modules>",
+      "result": "PASS",
+      "exit_code": 0,
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check -- <exact Stage09 locked source/test paths>",
+      "result": "PASS; informational LF-to-CRLF warning for the pre-existing tracked Stage 3 CLI path",
+      "exit_code": 0,
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent quant",
+      "result": "CONTROL VALID at control_revision 153 before draft artifact creation",
+      "exit_code": 0,
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "source_sha256": {
+    "evaluation/point_in_time_dataset.py": "0c4c163782bd138f293fff73d259dabf65adfcd684d0d28429da32a55910b94b",
+    "evaluation/monthly_backtest.py": "77ff26ee494065c305718778f9c7f16ef520785c0e12618684d6d6443d072ce9",
+    "evaluation/forecast_metrics.py": "5e34dcec977296e86930580515247391fdc7f627dc33321348f5c355f39a1493",
+    "evaluation/temporal_leakage.py": "d9e7f1679adc01dc3f1e67ed4211a145599d7683b8badf3863470ec0357fda62",
+    "evaluation/backtest_cli.py": "8b2796445e48e566be5e1ee9f7adad137fb739032a59657e35ba038aeb4c6b83",
+    "evaluation/stage3_compare_cli.py": "7c7e8bfcd80c39d81b19421157dbe23ca4c1e45346e666723f35875591e3a39e",
+    "tests/fixtures/stage9_walk_forward.json": "697d84c0c2822764c24171a8d4167709dd80110e9548056520634c3108957a54",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py": "9787133ff49d97d2e32ac4c5b896f8a81eeecd2d9435fea28c9cc9ce679663e3",
+    "tests/unit_tests/test_monthly_backtest_stage9.py": "fcad8e792b821a365e1239a5d26e49ad1a9a726d7d1714f4500e29e6540a3301",
+    "tests/unit_tests/test_forecast_metrics_stage9.py": "52581801bea97e9c0594b3241fff9b8bf855a1b901f0c738111e53399e5923a0",
+    "tests/unit_tests/test_temporal_leakage_stage9.py": "127480fc1872099fcc17b8b1561e507d228fd825bfd79d2fc60214ee37642122",
+    "tests/unit_tests/test_backtest_cli_stage9.py": "92dceb1e10ee05922d8b39c0c26b67750d46a463060646a6667469ffb9267ec0"
+  },
+  "observability_review_surface": {
+    "bounded_identifiers": ["run_id", "fold_id", "model_variant", "ticker", "as_of"],
+    "bounded_counts": ["fold_count", "training_cutoffs", "forecast_count", "future_record_count"],
+    "latency_candidates": ["fixture_materialization", "fold_model_fit", "fold_prediction", "metric_aggregation", "leakage_audit"],
+    "sensitive_payload_policy": "No raw feature vectors, labels, evidence content, model coefficients, prompts, chain-of-thought or private payloads should enter traces."
+  },
+  "operational_safety": {
+    "network_used": false,
+    "provider_calls": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false,
+    "upstream_stage07_or_stage08_files_changed": false,
+    "stage10a_or_later_files_changed": false
+  },
+  "limitations": [
+    "The deterministic two-ticker fixture is synthetic and is valid only for engineering regression.",
+    "The report has 11 folds and 22 out-of-sample forecasts per variant, below every scientific minimum in the contract.",
+    "Optional feature missingness is exercised, but live provider coverage and external trace export are not exercised.",
+    "Because observability_required is true, final implementation MD/JSON are intentionally not written in PRIMARY_DRAFT."
+  ],
+  "stage10a_status": "PENDING_NOT_STARTED_UNCHANGED",
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-11T15:09:17.0434719Z"
+}

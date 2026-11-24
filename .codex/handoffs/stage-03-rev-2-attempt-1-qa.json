@@ -1,0 +1,162 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "03",
+  "stage_revision": 2,
+  "attempt": 1,
+  "agent": "qa",
+  "status": "PASS",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_identity_artifacts_control_and_locks",
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact .codex/handoffs/stage-03-rev-2-attempt-1-implementation.json",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID. State is ACTIVE/QA for Stage 03 revision 2 attempt 1, execution is enabled, the implementation is PRIMARY_FINAL and implementation_ready=true, required same-attempt draft-ready and observability artifacts exist, and the QA path is locked to qa."
+    },
+    {
+      "check": "input_artifact_and_observability_integrity",
+      "command": "SHA-256 verification of draft-ready, observability, implementation JSON/MD and ten source/test paths recorded by Observability",
+      "exit_code": 0,
+      "result": "PASS; draft-ready=379aff76ab967c17e532bd5a19fe642d735dab50702b1a94cf8962e117d9dbbb, observability=f473ef7c8fef9536fa231e5e46fb6d6f1b1064455e3de02c001e1b441e9a2221, implementation JSON=aeb357b688c594bbe1169183f83395a50edc14940b586496f6f98577062c066a, implementation MD=be50f856392017731adaf562f9056f55cfb0b0d61a32867e389697e8e6bde746, and all 10/10 audited source/test hashes match current bytes."
+    },
+    {
+      "check": "stage03_runtime_compile",
+      "command": "python -m py_compile rag/__init__.py rag/loader.py rag/processor.py rag/embedding_manager.py rag/vector_store.py rag/retriever.py rag/ingestion.py rag/seed.py main.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "check": "exact_revision2_blocker_counterexample_matrix",
+      "command": "pytest exact 12 cases covering migration/storage evidence coexistence, V2 conflict target, unrequested ticker quarantine, multi-ticker and metadata identities, three pre-materialization retries, completed-work fail-closed behavior, and ticker/metadata resume mutation",
+      "exit_code": 0,
+      "result": "12 passed in 15.50s"
+    },
+    {
+      "check": "selector_correction_record",
+      "command": "initial exact-node pytest command using five incorrect class selectors, followed by pytest --collect-only and the corrected exact matrix",
+      "exit_code": 4,
+      "result": "SELECTOR_ERROR_NO_TESTS_RAN; corrected immediately. This is not product evidence; the corrected 12-case command passed."
+    },
+    {
+      "check": "complete_stage03_and_migration_contract_offline_gate",
+      "command": "pytest -q tests/unit_tests/test_rag/test_embedding_manager.py tests/unit_tests/test_rag/test_ingestion.py tests/unit_tests/test_rag/test_loader.py tests/unit_tests/test_rag/test_processor.py tests/unit_tests/test_rag/test_retriever.py tests/unit_tests/test_rag/test_vectore_store.py tests/unit_tests/test_rag/test_pipline_rag.py tests/unit_tests/test_root_main.py tests/unit_tests/test_database_v2_migrations.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "245 passed in 51.50s: 228 Stage 03 owner tests plus 17 static/offline migration contract tests."
+    },
+    {
+      "check": "accepted_stage01_stage02_regression",
+      "command": "pytest -q tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/core_test/test_error_handler.py tests/unit_tests/core_test/test_observability.py tests/unit_tests/test_database_v2_migrations.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "112 passed in 17.92s"
+    },
+    {
+      "check": "full_unit_integration_collection",
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2 --disable-warnings",
+      "exit_code": 0,
+      "result": "1246 tests collected in 16.09s; zero collection errors."
+    },
+    {
+      "check": "scoped_diff_whitespace_and_head",
+      "command": "git diff --check on exact Stage 03 revision 2 source/test paths and git rev-parse HEAD",
+      "exit_code": 0,
+      "result": "PASS; no whitespace errors, only line-ending notices. HEAD remains c3cda2144c63b6e69252ca64b93d90bbe39f24b4; QA performed no commit or push."
+    },
+    {
+      "check": "migration004_offline_contract_and_external_safety",
+      "command": "static SQL contract tests, SHA-256 verification, and presence-only inspection for an approved SQL execution channel",
+      "exit_code": 0,
+      "result": "PASS_OFFLINE; migration 004 SHA-256 is fced2fc6fcca6ef6bda11b887746b03a1fa98d7eaaa4b717a5c7dfb7c646f481. Application is AUTHORIZED_BUT_NOT_EXECUTABLE and NOT_RUN because DATABASE_URL, Supabase access token/project ref/database password, psql, linked Supabase CLI, and supabase executable are unavailable. No external operation was attempted."
+    },
+    {
+      "check": "stage04A_inactive_gate",
+      "command": "read-only inspection of .codex/refactor-state.json stages.04A and active_stage",
+      "exit_code": 0,
+      "result": "PASS; Stage 04A is PENDING/NOT_STARTED at revision 0 attempt 0 and active_stage remains 03."
+    }
+  ],
+  "blocker_resolution_report": {
+    "status": "PASS",
+    "STAGE03-V2-EVIDENCE-COEXISTENCE-006": {
+      "status": "RESOLVED",
+      "evidence": "Migration 004's accepted additive identity amendment and the V2 adapter use the same evidence-scoped conflict identity. Actual AlphaProcessor-to-embedded-row tests preserve same-content observations across dataset, retrieval and effective-time variants under all revision-2 identities."
+    },
+    "STAGE03-TICKER-MATERIALIZATION-007": {
+      "status": "RESOLVED",
+      "evidence": "Historical loading independently quarantines unrequested tickers; the JSON provider additionally filters defensively; evidence identity preserves multi-ticker and metadata-distinct observations; canonical raw-document and processed-record hashes make ticker/metadata mutation fail closed before completed Vector reuse or Graph retry."
+    },
+    "STAGE03-PREMATERIALIZATION-RESUME-008": {
+      "status": "RESOLVED",
+      "evidence": "Missing credentials and transient load/process failures retry safely only before materialization when neither Vector nor Graph has completed work. Completed work without an exact fingerprint remains rejected fail-closed."
+    }
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "historical_complete_start_end_as_of_required": "PASS",
+    "historical_live_fallback_disabled": "PASS",
+    "archive_ticker_scope_enforced_and_out_of_scope_quarantined": "PASS",
+    "future_publication_and_late_retrieval_rejected": "PASS",
+    "unknown_historical_evidence_time_quarantined": "PASS",
+    "dataset_version_and_effective_interval_filtered_before_ranking": "PASS",
+    "legacy_historical_backend_fails_closed": "PASS",
+    "cross_snapshot_provider_content_embedding_adapter_ticker_metadata_mixing": "REJECTED_FAIL_CLOSED",
+    "live_database_validation": "NOT_RUN_ENVIRONMENT_BLOCKED_NOT_REQUIRED_FOR_OFFLINE_QA_JUDGMENT"
+  },
+  "privacy_and_observability_report": {
+    "status": "PASS",
+    "control_identity": "stage03-r2-a1",
+    "observability_status": "AUDITED_NO_REQUESTED_CHANGES",
+    "telemetry_allowlist": "PASS",
+    "monotonic_latency_ms": "PASS_OFFLINE",
+    "sanitized_deterministic_error_codes": "PASS",
+    "raw_evidence_url_provider_payload_secret_or_exception_text_persisted": false,
+    "source_hashes_match_observability_audit": true
+  },
+  "regression_report": {
+    "stage03_owner": {"passed": 228, "failed": 0},
+    "migration_contract": {"passed": 17, "failed": 0},
+    "exact_blocker_counterexamples": {"passed": 12, "failed": 0},
+    "stage01_stage02": {"passed": 112, "failed": 0},
+    "collection": {"collected": 1246, "errors": 0, "status": "PASS"},
+    "stage03_regressions": 0
+  },
+  "blocking_issues": [],
+  "blocking_findings": [],
+  "environment_blockers": [
+    {
+      "id": "STAGE03-MIGRATION004-SQL-CHANNEL-009",
+      "status": "AUTHORIZED_BUT_NOT_EXECUTABLE",
+      "blocking_for_offline_qa_judgment": false,
+      "finding": "The specific migration 004 is user-authorized for the configured remote development Supabase target, but no safe SQL execution channel is configured. Application, live reconciliation, and live correctness/latency evidence are therefore NOT_RUN.",
+      "required_to_execute": "Provide a scoped development DATABASE_URL/database password or an authenticated linked Supabase CLI/management channel. REST service credentials alone are not treated as permission or a safe arbitrary-SQL channel."
+    }
+  ],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "04A",
+      "status": "MUST_REMAIN_BLOCKED_PENDING_NOT_STARTED",
+      "reason": "The user explicitly limited execution to Stage 03; QA neither activated nor inspected Stage 04A implementation scope."
+    }
+  ],
+  "non_blocking_limitations": [
+    "V2 database behavior is deterministic offline fixture/mock and static-SQL validated; no live migration, reconciliation, database correctness, or production latency claim is made.",
+    "agents/state.py remains under its separate core quarantine lock and was not modified, tested as a Stage 03-owned change, or accepted by QA.",
+    "One initial exact-node selector command exited 4 without running tests; the corrected selector matrix passed all 12 cases."
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration004_authorized": true,
+    "migration004_applied": false,
+    "migration_operation_attempted": false,
+    "seed_or_backfill_executed": false,
+    "legacy_data_deleted": false,
+    "production_route_switched": false,
+    "stage04A_activated": false,
+    "deploy_commit_or_push": false
+  },
+  "requested_primary_changes": [],
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-3-qa.json",
+  "created_at": "2026-08-31T08:56:50.3159013Z"
+}

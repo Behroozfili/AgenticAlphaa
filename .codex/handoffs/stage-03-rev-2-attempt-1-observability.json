@@ -1,0 +1,179 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "03",
+  "stage_revision": 2,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [
+    ".codex/handoffs/stage-03-rev-2-attempt-1-observability.json"
+  ],
+  "requested_primary_changes": [],
+  "privacy_checks": [
+    {
+      "check": "Runtime telemetry provenance matches the active Stage 03 revision 2 attempt 1 draft.",
+      "status": "PASS",
+      "evidence": "rag/ingestion.py uses stage=03, stage_revision=2, attempt=1 and agent=data_rag. The focused lifecycle test asserts these values on every emitted payload and passed offline."
+    },
+    {
+      "check": "Lifecycle telemetry is compact, allowlisted, measured and status-aware.",
+      "status": "PASS",
+      "evidence": "_emit filters payloads through _TELEMETRY_ALLOWED_FIELDS and emits non-negative monotonic latency_ms, lifecycle status, degraded, Vector/Graph status, safe version identity and compact counts at pipeline/load/process/vector/graph/checkpoint/resume boundaries."
+    },
+    {
+      "check": "Provider, request, adapter, embedding and materialization identity do not expose raw evidence or credentials.",
+      "status": "PASS",
+      "evidence": "Telemetry and IngestionManifest retain normalized identifiers, boundaries, status/count fields and SHA-256 provider/request/document/evidence/chunk/raw-document/record/materialization fingerprints. Raw provider ID, article/chunk text, title, URL, provider payload, headers, tokens and database credentials are not serialized or emitted."
+    },
+    {
+      "check": "Untrusted exception text is sanitized before checkpoint, breadcrumb or capture persistence.",
+      "status": "PASS",
+      "evidence": "StageStatus accepts deterministic INGESTION_* codes, _capture_sanitized reports RuntimeError(error_code), and the secret/raw-payload/private-URL sentinel test passed."
+    },
+    {
+      "check": "Ticker and temporal context remain bounded metadata rather than private payload.",
+      "status": "PASS",
+      "evidence": "Ticker values are normalized and regex constrained, dataset_version is identifier constrained, as_of is normalized UTC, and historical is a boolean. start/end remain in the checkpoint request contract but are not copied into telemetry breadcrumbs."
+    },
+    {
+      "check": "Checkpoint retry and fail-closed resume outcomes are observable without leaking mismatch values.",
+      "status": "PASS",
+      "evidence": "Pre-materialization retry, completed-work fingerprint checks, checkpoint.load, resume.skip, vector.resume, resume.failure and pipeline failure/complete are represented with sanitized codes, hashes, counts and degraded/status fields. Corrected focused retry tests and the complete snapshot identity class passed offline."
+    },
+    {
+      "check": "No chain-of-thought, brain_reasoning, raw article chunks, full filing text, duplicated tool payloads, unnecessary prompts, secrets, tokens or headers were added to observability persistence.",
+      "status": "PASS"
+    },
+    {
+      "check": "No external tracing service, provider, database, migration, seed or production read switch was contacted or executed by this audit.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "PASS_STAGE03_R2_A1_ALLOWLISTED_MONOTONIC_LIFECYCLE_OFFLINE_VERIFIED_NO_PRODUCTION_BENCHMARK",
+  "progress_instrumentation_status": "PASS_LIFECYCLE_BREADCRUMBS_COVER_PIPELINE_LOAD_PROCESS_VECTOR_GRAPH_CHECKPOINT_AND_RESUME",
+  "required_metadata_matrix": {
+    "available_and_emitted": [
+      "run_id",
+      "tickers",
+      "as_of",
+      "historical_analysis_mode",
+      "dataset_version",
+      "vector_schema",
+      "vector_adapter",
+      "embedding_model",
+      "embedding_version",
+      "embedding_cache_schema",
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent",
+      "latency_ms",
+      "document_count",
+      "chunk_count",
+      "quarantine_count",
+      "upsert_count",
+      "relation_count",
+      "degraded"
+    ],
+    "not_available_at_stage03_ingestion_callsite": [
+      "forecast_target",
+      "forecast_horizon",
+      "forecast_feature_version"
+    ],
+    "count_contract": "Stage 03 exposes document/chunk/quarantine/upsert/relation counts; a distinct forecast evidence_count is not available at this ingestion boundary.",
+    "analysis_mode_contract": "The Stage 03 ingestion boundary exposes historical as the applicable analysis-mode discriminator; ForecastContext analysis_mode is not passed into this callsite."
+  },
+  "stage03_revision2_audit": {
+    "draft_ready_artifact": ".codex/handoffs/stage-03-rev-2-attempt-1-draft-ready.json",
+    "draft_ready_sha256": "379aff76ab967c17e532bd5a19fe642d735dab50702b1a94cf8962e117d9dbbb",
+    "dependency_handoff": ".codex/handoffs/stage-02-rev-2-handoff.json",
+    "dependency_handoff_sha256": "ebdbaf4d75807cabdad4e726114fdcc26e6c997ad05bcdc6603aadab9b97603e",
+    "STAGE03_V2_EVIDENCE_COEXISTENCE_006": "RESOLVED_UPSTREAM_PRESERVED",
+    "STAGE03_TICKER_MATERIALIZATION_007": "RESOLVED_AND_OBSERVABILITY_SAFE",
+    "STAGE03_PREMATERIALIZATION_RESUME_008": "RESOLVED_AND_LIFECYCLE_VISIBLE",
+    "control_identity": "stage03-r2-a1",
+    "product_observability_source_changes": false,
+    "feature_call_sites_audited": true,
+    "change_request_required": false
+  },
+  "source_integrity": {
+    "observability_sources_unchanged": {
+      "core/observability.py": "3af7d734f1081e0d8a2ee4924b2fcea218ab0fdf0c0a93600ba46010c21222d5",
+      "core/progress_bus.py": "1b0115704447a0b5b2ad22374c6d335273585706c38c64c3cebef3a21bdd4a16",
+      "langsmith_trace.py": "57e334a86c2c6e20d925988270857264b29219811092d09a1c83c70ce94f4138"
+    },
+    "draft_source_sha256": {
+      "rag/loader.py": "2fee42e014326ce1f6c61cee2084af31538682f1ba6781be9730658f68618ae6",
+      "rag/seed.py": "88a80ccca4e947faa1dade9c8bded69ed79d09325bab073fde6efe899c592337",
+      "rag/processor.py": "24d19ad9b16e5b4db247285c76ba7bea3a67b80fcbdcb7262c5090e29715c4a3",
+      "rag/ingestion.py": "31762a646d5d393f33b9e15eb97e62d85c978acd6a1039e604b1249bfbc249bd",
+      "rag/vector_store.py": "92aa8b70c9ebe590b3d8bb222bf1a48fe25121bef9f063a12022d67d4ba8d5df",
+      "tests/unit_tests/test_rag/test_ingestion.py": "2a8e98010ec48a657f5087c324ab15d4d444346144fb717bbe9a570b47b9df5e",
+      "tests/unit_tests/test_rag/test_loader.py": "347715e2da5033fdf577d08c5757810b0bed4467f4e590a97b41fc8b13911e53",
+      "tests/unit_tests/test_rag/test_processor.py": "ff1abffc043b5c75746381b0f61202a49dba1c772e45d236c0b329d8518fdb0b",
+      "tests/unit_tests/test_rag/test_vectore_store.py": "c54e6c70b82a1427fc231c6bd3dda67f827e3b3c9e92e65d9954e7b4f0828f21",
+      "tests/unit_tests/test_root_main.py": "2a9106416f0014bcb937934c05d4219dac04d5cec7206dfe0ed3791401e1a686"
+    },
+    "draft_hash_match": "PASS_ALL_RECORDED_SOURCE_HASHES_MATCH"
+  },
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --artifact .codex/handoffs/stage-03-rev-2-attempt-1-draft-ready.json --agent data_rag",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    },
+    {
+      "command": "pytest initial telemetry plus retry selectors using an incorrect TestCheckpointedIngestion class name",
+      "exit_code": 4,
+      "result": "SELECTOR_ERROR_NO_TESTS_RAN; corrected immediately; not treated as product evidence"
+    },
+    {
+      "command": "pytest TestLifecycleTelemetry plus corrected three TestCheckpointResume pre-materialization retry cases --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "8 passed in 16.07s"
+    },
+    {
+      "command": "pytest tests/unit_tests/test_rag/test_ingestion.py::TestSnapshotIdentityFailClosed --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "6 passed in 16.63s"
+    },
+    {
+      "command": "python -m py_compile rag/ingestion.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "git diff --check on exact Stage 03 revision 2 draft source/test paths",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only"
+    }
+  ],
+  "blocking_issues": [],
+  "external_execution": {
+    "migration_application_authorization": "AUTHORIZED_IN_PRINCIPLE_BY_USER",
+    "migration_application": "NOT_RUN",
+    "reason_not_run": "Remote development target has no SQL connection, database password, access token, Supabase CLI session or psql access available in the controlled environment.",
+    "external_operation_attempted_by_observability": false,
+    "network_access": false,
+    "database_reads": false,
+    "database_writes": false,
+    "seed_execution": false,
+    "production_read_switch": false
+  },
+  "stage04A_gate": {
+    "status_at_audit": "PENDING",
+    "phase_at_audit": "NOT_STARTED",
+    "activated": false,
+    "scope_audited": false,
+    "requirement": "Stage 04A remains inactive and blocked from activation while only Stage 03 is being completed."
+  },
+  "limitations": [
+    "Latency assertions are deterministic offline presence/type/non-negativity checks; no production latency benchmark was run.",
+    "V2 database behavior remains offline fixture/mock validated because the authorized migration could not be applied without a configured remote development SQL target.",
+    "Temporal Graph implementation is Stage 04A scope and was not inspected, changed or activated.",
+    "agents/state.py remains outside this audit under its separate core quarantine lock."
+  ],
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-3-observability.json",
+  "created_at": "2026-08-31T08:34:03.4641779Z"
+}

@@ -69,7 +69,7 @@ from rag.loader import (  # noqa: E402
 )
 from rag.processor import AlphaProcessor, ProcessedChunk, _sha256, _url_hash  # noqa: E402
 from rag.embedding_manager import AlphaEmbedder, get_embedder  # noqa: E402
-from rag.vector_store import AlphaVectorStore  # noqa: E402
+from rag.vector_store import AlphaVectorStore, VectorStoreConfig  # noqa: E402
 from rag.retriever import AlphaRetriever  # noqa: E402
 from rag.evaluation import AlphaEvaluator, MetricResult, EvaluationReport  # noqa: E402
 
@@ -126,8 +126,7 @@ class TestTimestampNormalization(unittest.TestCase):
 
     def test_safe_timestamp_fallback(self):
         result = _safe_timestamp("garbage", fallback_label="test")
-        # Should return current UTC time, not raise
-        self.assertIn("+00:00", result)
+        self.assertIsNone(result)
 
 
 class TestAlphaLoaderSchema(unittest.TestCase):
@@ -152,18 +151,24 @@ class TestAlphaLoaderSchema(unittest.TestCase):
             doc = self._make_doc(source_type=st)
             self.assertEqual(doc.source_type, st)
 
+    @patch("rag.loader.feedparser.parse")
     @patch("rag.loader.yf.Ticker")
-    def test_yfinance_circuit_breaker(self, mock_ticker):
+    def test_yfinance_circuit_breaker(self, mock_ticker, mock_parse):
         """If yfinance explodes, load() still returns (empty) without raising."""
         mock_ticker.side_effect = RuntimeError("network error")
+        mock_parse.return_value.bozo = False
+        mock_parse.return_value.entries = []
         loader = AlphaLoader()
         result = loader.load(["AAPL"])
         self.assertIsInstance(result, list)
 
+    @patch("rag.loader.yf.Ticker")
     @patch("rag.loader.feedparser.parse")
-    def test_reddit_circuit_breaker(self, mock_parse):
+    def test_reddit_circuit_breaker(self, mock_parse, mock_ticker):
         """If feedparser explodes, load() still returns without raising."""
         mock_parse.side_effect = RuntimeError("feed down")
+        mock_ticker.return_value.news = []
+        mock_ticker.return_value.info = {}
         loader = AlphaLoader()
         result = loader.load(["TSLA"])
         self.assertIsInstance(result, list)
@@ -432,6 +437,7 @@ class TestAlphaVectorStore(unittest.TestCase):
             store = AlphaVectorStore(
                 supabase_url="https://fake.supabase.co",
                 supabase_key="fake-key",
+                config=VectorStoreConfig(schema="legacy"),
             )
             store._mock_client = mock_client
             return store

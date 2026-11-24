@@ -3,11 +3,17 @@ from agents.state import (
     ResearchAgentState,
     FinancialAgentState,
     SentimentAgentState,
+    ForecastContextPayload,
+    ForecastFeatureSlot,
+    MonthlyForecastSlot,
+    JSONValue,
+    validate_forecast_feature_values,
 )
 from agents.research_agent import ResearchAgent
 from agents.financial_agent import FinancialAnalystAgent
 from agents.sentiment_agent import SentimentAgent
 from agents.manager_agent import ManagerAgent
+from agents.monthly_forecast_agent import MonthlyForecastAgent
 from memory.manager_memory import ManagerMemory, AgentExecutionRecord, EvaluationFeedback
 
 __all__ = [
@@ -17,12 +23,18 @@ __all__ = [
     "ResearchAgentState",
     "FinancialAgentState",
     "SentimentAgentState",
+    "ForecastContextPayload",
+    "ForecastFeatureSlot",
+    "MonthlyForecastSlot",
+    "JSONValue",
+    "validate_forecast_feature_values",
     # Specialist agents
     "ResearchAgent",
     "FinancialAnalystAgent",
     "SentimentAgent",
     # Orchestration layer
     "ManagerAgent",
+    "MonthlyForecastAgent",
     "ManagerMemory",
     "AgentExecutionRecord",
     "EvaluationFeedback",

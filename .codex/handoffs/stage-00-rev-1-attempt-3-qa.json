@@ -1,0 +1,123 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "00",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "qa",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "control_plane_exact_locks_and_artifact_identity",
+      "command": "validate_refactor_control --check-control --check-locks plus jsonschema validation",
+      "exit_code": 0,
+      "result": "PASS; Stage 00 revision 1 attempt 3 is in QA, implementation/milestone identities match, and the attempt-3 QA path is locked to qa"
+    },
+    {
+      "check": "attempt_1_and_2_immutability",
+      "command": "prior artifact SHA-256 and timestamp inventory",
+      "exit_code": 0,
+      "result": "PASS; all attempt-1 and attempt-2 implementation, milestone and QA artifacts remain present with their prior content hashes and pre-attempt-3 timestamps"
+    },
+    {
+      "check": "attempt_3_scope_and_test_integrity",
+      "command": "git diff and assertion/product/dependency scan",
+      "exit_code": 0,
+      "result": "PASS; only test isolation changed: tracing environment restoration and non-target provider mocks; no assertion was removed or weakened and no product/dependency file changed"
+    },
+    {
+      "check": "guarded_trace_config",
+      "command": "torch-preloaded, localhost-only guarded pytest --trace-config --collect-only tests/unit_tests/core_test/test_observability.py",
+      "exit_code": 0,
+      "result": "PASS; 17 collected, LangSmith pytest plugin absent, QA_EXTERNAL_ATTEMPTS=[]"
+    },
+    {
+      "check": "focused_observability_isolation",
+      "command": "torch-preloaded, localhost-only guarded pytest -q tests/unit_tests/core_test/test_observability.py",
+      "exit_code": 0,
+      "result": "PASS; 17 passed, QA_EXTERNAL_ATTEMPTS=[]"
+    },
+    {
+      "check": "focused_rag_circuit_breakers",
+      "command": "torch-preloaded, localhost-only guarded Yahoo and Reddit circuit-breaker tests",
+      "exit_code": 0,
+      "result": "PASS; 2 passed, QA_EXTERNAL_ATTEMPTS=[]"
+    },
+    {
+      "check": "guarded_full_collection",
+      "command": "torch-preloaded, localhost-only guarded pytest --collect-only tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "PASS; 1136 collected: 1085 unit and 51 integration; QA_EXTERNAL_ATTEMPTS=[]"
+    },
+    {
+      "check": "guarded_offline_unit_baseline",
+      "command": "torch-preloaded, localhost-only guarded pytest -q --disable-warnings --tb=no tests/unit_tests",
+      "exit_code": 1,
+      "result": "PASS_BASELINE_CAPTURE; 1045 passed, 40 precisely known failures, 6 warnings, QA_EXTERNAL_ATTEMPTS=[]"
+    },
+    {
+      "check": "legacy_migration_disposition",
+      "command": "torch-preloaded, localhost-only guarded focused migration test plus Git integrity/history scan",
+      "exit_code": 1,
+      "result": "PASS_KNOWN_DISPOSITION; test unchanged, exactly four FileNotFoundError failures, NO_VALID_RETARGET, QA_EXTERNAL_ATTEMPTS=[]"
+    },
+    {
+      "check": "dependency_runner_and_hash_integrity",
+      "command": "uv lock --check --offline; Python/pytest versions; manifest SHA-256 comparison",
+      "exit_code": 0,
+      "result": "PASS; 210 packages resolved, Python 3.12.13, pytest 9.0.3 and all recorded runner/dependency/model hashes match"
+    },
+    {
+      "check": "backup_restore_trace_and_dataset_dispositions",
+      "command": "manifest and prior local read-only inventory review",
+      "exit_code": 0,
+      "result": "PASS_DISPOSITION_ONLY; Supabase/Neo4j/backup/restore remain NOT_AVAILABLE/NOT_RUN, obsolete trace remains OBSOLETE_BY_USER_DECISION, and historical data remains NOT_AVAILABLE; none are falsely marked PASS"
+    }
+  ],
+  "leakage_report": {
+    "status": "NOT_APPLICABLE_STAGE_00",
+    "historical_dataset": "NOT_AVAILABLE",
+    "external_network_attempts": 0
+  },
+  "regression_report": {
+    "collection": {
+      "unit": 1085,
+      "integration": 51,
+      "total": 1136,
+      "comparison_to_attempts_1_and_2": "MATCH"
+    },
+    "unit_baseline": {
+      "passed": 1045,
+      "failed_known": 40,
+      "warnings": 6,
+      "known_failure_count_comparison": "MATCH"
+    },
+    "known_failure_separation": "PASS; 36 assigned product-contract failures plus 4 missing legacy migration failures remain visible",
+    "product_regressions": 0,
+    "assertions_weakened_or_deleted": 0,
+    "tests_deselected_to_gain_pass": 0,
+    "external_dns_connect_attempts": 0,
+    "resolved_findings": [
+      "STAGE00-OFFLINE-RUNNER-001",
+      "STAGE00-OFFLINE-UNIT-IO-002"
+    ]
+  },
+  "blocking_issues": [],
+  "environment_blockers": [
+    {
+      "item": "Supabase, Neo4j, backup artifact, checksum and restore target",
+      "status": "NOT_AVAILABLE_NOT_RUN",
+      "blocking_for_stage_00_disposition": false,
+      "note": "User-directed honest disposition; no backup/restore PASS or external check is claimed."
+    },
+    {
+      "item": "Historical point-in-time dataset",
+      "status": "NOT_AVAILABLE",
+      "blocking_for_stage_00_disposition": false,
+      "note": "Acquisition and versioning belong to Stages 07 and 09."
+    }
+  ],
+  "candidate_downstream_stages_affected": [],
+  "requested_primary_changes": [],
+  "created_at": "2026-08-27T19:12:41.2353535Z"
+}

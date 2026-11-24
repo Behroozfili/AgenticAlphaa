@@ -1,0 +1,246 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 124,
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    ".codex/handoffs/change-request-stage-07-rev-1-attempt-1-1.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-1-observability.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-07-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "ec4b4fcc2ec57bd4d7eb04c57f8ef4b41afa99f5b22ea8205c40284eccae9f13",
+  "milestone_artifacts": {
+    "DATA_READINESS": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-1-milestone-DATA_READINESS.json",
+      "sha256": "4eedd96ead18106ecb44aa149c9ef1caac2344ef5d9fc144f30144aa5591d939",
+      "declared_status": "PASS",
+      "observability_status": "BLOCKED_BY_TEMPORAL_AND_ROW_BINDING_COUNTEREXAMPLES"
+    },
+    "MODEL_READY": {
+      "path": ".codex/handoffs/stage-07-rev-1-attempt-1-milestone-MODEL_READY.json",
+      "sha256": "bb8908a3b739a96a9b458b275effaeb12f4ee8564d409f4b2ea5c31e80eb8ea4",
+      "declared_status": "PASS",
+      "observability_status": "BLOCKED_BY_READINESS_TO_TRAINING_ROW_BINDING_COUNTEREXAMPLE"
+    }
+  },
+  "requested_primary_changes": [
+    {
+      "id": "OBS-07-001",
+      "blocking": true,
+      "owner": "quant",
+      "requested_paths": [
+        "tools/market_tools/__init__.py",
+        "tools/market_tools/market_data.py",
+        "tools/market_tools/feature_builder.py",
+        "tools/market_tools/historical_dataset_builder.py",
+        "tools/market_tools/forecast_model.py",
+        "tools/market_tools/market_server.py",
+        "tests/unit_tests/market_test/test_market_data.py",
+        "tests/unit_tests/market_test/test_feature_builder.py",
+        "tests/unit_tests/market_test/test_historical_dataset_builder.py",
+        "tests/unit_tests/market_test/test_forecast_model.py",
+        "tests/unit_tests/market_test/test_market_server.py",
+        "tests/unit_tests/test_market_features_stage7.py"
+      ],
+      "reason": "No immutable Stage 07 runtime identity or measured compact lifecycle matrix exists, and the forecast output lacks available trace/reproducibility fields and truthful feature materialization provenance.",
+      "change_request": ".codex/handoffs/change-request-stage-07-rev-1-attempt-1-1.json"
+    },
+    {
+      "id": "OBS-07-002",
+      "blocking": true,
+      "owner": "quant",
+      "requested_paths": [
+        "tools/market_tools/feature_builder.py",
+        "tools/market_tools/historical_dataset_builder.py",
+        "tools/market_tools/market_server.py",
+        "tests/unit_tests/market_test/test_feature_builder.py",
+        "tests/unit_tests/market_test/test_historical_dataset_builder.py",
+        "tests/unit_tests/market_test/test_market_server.py"
+      ],
+      "reason": "Untrusted evidence IDs cross compact State/forecast boundaries unchanged and DATA_READINESS persists an unbounded run_id; exact PRIVATE_SENTINEL counterexamples passed through both paths.",
+      "change_request": ".codex/handoffs/change-request-stage-07-rev-1-attempt-1-1.json"
+    },
+    {
+      "id": "OBS-07-003",
+      "blocking": true,
+      "owner": "quant",
+      "requested_paths": [
+        "tools/market_tools/feature_builder.py",
+        "tools/market_tools/historical_dataset_builder.py",
+        "tools/market_tools/forecast_model.py",
+        "tools/market_tools/market_server.py",
+        "tests/unit_tests/market_test/test_feature_builder.py",
+        "tests/unit_tests/market_test/test_historical_dataset_builder.py",
+        "tests/unit_tests/market_test/test_forecast_model.py",
+        "tests/unit_tests/market_test/test_market_server.py"
+      ],
+      "reason": "Context/features, snapshot/outcome time, universe membership and DATA_READINESS/training rows are not fully bound; four offline counterexamples were accepted.",
+      "change_request": ".codex/handoffs/change-request-stage-07-rev-1-attempt-1-1.json"
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "Static forbidden-field scan of current Stage 07 source, fixture and draft/milestone artifacts.",
+      "status": "PASS",
+      "evidence": "No brain_reasoning, chain-of-thought, raw article/chunk/filing/payload, full filing, credential, token, API key or header field was found in the scoped current files. No external trace service was contacted."
+    },
+    {
+      "check": "Evidence references remain opaque and raw/private text cannot cross State or forecast output.",
+      "status": "FAIL",
+      "evidence": "An evidence_ids entry containing PRIVATE_SENTINEL raw article text crossed MarketFeatures.to_state_slot and MarketForecastService.forecast unchanged."
+    },
+    {
+      "check": "Operational run identity is compact and cannot contain private prompt text.",
+      "status": "FAIL",
+      "evidence": "build_data_readiness coerces run_id with str() and persisted PRIVATE_SENTINEL raw private prompt unchanged. MarketForecastService has a length/newline guard, but the pre-fit boundary does not share it."
+    },
+    {
+      "check": "Stage 07 lifecycle telemetry excludes raw bars, feature vectors, labels, model coefficients, evidence references and exceptions.",
+      "status": "NOT_IMPLEMENTED",
+      "evidence": "No Stage 07 lifecycle/trace/progress instrumentation exists, so safe processors and failure-path privacy sentinels cannot be verified."
+    }
+  ],
+  "latency_instrumentation_status": "FAIL_BLOCKING_NO_MEASURED_STAGE07_LIFECYCLE_BOUNDARIES_OR_ATTEMPT_IDENTITY",
+  "trace_metadata_audit": {
+    "required_fields": [
+      "run_id",
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "calendar_version",
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent",
+      "latency_ms",
+      "evidence_count",
+      "degraded_flags"
+    ],
+    "immutable_implementation_identity_present": false,
+    "measured_lifecycle_boundaries_present": 0,
+    "forecast_output_fields_present": [
+      "run_id",
+      "ticker",
+      "as_of",
+      "target_date",
+      "horizon_trading_days",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "evidence_ids",
+      "degraded_flags"
+    ],
+    "available_but_missing_or_misrepresented": [
+      "schema_version",
+      "calendar_version",
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent",
+      "latency_ms",
+      "evidence_count",
+      "readiness_manifest_hash",
+      "training_data_hash",
+      "truthful_feature_materialized_at"
+    ],
+    "raw_payload_processors_verified": false
+  },
+  "lifecycle_matrix": [
+    {"boundary": "adjusted_cache_validation_and_market_bundle", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "feature_build_and_pre_snapshot", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "snapshot_finalization_and_outcome_materialization", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "data_readiness_pre_fit_gate", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "deterministic_model_fit", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"},
+    {"boundary": "prediction_and_market_service_forecast", "status": "MISSING_MEASURED_COMPACT_LIFECYCLE"}
+  ],
+  "temporal_and_readiness_audit": {
+    "central_context_21_session_rule": "PASS_IN_EXISTING_FOCUSED_TESTS",
+    "future_target_bar_changes_as_of_features": "PASS_IN_EXISTING_FOCUSED_TESTS",
+    "direct_materialize_outcome_pre_target_rejection": "PASS_IN_EXISTING_FOCUSED_TESTS",
+    "fixture_loader_pre_target_outcome_rejection": "FAIL_COUNTEREXAMPLE_ACCEPTED",
+    "forecast_context_to_market_features_identity_binding": "FAIL_COUNTEREXAMPLE_ACCEPTED",
+    "universe_effective_membership_gate": "FAIL_COUNTEREXAMPLE_ACCEPTED",
+    "per_source_temporal_coverage": "FAIL_ONLY_MARKET_HAS_DATE_RANGE_IN_CURRENT_MANIFEST",
+    "readiness_to_training_row_content_binding": "FAIL_COUNTEREXAMPLE_ACCEPTED"
+  },
+  "source_integrity": {
+    "recorded_source_hash_count": 8,
+    "recorded_source_hash_match": "PASS_8_OF_8",
+    "dependencies": [
+      {"path": ".codex/handoffs/stage-04B-rev-1-handoff.json", "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049", "status": "MATCH_ACCEPTED_LOCK_HISTORY"},
+      {"path": ".codex/handoffs/stage-05-rev-1-handoff.json", "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed", "status": "MATCH_ACCEPTED_LOCK_HISTORY"},
+      {"path": ".codex/handoffs/stage-06-rev-1-handoff.json", "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735", "status": "MATCH_ACCEPTED_LOCK_HISTORY"}
+    ]
+  },
+  "tests_run": [
+    {
+      "command": "python -m pytest tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "31 passed in 0.83s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Four exact offline identity/temporal/readiness counterexamples",
+      "exit_code": 1,
+      "result": "FAIL: mismatched feature/context identity accepted; pre-target fixture outcome accepted; MSFT rows accepted under AAPL-only universe; mutated training rows accepted under original readiness manifest"
+    },
+    {
+      "command": "Two exact offline PRIVATE_SENTINEL State/output/run-id counterexamples",
+      "exit_code": 1,
+      "result": "FAIL: raw evidence text crossed State and forecast output; private prompt text persisted as DATA_READINESS run_id"
+    },
+    {
+      "command": "SHA-256 verification of all eight draft-recorded sources/fixture and three dependency handoffs",
+      "exit_code": 0,
+      "result": "PASS_8_OF_8_CURRENT; PASS_3_OF_3_DEPENDENCY_HANDOFFS_MATCH_ACCEPTED_LOCK_HISTORY"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact .codex/handoffs/stage-07-rev-1-attempt-1-draft-ready.json --agent quant",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-07-001: immutable Stage 07 runtime identity and measured compact lifecycle/latency instrumentation are absent, and service provenance metadata is incomplete or misleading.",
+    "OBS-07-002: untrusted evidence references and DATA_READINESS run identity can persist raw/private text across compact boundaries.",
+    "OBS-07-003: feature/context, temporal outcome, universe membership and readiness-to-training-row bindings are incomplete and fail exact offline counterexamples."
+  ],
+  "stage_boundary": {
+    "feature_behavior_changed_by_observability": false,
+    "source_or_test_files_changed_by_observability": false,
+    "change_request_created": true,
+    "primary_reactivation_required": true,
+    "next_stage_08_work_performed": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "Validation was offline with deterministic fixtures; no live market provider, external trace service or database was contacted.",
+    "Passing the existing 31 tests does not clear the blockers because the locked suite lacks lifecycle, payload-leak, feature/context binding, fixture pre-target, universe-membership and readiness-row-binding sentinels.",
+    "Observability modified no Quant source, test, control-state, migration or shared instrumentation file."
+  ],
+  "created_at": "2026-09-06T08:52:54.6585828Z"
+}

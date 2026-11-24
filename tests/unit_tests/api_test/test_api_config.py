@@ -94,6 +94,60 @@ class TestSettingsDefaults:
         with pytest.raises(Exception):  # pydantic ValidationError
             config_module.get_settings()
 
+    def test_monthly_runtime_versions_are_explicit(self, config_module):
+        s = config_module.get_settings()
+        assert s.RUNTIME_VERSION
+        assert s.FORECAST_SCHEMA_VERSION
+        assert s.LIVE_DATASET_VERSION != s.HISTORICAL_DATASET_VERSION
+        assert s.FORECAST_HORIZON_TRADING_DAYS == 21
+
+    def test_observability_is_disabled_by_default(self, config_module):
+        s = config_module.Settings(
+            _env_file=None,
+            OBSERVABILITY_ENABLED=False,
+            SENTRY_ENABLED=True,
+            LANGSMITH_ENABLED=True,
+            SENTRY_DSN="https://example.invalid/1",
+            LANGSMITH_API_KEY="secret",
+        )
+        assert s.sentry_active is False
+        assert s.langsmith_active is False
+
+    def test_observability_requires_flags_and_credentials(self, config_module):
+        s = config_module.Settings(
+            _env_file=None,
+            OBSERVABILITY_ENABLED=True,
+            SENTRY_ENABLED=True,
+            LANGSMITH_ENABLED=True,
+            SENTRY_DSN="https://example.invalid/1",
+            LANGSMITH_API_KEY="secret",
+        )
+        assert s.sentry_active is True
+        assert s.langsmith_active is True
+
+    def test_live_and_historical_contexts_use_separate_dataset_versions(self, config_module):
+        s = config_module.Settings(_env_file=None)
+        live = s.forecast_context(
+            ticker="msft", as_of="2024-05-31T20:00:00Z", analysis_mode="LIVE"
+        )
+        historical = s.forecast_context(
+            ticker="MSFT",
+            as_of="2024-05-31T20:00:00Z",
+            analysis_mode="HISTORICAL_BACKTEST",
+        )
+        assert live.dataset_version == s.LIVE_DATASET_VERSION
+        assert historical.dataset_version == s.HISTORICAL_DATASET_VERSION
+        assert live.target == historical.target
+        assert live.horizon_trading_days == 21
+
+    def test_context_reuses_holiday_weekend_and_21_session_contract(self, config_module):
+        context = config_module.Settings(_env_file=None).forecast_context(
+            ticker="MSFT", as_of="2024-11-29T18:00:00Z"
+        )
+        # November month-end is the early-close Friday after Thanksgiving;
+        # weekends and Christmas are excluded from the 21-session target.
+        assert context.target.isoformat() == "2024-12-31"
+
 
 class TestSupabaseKeyAlias:
     def test_supabase_key_reads_from_service_role_alias(self, monkeypatch, config_module):

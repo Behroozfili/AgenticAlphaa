@@ -1,0 +1,164 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "reviewer",
+  "status": "REVIEW_REJECTED",
+  "review_status": "REJECTED",
+  "execution_phase": "REVIEW",
+  "control_revision": 115,
+  "changed_files": [
+    ".codex/handoffs/stage-06-rev-1-attempt-3-review.json"
+  ],
+  "artifact_chain": [
+    {
+      "path": ".codex/handoffs/stage-05-rev-1-attempt-1-review.json",
+      "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed"
+    },
+    {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-2-review.json",
+      "sha256": "7bf7f3eeb707511953aa4b8d046e16dc7808f0264d1839819df3d10fb55b14a7"
+    },
+    {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-3-draft-ready.json",
+      "sha256": "6bab5babbe9176eee5742a1916f678eab52ca47b4623f67dbab9b12faafd2a0e"
+    },
+    {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-3-observability.json",
+      "sha256": "3216f0227ef88264ebebad5437c22dc6f1a02c8390df37ace949592c35ea8663"
+    },
+    {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-3-change-request.json",
+      "sha256": "fdc57ba19d5b70e1744848f381c0886ebad23206daacf17eceb7cbf6c477328d"
+    },
+    {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-3-implementation.md",
+      "sha256": "3452da2f37c81020eb329e93a8edd172509643aa6071abbfd2c1f3eec05acb80"
+    },
+    {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-3-implementation.json",
+      "sha256": "e27b09fc6ccbb5070a906b619a65f9e68d7361294500e00c8e97605165df86ce"
+    },
+    {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-3-qa.json",
+      "sha256": "003dcd2f1a6b075e46454d0c67c4c6061e0c4a3b17bd3c416d66b8abf8375ade"
+    }
+  ],
+  "blocking_findings": [
+    {
+      "id": "REVIEW-06-A3-B-001",
+      "category": "DATA_HYGIENE_AND_MODEL_PROVENANCE",
+      "summary": "The actual full sentiment executor preserves an untrusted fusion polarity in compact State and overwrites an unknown fusion model status with the selected-attempt status VALID.",
+      "evidence": [
+        "agents/sentiment_agent.py reads fear_greed_result['polarity'], derives a canonical polarity only when it is null, then stores the existing raw value in state['sentiment_polarity']; the compact summary is built from that state value.",
+        "The executor overwrites fear_greed_result['status'] with the selected-attempt status before monthly feature construction, so an original unknown fusion status becomes VALID and is counted as available provenance.",
+        "The new full-agent PRIVATE_SENTINEL test mocks agent._graph.ainvoke and returns a fabricated final_state with sentiment_polarity=None; it therefore does not execute or validate the real executor propagation path.",
+        "Independent real-pipeline mocked-provider counterexample using three temporally valid evidence items and unknown/overlong/malformed model statuses plus fusion polarity PRIVATE_SENTINEL produced: private_in_summary=True, private_in_slot=False, summary_polarity='PRIVATE_SENTINEL', slot_polarity=None, slot_degraded=True, model_statuses={'finbert':'UNKNOWN','vader':'UNKNOWN','fusion':'VALID','selected_attempt':'VALID'}.",
+        "This violates OBS-06-A3-001's finite-allowlist/privacy requirement and the fail-closed provenance contract: arbitrary provider text crosses compact persisted State and an untrusted fusion result is reported as healthy provenance."
+      ],
+      "blocking": true
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-06-A3-NB-001",
+      "summary": "The implementation artifact reports 177 passed and 3 deselected, whereas the authoritative marker-correct independent QA run reports 175 passed and 5 deselected.",
+      "disposition": "Non-blocking because the QA artifact records the authoritative selector behavior and all 175 selected Stage 06 tests passed; the discrepancy is limited to two database-marked tests."
+    },
+    {
+      "id": "REVIEW-06-A3-NB-002",
+      "summary": "Live provider/network behavior was not exercised.",
+      "disposition": "Expected under the offline review policy; deterministic mocked-provider and fail-closed tests cover the contracted boundary."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    "Preserve the fusion model's original canonical status separately from the selected-attempt status; never overwrite model health with attempt health before monthly feature construction.",
+    "Canonicalize fusion polarity and every provider-controlled status before assigning typed State or compact summary fields; unknown, overlong, or malformed values must fail closed and must not contribute model availability or provenance.",
+    "Replace or supplement the mocked-_graph.ainvoke full-agent privacy test with a test that executes the real graph/executor path using mocked providers and proves PRIVATE_SENTINEL is absent from typed slots, compact summary, logs, progress, traces, and Sentry while unknown fusion status is excluded from healthy provenance.",
+    "Re-run the complete marker-correct Stage 06 offline suite and all temporal, MCP identity, partial aggregate, low-coverage, and observability counterexamples."
+  ],
+  "review_blockers": [],
+  "resolved_findings": [
+    {
+      "id": "REVIEW-06-A2-B-001",
+      "status": "RESOLVED",
+      "evidence": "Direct-helper and declared full-agent counterexamples for one-model failure, fusion failure, and low coverage now propagate explicit availability, missing_sources, degraded_reasons, model_statuses, and contributor-only model provenance."
+    },
+    {
+      "id": "REVIEW-06-A1-B-001",
+      "status": "RESOLVED",
+      "evidence": "A future effective_from timestamp is rejected even when published_at is historical."
+    },
+    {
+      "id": "REVIEW-06-A1-B-002",
+      "status": "RESOLVED",
+      "evidence": "Future same-URL chunks are filtered before URL grouping and cannot borrow an older sibling timestamp."
+    },
+    {
+      "id": "REVIEW-06-A1-B-003",
+      "status": "RESOLVED",
+      "evidence": "Missing MCP identity fails closed before tool dispatch."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_ownership": "PASS: all six Attempt 3 implementation source/test/artifact paths were explicitly locked to sentiment; no weakened or deleted test and no downstream Stage 07 work was found.",
+    "temporal_safety": "PASS: as_of is enforced independently for published_at/effective_from/effective_to, invalid timestamps do not become now, future chunks are removed before deduplication/grouping, and fixed 7/14/30-day windows remain isolated.",
+    "versioning_and_reproducibility": "REJECTED: immutable FinBERT git revision and VADER lexicon SHA are retained, but the executor promotes an unknown fusion status to VALID, making the recorded contributor provenance untrustworthy.",
+    "data_hygiene": "REJECTED: no chain-of-thought, secrets, raw chunks, filings, or duplicated payloads were observed, but arbitrary provider polarity can cross into the compact sentiment summary.",
+    "regression": "PASS subject to blocker: prior temporal/MCP and Attempt 2 partial-aggregate counterexamples pass; the new full-agent privacy test does not cover the actual executor path.",
+    "operational_safety": "PASS: no network/provider call, database change, migration, seed, deletion, deployment, commit, push, or mutable Manager singleton change was performed or found.",
+    "observability": "REJECTED: structured log/progress/trace/Sentry sanitization tests pass, but persisted compact State is itself part of the observability/privacy contract and still exposes raw fusion polarity.",
+    "financial_and_numeric_integrity": "NOT_APPLICABLE: Stage 06 sentiment changes do not modify DCF/WACC, nine financial intents/mappers, or deterministic Quant source-of-truth behavior."
+  },
+  "tests_and_checks": [
+    {
+      "name": "official_control_validator_attempt3_inputs",
+      "result": "PASS",
+      "details": "Draft-ready, observability, change-request, implementation JSON, QA JSON, prior review, and control/lock checks each returned CONTROL VALID before review artifact creation."
+    },
+    {
+      "name": "declared_attempt3_counterexamples",
+      "result": "PASS",
+      "details": "14 passed in 13.59s: six partial-aggregate scenarios, two direct/full PRIVATE_SENTINEL scenarios, three original temporal/MCP blockers, and the three Stage06ObservabilitySentinels."
+    },
+    {
+      "name": "stage06_marker_correct_offline_suite",
+      "result": "PASS",
+      "details": "175 passed, 5 deselected, 1 warning in 7.03s; this QA count is authoritative."
+    },
+    {
+      "name": "independent_actual_executor_private_sentinel_counterexample",
+      "result": "FAIL",
+      "details": "Real graph/executor path with mocked providers yielded private_in_summary=True and fusion model_status=VALID despite malformed input status; exact output is recorded in REVIEW-06-A3-B-001."
+    },
+    {
+      "name": "source_hash_and_lock_audit",
+      "result": "PASS",
+      "details": "All four implementation source/test hashes matched the implementation manifest; all six changed paths were locked to sentiment; prior Attempt 1/2 artifacts and the Stage 05 dependency matched their recorded SHA256 values."
+    }
+  ],
+  "source_integrity": {
+    "implementation_hashes_match": true,
+    "artifact_chain_hashes_match": true,
+    "prior_artifacts_immutable": true,
+    "locks_valid": true
+  },
+  "external_execution": {
+    "network": false,
+    "providers": false,
+    "database": false,
+    "migrations": false,
+    "seeds": false,
+    "deletions": false,
+    "deploy": false,
+    "commit": false,
+    "push": false
+  },
+  "stage07_gate": "PENDING_STAGE06_APPROVAL",
+  "supersedes": ".codex/handoffs/stage-06-rev-1-attempt-2-review.json",
+  "created_at": "2026-09-04T18:23:12.260Z"
+}

@@ -1,0 +1,82 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "core",
+  "changed_files": [
+    "core/forecast_contract.py",
+    "agents/state.py",
+    "agents/__init__.py",
+    "tests/unit_tests/test_forecast_contract.py",
+    "tests/unit_tests/test_state_forecast_contract.py",
+    ".codex/handoffs/stage-01-rev-1-attempt-2-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "supersedes": ".codex/handoffs/stage-01-rev-1-attempt-1-draft-ready.json",
+  "review_rework_resolved": [
+    {
+      "id": "STAGE01-XNYS-CALENDAR-001",
+      "resolution": "XNYS Saturday New Year's Day no longer closes the preceding Friday; 2021-12-31 is open and December month-end. Carter's 2025-01-09 national closure is included; the 21st session after 2024-12-31 is 2025-02-03."
+    },
+    {
+      "id": "STAGE01-CONTEXT-DESERIALIZATION-002",
+      "resolution": "ForecastContext.from_dict requires every canonical serialized field, including analysis_mode, calendar_version, and label. Missing identities fail closed and HISTORICAL_BACKTEST cannot silently default to LIVE."
+    },
+    {
+      "id": "STAGE01-STATE-JSON-HYGIENE-003",
+      "resolution": "ForecastFeatureSlot.values uses recursive JSONValue and validate_forecast_feature_values enforces finite JSON scalars, compact string keys/text, bounded containers and maximum nesting depth."
+    }
+  ],
+  "json_safe_feature_contract": {
+    "allowed": ["null", "string", "boolean", "integer", "finite float", "list", "string-keyed object"],
+    "maximum_depth": 4,
+    "maximum_items_per_container": 100,
+    "maximum_key_length": 128,
+    "maximum_text_length": 4096,
+    "rejected": ["NaN", "infinity", "tuple", "bytes", "arbitrary object", "non-string key", "empty key"],
+    "legacy_required_state_keys_changed": false
+  },
+  "draft_self_tests": [
+    {
+      "command": "pytest focused Stage01 contract, State, error-handler and observability tests",
+      "exit_code": 0,
+      "result": "93 passed in 2.78s"
+    },
+    {
+      "command": "guarded pytest --collect-only tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1185 collected: 1134 unit, 51 integration; external_attempts=[]"
+    },
+    {
+      "command": "guarded pytest tests/unit_tests",
+      "exit_code": 1,
+      "result": "1096 passed, 38 preserved pre-existing failures, 6 warnings; external_attempts=[]"
+    },
+    {
+      "command": "direct exact calendar and JSON validator assertions",
+      "exit_code": 0,
+      "result": "EXACT_REWORK_ASSERTIONS=PASS"
+    },
+    {
+      "command": "python -m py_compile core/forecast_contract.py agents/state.py agents/__init__.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only"
+    }
+  ],
+  "known_pre_existing_failures": {
+    "count": 38,
+    "stage_01_regressions": 0,
+    "external_attempts": 0
+  },
+  "observability_paths_modified_in_attempt_2": false,
+  "attempt_1_artifacts_modified": false,
+  "created_at": "2026-08-28T06:50:10.9060924Z"
+}

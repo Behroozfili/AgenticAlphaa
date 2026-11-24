@@ -1,0 +1,186 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "10B",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "execution_phase": "QA",
+  "control_revision": 186,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "qa_status": "PASS",
+  "implementation_artifact": ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.json",
+  "implementation_sha256": "48bba32d7d2caa09e4f231450847d4e84beeb4f1bb772d142bf8f1a11faa06c7",
+  "implementation_markdown": ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.md",
+  "implementation_markdown_sha256": "9db7ef6a75f355987b80866f94f8755952df7b4e470d34ea7192ae279fc8332f",
+  "validated_input_artifacts": [
+    {
+      "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-draft-ready.json",
+      "sha256": "2b607d13576f2943c18aa0317f0ab8fab018da0ec3dd77576d899bbb6081f4ac",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-observability.json",
+      "sha256": "b338b677fd555010fda445431e5c62d38892f9a8e2dc4c59878a1b534e9622e9",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-10B-rev-1-attempt-1-1.json",
+      "sha256": "967eb092d32ee1d445bbf26a0e5b66b06f54df6ed54b02d007241133abcbd01e",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.json",
+      "sha256": "48bba32d7d2caa09e4f231450847d4e84beeb4f1bb772d142bf8f1a11faa06c7",
+      "identity_match": true,
+      "schema_valid": true
+    }
+  ],
+  "control_and_lock_validation": {
+    "execution_enabled": true,
+    "active_tuple": "10B/r1/a1/QA",
+    "allowed_support_agents": ["qa"],
+    "qa_artifact_lock_owner": "qa",
+    "dependencies_closed": ["10A"],
+    "stage10b_status": "ACTIVE",
+    "stage10b_phase": "QA",
+    "stage11_status": "PENDING",
+    "stage11_activated": false,
+    "result": "PASS"
+  },
+  "dependency_handoff_validation": {
+    "stage": "10A",
+    "path": ".codex/handoffs/stage-10A-rev-1-handoff.json",
+    "expected_sha256": "5d4e36d9f1db1c2dec6c5909d4bbf11d6f572edc569604396fadffc221670625",
+    "actual_sha256": "5d4e36d9f1db1c2dec6c5909d4bbf11d6f572edc569604396fadffc221670625",
+    "state_status": "CLOSED",
+    "result": "PASS"
+  },
+  "source_hash_and_lock_validation": {
+    "implementation_recorded_paths_checked": 13,
+    "current_sha256_matches": 13,
+    "current_sha256_mismatches": 0,
+    "input_artifact_hashes_checked": 4,
+    "input_artifact_hash_matches": 4,
+    "changed_path_lock_issues": 0,
+    "status": "PASS"
+  },
+  "tests_run": [
+    {
+      "command": "forced-offline QA matrix over Stage10B observability/end-to-end/concurrency/backtest/progress/frontend, API config/main/dependencies/exceptions/analyze, Stage10A runtime/observability, ForecastContext/State, Stage07 market, Stage08 Manager, and Stage09 CLI/metrics/walk-forward/dataset/leakage modules",
+      "exit_code": 0,
+      "passed": 330,
+      "failed": 0,
+      "duration_seconds": 30.27,
+      "result": "PASS",
+      "network_mode": "FORCED_OFFLINE_FIXTURES_MOCKS_AND_EXTERNAL_EXPORTERS_DISABLED"
+    },
+    {
+      "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 pytest --collect-only -q",
+      "exit_code": 0,
+      "collected": 1503,
+      "collection_errors": 0,
+      "duration_seconds": 30.00,
+      "result": "PASS",
+      "network_mode": "FORCED_OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": "Official validator over control/locks and all four current input JSON artifacts",
+      "exit_code": 0,
+      "result": "PASS: five CONTROL VALID results at control_revision 186",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": "Independent SHA-256 reconciliation of implementation-recorded source/Markdown and draft/observability/change-request/implementation chain",
+      "exit_code": 0,
+      "result": "PASS: 13 of 13 recorded source/Markdown hashes and 4 of 4 input artifact hashes matched",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "gate_results": {
+    "live_historical_api_contract": "PASS",
+    "canonical_forecast_context": "PASS_UTC_FIXED_21_TRADING_SESSIONS",
+    "legacy_analyze_compatibility": "PASS",
+    "compact_monthly_response": "PASS_NO_NARRATIVE_DUPLICATION",
+    "request_isolation": "PASS_TWO_CONCURRENT_HTTP_REQUESTS_ZERO_CROSSTALK",
+    "telemetry_isolation": "PASS_RUN_ID_TICKER_AS_OF_ZERO_CROSSTALK",
+    "persistence_idempotency": "PASS_DETERMINISTIC_ANALYSIS_AND_NATURAL_KEYS",
+    "outcome_observability_gate": "PASS_FAIL_CLOSED_UNTIL_OBSERVABLE",
+    "persistence_failure": "PASS_NONFATAL_STABLE_CODE",
+    "backtest_submission": "PASS_NONBLOCKING_IDEMPOTENT_APP_SCOPED",
+    "backtest_status_and_artifact": "PASS_COMPACT_NO_RAW_FOLDS_OR_RECORDS",
+    "backtest_failure": "PASS_STABLE_REDACTED_CODE",
+    "progress_job_wiring": "PASS",
+    "frontend_monthly_fields": "PASS",
+    "frontend_degraded_insufficient_states": "PASS",
+    "dcf_separation": "PASS_LONG_TERM_NOT_21_DAY_PRICE",
+    "observability_identity": "PASS_10B_R1_A1_INTEGRATION",
+    "observability_privacy": "PASS_ALLOWLIST_LOCAL_ONLY_NONFATAL",
+    "stage08_numeric_and_action_regression": "PASS",
+    "stage09_backtest_methodology_regression": "PASS",
+    "stage10a_runtime_isolation_regression": "PASS",
+    "full_collection": "PASS_ZERO_ERRORS"
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "future_record_count": 0,
+    "future_training_outcome_detection": "PASS",
+    "feature_materialized_after_as_of_detection": "PASS",
+    "point_in_time_dataset_boundary": "PASS",
+    "evidence": "Stage09 temporal leakage and point-in-time dataset modules passed inside the 330-test QA matrix."
+  },
+  "regression_report": {
+    "status": "PASS",
+    "qa_matrix": {
+      "passed": 330,
+      "failed": 0
+    },
+    "full_forced_offline_collection": {
+      "collected": 1503,
+      "errors": 0
+    },
+    "stages_covered": [
+      "07",
+      "08",
+      "09",
+      "10A",
+      "10B"
+    ]
+  },
+  "privacy_and_operational_report": {
+    "query_or_user_payload_in_persistence": false,
+    "raw_evidence_or_narrative_in_telemetry": false,
+    "exception_text_in_public_or_telemetry_failure": false,
+    "raising_local_sink_nonfatal": true,
+    "external_exporters_enabled": false,
+    "external_trace_provider_contacted": false,
+    "external_database_contacted": false
+  },
+  "blocking_findings": [],
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [],
+  "qa_scope_notes": [
+    "QA PASS certifies the declared API, persistence, progress/job, UI contract and evaluation methodology; it does not claim live-provider performance.",
+    "Backtest jobs are intentionally process-local and frontend validation is static; both limitations are accurately disclosed by implementation.",
+    "No product source, test, implementation, observability, state, review or handoff file was modified by QA."
+  ],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "dependency_changes": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-14T13:50:02.4978126Z"
+}

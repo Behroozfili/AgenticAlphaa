@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "milestone",
+  "stage": "02",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "data_rag",
+  "status": "PASS",
+  "milestone_name": "SCHEMA_CONTRACT_FROZEN",
+  "milestone_status": "PASS",
+  "evidence": [
+    {
+      "check": "frozen_natural_keys",
+      "status": "PASS",
+      "detail": "Feature snapshot, monthly forecast, forecast outcome, backtest reproducibility, analysis identity, and shared document/chunk/evidence identities match .codex/contracts/data-schema-contract.md."
+    },
+    {
+      "check": "temporal_boundary",
+      "status": "PASS",
+      "detail": "published_at, filed_at, retrieved_at, effective_from, effective_to, and materialized_at remain distinct; unknown evidence time is null plus quarantined and is never mapped to now."
+    },
+    {
+      "check": "shadow_schema_and_rollback",
+      "status": "PASS",
+      "detail": "Migrations are additive shadow structures, production route pointers remain legacy-v1, reconciliation views are defined, and rollback changes only the route pointer while preserving V2 and legacy rows."
+    },
+    {
+      "check": "offline_contract_tests",
+      "status": "PASS",
+      "command": "python -m pytest tests/unit_tests/test_database_v2_migrations.py -q",
+      "result": "11 passed in 0.07s"
+    },
+    {
+      "check": "stage01_stage02_regression",
+      "status": "PASS",
+      "command": "forced-offline focused Stage 01 plus Stage 02 pytest",
+      "result": "106 passed in 4.15s"
+    },
+    {
+      "check": "full_collection",
+      "status": "PASS",
+      "command": "forced-offline pytest --collect-only tests/unit_tests tests/integration_tests",
+      "result": "1198 collected: 1147 unit and 51 integration"
+    },
+    {
+      "check": "control_locks_diff_and_destructive_scan",
+      "status": "PASS",
+      "result": "CONTROL VALID; diff-check clean; no DROP TABLE/COLUMN/SCHEMA/CONSTRAINT/INDEX, TRUNCATE, or DELETE FROM statement."
+    },
+    {
+      "check": "external_database_execution",
+      "status": "NOT_RUN_REQUIRES_SEPARATE_AUTHORIZATION",
+      "detail": "No Supabase or Neo4j migration, seed, backfill, route switch, or external write was executed."
+    }
+  ],
+  "blocking_issues": [],
+  "supersedes": null,
+  "created_at": "2026-08-28T18:55:07.3103530Z"
+}

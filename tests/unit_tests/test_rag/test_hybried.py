@@ -17,8 +17,12 @@ Mocking strategy: asyncio.to_thread is patched to run synchronously so
 `await asyncio.to_thread(fn)` just calls `fn()` directly in tests — no real
 threading needed for the mocked Supabase client.
 """
+import json
+from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 import pytest
+
+from core.forecast_contract import ForecastContext
 
 import rag.hybrid_rag as hybrid_rag
 from rag.hybrid_rag import (
@@ -157,7 +161,8 @@ class TestRagVectorSearch:
             result = await rag_vector_search("q")
 
         assert result["results"] == []
-        assert "retriever failed" in result["error"]
+        assert result["error_code"] == "VECTOR_RETRIEVAL_FAILED"
+        assert "retriever failed" not in str(result)
 
     @pytest.mark.asyncio
     async def test_top_k_caps_results(self):
@@ -177,6 +182,54 @@ class TestRagVectorSearch:
 # ---------------------------------------------------------------------------
 
 class TestRagGraphTraverse:
+    @pytest.mark.asyncio
+    async def test_temporal_graph_payload_is_json_serializable(self, temporal_fixture):
+        _, context = temporal_fixture
+        driver = MagicMock()
+        session = AsyncMock()
+
+        class Neo4jDateTime:
+            def __init__(self, value):
+                self.value = value
+
+            def iso_format(self):
+                return self.value
+
+        class OneRecord:
+            def __init__(self):
+                self._done = False
+
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                if self._done:
+                    raise StopAsyncIteration
+                self._done = True
+                return {
+                    "name": "Microsoft", "type": "Company",
+                    "relation": "RELATED_TO", "hops": 1,
+                    "path_nodes": ["MSFT", "Microsoft"],
+                    "observation_id": "obs-1", "evidence_id": "evidence-1",
+                    "chunk_id": "chunk-1", "document_id": "document-1",
+                    "source_url": "https://example.test/msft",
+                    "published_at": Neo4jDateTime("2024-01-15T12:00:00Z"),
+                    "retrieved_at": Neo4jDateTime("2024-01-15T13:00:00Z"),
+                    "effective_from": Neo4jDateTime("2024-01-15T12:00:00Z"),
+                    "effective_to": None,
+                    "dataset_version": context.dataset_version,
+                }
+
+        session.run = AsyncMock(return_value=OneRecord())
+        driver.session.return_value.__aenter__.return_value = session
+        driver.session.return_value.__aexit__.return_value = None
+
+        with patch("rag.hybrid_rag._get_neo4j", return_value=driver):
+            result = await rag_graph_traverse("NVDA", context=context)
+
+        encoded = json.dumps(result)
+        assert "2024-01-15T12:00:00Z" in encoded
+        assert result["nodes"][0]["published_at"] == "2024-01-15T12:00:00Z"
     @pytest.mark.asyncio
     async def test_max_hops_clamped_to_3(self):
         mock_driver = MagicMock()
@@ -228,7 +281,8 @@ class TestRagGraphTraverse:
             result = await rag_graph_traverse("NVIDIA")
 
         assert result["nodes"] == []
-        assert "neo4j down" in result["error"]
+        assert result["error_code"] == "GRAPH_TRAVERSAL_FAILED"
+        assert "neo4j down" not in str(result)
 
     @pytest.mark.asyncio
     async def test_relation_types_all_uses_unbounded_rel_clause(self):
@@ -357,3 +411,321 @@ class TestFusionHelpers:
         fused = _weighted(vec, graph)
         assert fused[0]["score"] == 0.7
         assert fused[1]["score"] == 0.3
+
+
+@pytest.fixture
+def temporal_fixture():
+    path = Path(__file__).parents[2] / "fixtures" / "stage4a_temporal_graph_hybrid.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return payload, ForecastContext.from_dict(payload["context"])
+
+
+class TestForecastContextBoundRetrieval:
+    @pytest.mark.asyncio
+    async def test_vector_forwards_the_same_context_before_ranking(self, temporal_fixture):
+        payload, context = temporal_fixture
+        retriever = MagicMock()
+        retriever.retrieve_raw.return_value = payload["vector"]
+        with patch.object(hybrid_rag, "_retriever", retriever):
+            result = await rag_vector_search("supply chain", context=context)
+        kwargs = retriever.retrieve_raw.call_args.kwargs
+        assert kwargs["ticker"] == context.ticker
+        assert kwargs["as_of"] == context.as_of
+        assert kwargs["dataset_version"] == context.dataset_version
+        assert kwargs["historical"] is True
+        assert result["results"][0]["chunk_id"] == "chunk-shared-1"
+        assert result["citations"][0]["evidence_id"] == "evidence-shared-1"
+
+    @pytest.mark.asyncio
+    async def test_live_context_uses_temporal_legacy_projection(self):
+        context = ForecastContext(
+            ticker="MSFT", as_of="2026-08-31T20:00:00Z",
+            schema_version="forecast-v2", dataset_version="live-dataset-v1",
+            feature_version="features-v1", model_version="model-v1",
+        )
+        retriever = MagicMock()
+        retriever.store.supports_temporal_boundary = False
+        retriever.retrieve_raw.return_value = [{
+            "id": 1, "ticker": "MSFT", "source_type": "news",
+            "text": "Microsoft demand improved.", "freshness_score": 0.5,
+            "published_at": "2026-08-24T13:02:00Z",
+            "retrieved_at": "2026-08-24T15:01:02Z",
+            "dataset_version": "live-dataset-v1",
+            "evidence_id": "evidence-live-1",
+        }]
+
+        with patch.object(hybrid_rag, "_retriever", retriever):
+            result = await rag_vector_search("Microsoft demand", context=context)
+
+        kwargs = retriever.retrieve_raw.call_args.kwargs
+        assert kwargs["historical"] is False
+        assert kwargs["as_of"] == context.as_of
+        assert result.get("error_code") is None
+        assert len(result["results"]) == 1
+        assert result["degradation"]["reason"] == "legacy_live_temporal_projection"
+
+    @pytest.mark.asyncio
+    async def test_vector_rejects_ticker_context_mismatch(self, temporal_fixture):
+        _, context = temporal_fixture
+        with pytest.raises(ValueError, match="must match"):
+            await rag_vector_search("query", ticker_filter="AMD", context=context)
+
+    @pytest.mark.asyncio
+    async def test_temporal_graph_cypher_excludes_all_leakage_classes(self, temporal_fixture):
+        _, context = temporal_fixture
+        driver = MagicMock()
+        session = AsyncMock()
+
+        class Empty:
+            def __aiter__(self):
+                return self
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+        session.run = AsyncMock(return_value=Empty())
+        driver.session.return_value.__aenter__.return_value = session
+        driver.session.return_value.__aexit__.return_value = None
+        with patch("rag.hybrid_rag._get_neo4j", return_value=driver):
+            await rag_graph_traverse("NVDA", context=context)
+        cypher = session.run.call_args.args[0]
+        params = session.run.call_args.kwargs
+        for required in (
+            "e.is_quarantined = false",
+            "e.ticker = $ticker",
+            "e.dataset_version = $dataset_version",
+            "e.published_at IS NOT NULL",
+            "e.retrieved_at IS NOT NULL",
+            "e.effective_from IS NOT NULL",
+            "e.published_at <= datetime($as_of)",
+            "e.retrieved_at <= datetime($as_of)",
+            "e['filed_at'] <= datetime($as_of)",
+            "e['effective_to'] > datetime($as_of)",
+        ):
+            assert required in cypher
+        assert params["ticker"] == context.ticker
+        assert params["dataset_version"] == context.dataset_version
+
+    @pytest.mark.asyncio
+    async def test_temporal_graph_does_not_fallback_to_legacy_on_error(self, temporal_fixture):
+        _, context = temporal_fixture
+        driver = MagicMock()
+        driver.session.side_effect = RuntimeError("V2 unavailable")
+        with patch("rag.hybrid_rag._get_neo4j", return_value=driver):
+            result = await rag_graph_traverse("NVDA", context=context)
+        assert result["nodes"] == []
+        assert result["degradation"]["reason"] == "graph_error"
+
+    @pytest.mark.asyncio
+    async def test_hybrid_uses_shared_ids_citations_and_context(self, temporal_fixture):
+        payload, context = temporal_fixture
+        vector_result = {
+            "results": [{
+                "chunk_text": payload["vector"][0]["text"],
+                "score": 0.9,
+                "document_id": "doc-shared-1",
+                "chunk_id": "chunk-shared-1",
+                "evidence_id": "evidence-shared-1",
+                "citation": hybrid_rag._citation(payload["vector"][0], origin="vector"),
+            }],
+            "degradation": {"available": True},
+        }
+        graph_item = payload["graph"][0]
+        graph_item["citation"] = hybrid_rag._citation(graph_item, origin="graph")
+        graph_result = {"nodes": [graph_item], "degradation": {"available": True}}
+        with patch("rag.hybrid_rag.rag_vector_search", AsyncMock(return_value=vector_result)), \
+             patch("rag.hybrid_rag.rag_graph_traverse", AsyncMock(return_value=graph_result)):
+            result = await rag_hybrid_query("NVDA supply chain", context=context)
+        assert result["degradation"]["mode"] == "hybrid"
+        assert result["context"] == context.to_dict()
+        assert {item["chunk_id"] for item in result["results"]} == {"chunk-shared-1"}
+        assert {citation["origin"] for citation in result["citations"]} == {"vector", "graph"}
+
+    def test_all_explicit_degradation_modes_are_deterministic(self, temporal_fixture):
+        payload, context = temporal_fixture
+        vector_up = {"degradation": {"available": True}}
+        vector_down = {"degradation": {"available": False, "reason": "vector_error"}}
+        graph_up = {"degradation": {"available": True}}
+        graph_down = {"degradation": {"available": False, "reason": "graph_error"}}
+        modes = {
+            hybrid_rag._hybrid_response(query="q", entity="NVDA", fusion="rrf",
+                context=context, results=[], vector=vector_up, graph=graph_down
+            )["degradation"]["mode"],
+            hybrid_rag._hybrid_response(query="q", entity="NVDA", fusion="rrf",
+                context=context, results=[], vector=vector_down, graph=graph_up
+            )["degradation"]["mode"],
+            hybrid_rag._hybrid_response(query="q", entity="NVDA", fusion="rrf",
+                context=context, results=[], vector=vector_up, graph=graph_up
+            )["degradation"]["mode"],
+            hybrid_rag._hybrid_response(query="q", entity="NVDA", fusion="rrf",
+                context=context, results=[], vector=vector_down, graph=graph_down
+            )["degradation"]["mode"],
+        }
+        assert modes == set(payload["expected_modes"])
+
+    def test_fixture_covers_future_unknown_version_ticker_and_quarantine(self, temporal_fixture):
+        payload, _ = temporal_fixture
+        reasons = {item["reason"] for item in payload["ineligible_counterexamples"]}
+        assert reasons == {
+            "future_published", "future_retrieved", "unknown_published",
+            "unknown_retrieved", "unknown_effective_from", "wrong_dataset",
+            "unknown_materialized_at", "wrong_ticker", "quarantined",
+        }
+
+
+class TestRedactedTracingAndLifecycle:
+    def test_vector_graph_rrf_hybrid_metadata_matches_active_attempt_without_raw_capture(
+        self, temporal_fixture
+    ):
+        _, context = temporal_fixture
+        sentinel = "SECRET_TOKEN RAW_QUERY https://private.test/attempt-two"
+        expected = {
+            "stage": "04A",
+            "stage_revision": 1,
+            "attempt": 2,
+            "agent": "data_rag",
+        }
+
+        vector = hybrid_rag._trace_inputs("vector")({
+            "query": sentinel, "context": context, "raw_backend_payload": sentinel,
+        })
+        graph = hybrid_rag._trace_outputs("graph")({
+            "context": context.to_dict(),
+            "nodes": [{"evidence_id": "evidence-1", "chunk_text": sentinel}],
+            "citations": [{"url": sentinel}],
+            "error": sentinel,
+        })
+        rrf_hybrid = hybrid_rag._hybrid_response(
+            query=sentinel,
+            entity=context.ticker,
+            fusion="rrf",
+            context=context,
+            results=[],
+            vector={
+                "results": [], "citations": [],
+                "degradation": {"available": True, "degraded": False},
+                "telemetry": {"latency_ms": 1.0},
+            },
+            graph={
+                "nodes": [], "citations": [],
+                "degradation": {"available": True, "degraded": False},
+                "telemetry": {"latency_ms": 1.0},
+            },
+            fusion_latency_ms=1.0,
+        )
+        hybrid = hybrid_rag._trace_outputs("hybrid")(rrf_hybrid)
+
+        for metadata in (
+            vector["metadata"], graph["metadata"],
+            rrf_hybrid["telemetry"], hybrid["metadata"],
+        ):
+            assert {key: metadata[key] for key in expected} == expected
+        encoded = json.dumps(
+            {"vector": vector, "graph": graph, "rrf": rrf_hybrid["telemetry"],
+             "hybrid": hybrid},
+            sort_keys=True,
+        )
+        assert sentinel not in encoded
+        assert "RAW_QUERY" not in encoded
+        assert "private.test" not in encoded
+
+    def test_trace_input_processor_never_serializes_query_headers_or_secret(
+        self, temporal_fixture
+    ):
+        _, context = temporal_fixture
+        sentinel = "SECRET_TOKEN RAW_QUERY https://private.test/input"
+        processed = hybrid_rag._trace_inputs("vector")({
+            "query": sentinel,
+            "context": context,
+            "headers": {"Authorization": sentinel},
+            "raw_backend_payload": sentinel,
+        })
+        encoded = json.dumps(processed, sort_keys=True)
+        assert sentinel not in encoded
+        assert "RAW_QUERY" not in encoded
+        assert "private.test" not in encoded
+        assert processed["metadata"]["stage"] == "04A"
+        assert processed["metadata"]["dataset_version"] == context.dataset_version
+
+    def test_trace_output_processor_is_count_only_and_redacts_all_payloads(
+        self, temporal_fixture
+    ):
+        _, context = temporal_fixture
+        sentinel = "SECRET_TOKEN RAW_EVIDENCE https://private.test/output"
+        output = {
+            "context": context.to_dict(),
+            "results": [{
+                "chunk_text": sentinel,
+                "evidence_id": "evidence-1",
+                "url": sentinel,
+            }],
+            "citations": [{"url": sentinel, "title": sentinel}],
+            "error": sentinel,
+            "error_code": "VECTOR_RETRIEVAL_FAILED",
+            "degradation": {"degraded": True, "available": False},
+            "telemetry": {"latency_ms": 1.25},
+        }
+        processed = hybrid_rag._trace_outputs("vector")(output)
+        encoded = json.dumps(processed, sort_keys=True)
+        assert sentinel not in encoded
+        assert "RAW_EVIDENCE" not in encoded
+        assert "private.test" not in encoded
+        assert processed["result_count"] == 1
+        assert processed["evidence_count"] == 1
+        assert processed["citation_count"] == 1
+        assert processed["error_code"] == "VECTOR_RETRIEVAL_FAILED"
+        assert processed["latency_ms"] == 1.25
+
+    @pytest.mark.asyncio
+    async def test_vector_exception_result_and_log_use_only_stable_code(self, caplog):
+        sentinel = "SECRET_TOKEN RAW_EVIDENCE https://private.test/vector"
+        retriever = MagicMock()
+        retriever.retrieve_raw.side_effect = RuntimeError(sentinel)
+        with patch.object(hybrid_rag, "_retriever", retriever):
+            result = await rag_vector_search("RAW_QUERY_SENTINEL")
+        assert result["error_code"] == "VECTOR_RETRIEVAL_FAILED"
+        assert sentinel not in json.dumps(result)
+        assert "SECRET_TOKEN" not in caplog.text
+        assert "private.test" not in caplog.text
+        assert result["telemetry"]["latency_ms"] >= 0
+        assert result["telemetry"]["result_count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_graph_exception_result_and_log_use_only_stable_code(self, caplog):
+        sentinel = "SECRET_TOKEN RAW_EVIDENCE https://private.test/graph"
+        driver = MagicMock()
+        driver.session.side_effect = RuntimeError(sentinel)
+        with patch("rag.hybrid_rag._get_neo4j", return_value=driver):
+            result = await rag_graph_traverse("NVDA")
+        assert result["error_code"] == "GRAPH_TRAVERSAL_FAILED"
+        assert sentinel not in json.dumps(result)
+        assert "SECRET_TOKEN" not in caplog.text
+        assert "private.test" not in caplog.text
+        assert result["telemetry"]["latency_ms"] >= 0
+
+    @pytest.mark.asyncio
+    async def test_hybrid_reports_branch_fusion_rrf_and_overall_latency(
+        self, temporal_fixture
+    ):
+        _, context = temporal_fixture
+        vector = {
+            "results": [], "citations": [],
+            "degradation": {"available": True, "degraded": False},
+            "telemetry": {"latency_ms": 2.0},
+        }
+        graph = {
+            "nodes": [], "citations": [],
+            "degradation": {"available": True, "degraded": False},
+            "telemetry": {"latency_ms": 3.0},
+        }
+        with patch("rag.hybrid_rag.rag_vector_search", AsyncMock(return_value=vector)), \
+             patch("rag.hybrid_rag.rag_graph_traverse", AsyncMock(return_value=graph)):
+            result = await rag_hybrid_query("RAW_QUERY_SENTINEL", context=context)
+        telemetry = result["telemetry"]
+        assert telemetry["vector_latency_ms"] == 2.0
+        assert telemetry["graph_latency_ms"] == 3.0
+        assert telemetry["rrf_latency_ms"] >= 0
+        assert telemetry["fusion_latency_ms"] >= 0
+        assert telemetry["hybrid_latency_ms"] >= 0
+        assert telemetry["result_count"] == 0
+        assert telemetry["citation_count"] == 0
+        assert telemetry["degradation_mode"] == "hybrid"

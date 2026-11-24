@@ -1,0 +1,202 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "sentiment",
+  "status": "IMPLEMENTED",
+  "execution_phase": "PRIMARY_FINAL",
+  "implementation_mode": "POINT_IN_TIME_SENTIMENT_AND_OBSERVABILITY_REMEDIATION",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-05-rev-1-handoff.json",
+  "dependency_handoff_sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+  "draft_ready_artifact": ".codex/handoffs/stage-06-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "291fd6a2ad5a23d787cc28ecad9e71c2cb9e91bbc516c6d232c8681867107329",
+  "observability_artifact": ".codex/handoffs/stage-06-rev-1-attempt-1-observability.json",
+  "observability_sha256": "0cca8a2b60e647c6ef9c722a26e048f20c5851735c2861678409e934bb3f36f3",
+  "change_request": ".codex/handoffs/change-request-stage-06-rev-1-attempt-1-1.json",
+  "change_request_sha256": "d42326c97203bd6f3952eec45fa5b2139fcb47e521034b8c7b9a69998d51c849",
+  "observability_status": "CHANGES_REQUESTED_AND_RESOLVED",
+  "implementation_md": ".codex/handoffs/stage-06-rev-1-attempt-1-implementation.md",
+  "implementation_md_sha256": "565d664a0bdc3ccb24c450ade0a2d69ba7ab7b2cbd89451b5b0b85ae2fd04bd5",
+  "changed_files": [
+    "tools/sentiment_tools/__init__.py",
+    "tools/sentiment_tools/finbert_analyzer.py",
+    "tools/sentiment_tools/vader_scorer.py",
+    "tools/sentiment_tools/fear_greed_calculator.py",
+    "tools/sentiment_tools/sentiment_server.py",
+    "agents/sentiment_agent.py",
+    "agents/executor_helpers/sentiment_helper.py",
+    "agents/prompts/promt_sentinemt.py",
+    "agents/prompts/prompt_sentiment.py",
+    "agents/prompts/__init__.py",
+    "tests/fixtures/stage6_sentiment_point_in_time.json",
+    "tests/unit_tests/sentiment_test/test_finbert_anayzer.py",
+    "tests/unit_tests/sentiment_test/test_sentiment_server.py",
+    "tests/unit_tests/sentiment_test/test_vader_scorer.py",
+    "tests/unit_tests/test_sentiment_phase4.py",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py",
+    ".codex/handoffs/stage-06-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-06-rev-1-attempt-1-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "OBS-06-001",
+      "status": "RESOLVED",
+      "resolution": "Task and retrieval query values and free-form MCP errors are excluded from logs, progress, stable extraction errors and persisted Shared State. Malformed model output is withheld rather than copied into the narrative."
+    },
+    {
+      "id": "OBS-06-002",
+      "status": "RESOLVED",
+      "resolution": "All eight Stage06 lifecycle boundaries emit measured non-negative latency with forecast/run/stage/version identity, semantic counts, outcome and missing/degraded flags through allowlisted lifecycle and forecast-progress contracts."
+    },
+    {
+      "id": "OBS-06-003",
+      "status": "RESOLVED",
+      "resolution": "The decorated MCP child boundary catches provider, transport and malformed-result exceptions internally and exposes only stable error codes, allowlisted error type, outcome and measured failure latency."
+    },
+    {
+      "id": "OBS-06-004",
+      "status": "RESOLVED",
+      "resolution": "FinBERT loads local-files-only at immutable revision 4556d13015211d73dccd3fdd39d39232506f3e43; VADER records SHA-256 0aabac74cd95def2dbedc04ce55e39698d91113ffadb6d86b87dd337c4d2184d of the installed lexicon bytes. Exact identities propagate into features and lifecycle metadata."
+    }
+  ],
+  "observability_contract": {
+    "lifecycle_boundaries": [
+      "whole_sentiment_run",
+      "brain_plan",
+      "point_in_time_retrieval",
+      "finbert_inference",
+      "vader_scoring",
+      "fear_greed_fusion",
+      "brain_analyze",
+      "feature_aggregation_and_pre_shared_state"
+    ],
+    "measured_boundary_count": 8,
+    "raw_query_or_error_text_remaining": 0,
+    "raw_mcp_exception_crosses_child_span": false,
+    "private_sentinel_persisted": false,
+    "semantic_result_counts": true,
+    "reference_only_shared_state": true
+  },
+  "model_provenance": {
+    "finbert": "ProsusAI/finbert@sha256-revision:4556d13015211d73dccd3fdd39d39232506f3e43:transformers-5.8.1",
+    "vader": "nltk-3.9.4:vader_lexicon:sha256-0aabac74cd95def2dbedc04ce55e39698d91113ffadb6d86b87dd337c4d2184d",
+    "fusion": "fear-greed-fusion-v1",
+    "network_downloads": false
+  },
+  "implementation_contract": {
+    "forecast_context_and_run_identity_required": true,
+    "windows_calendar_days": [7, 14, 30],
+    "future_evidence_rejected_before_scoring": true,
+    "missing_timestamp_is_not_neutral": true,
+    "canonical_deduplication": true,
+    "historical_current_fallback": false,
+    "compact_monthly_features": true,
+    "raw_evidence_in_shared_state": false,
+    "raw_reasoning_in_shared_state": false,
+    "old_prompt_runtime_references": 0
+  },
+  "source_sha256": {
+    "tools/sentiment_tools/__init__.py": "7817bc978548c8708bc7af74981c6aec0a88a3a9f4eb3893a23964ad308b87b3",
+    "tools/sentiment_tools/finbert_analyzer.py": "709ca7c7c8868e09c410e8ae3500f7055c9bccdae8d675011866b83de0c4dbab",
+    "tools/sentiment_tools/vader_scorer.py": "5273042f5dc45dfa20b248380bd227f02f54ee6c1ffeca4e95064619fdc0bd59",
+    "tools/sentiment_tools/fear_greed_calculator.py": "564077267886fa545541e0e1d0bd2bc6d72d5d78ce7b7ff47d953b2985868f1e",
+    "tools/sentiment_tools/sentiment_server.py": "ee04ec0e4df3b2a5fcc45ebd21c3b56f406d07fe55cc8bcbdf2723eeef8da390",
+    "agents/sentiment_agent.py": "70fcf8fe16141ab81c5928234b9bcb958ae88210ff7c21985ed6037dfe54ac77",
+    "agents/executor_helpers/sentiment_helper.py": "8b141e562b9b7e7e405968bb29aaab65e9e70d6c012f51c20b1500e1dcdf1fb7",
+    "agents/prompts/promt_sentinemt.py": "DELETED",
+    "agents/prompts/prompt_sentiment.py": "e38cad51346e7f166b9c3510d5b2395f08ed2f618e16b3ed9a155a2abae99e3d",
+    "agents/prompts/__init__.py": "5c0028a7db8353d29869dd12c1c0dae8b92bc163e95cca66a469735d699b5b92",
+    "tests/fixtures/stage6_sentiment_point_in_time.json": "bc34cf40b6b366c5989b37337baca3481fe13865ca315768aaf0149bf2194066",
+    "tests/unit_tests/sentiment_test/test_finbert_anayzer.py": "aa62a02c98e08abd2273a631df13b599d6ab72b43fe88644efb8d7e57de53a06",
+    "tests/unit_tests/sentiment_test/test_sentiment_server.py": "362457a60266c25e1828978c7505e0f56297f72474b52744520f198389ee9a84",
+    "tests/unit_tests/sentiment_test/test_vader_scorer.py": "f47962db16bb66768096c190da365d995505b3e27da23d703697fee36c8c1ac3",
+    "tests/unit_tests/test_sentiment_phase4.py": "2b472f5509a4a3a93c43e8e552fac7e1408beb8ce163113027f37184aa107bef",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py": "913ba797c0b3a13795d809674b1c086c942e8af26b86ada90e55fcc6e0f31830"
+  },
+  "final_self_tests": [
+    {
+      "command": "complete offline Stage06 suite",
+      "exit_code": 0,
+      "result": "164 passed, 5 deselected, 1 deprecation warning",
+      "network_mode": "OFFLINE_MOCKS_FIXTURES_AND_LOCAL_MODELS"
+    },
+    {
+      "command": "exact Stage06 privacy, lifecycle and provenance sentinels",
+      "exit_code": 0,
+      "result": "6 passed, 69 deselected"
+    },
+    {
+      "command": "full unit regression excluding live/slow/db",
+      "exit_code": 1,
+      "result": "1277 passed, 5 known out-of-scope failures in unmodified Manager and missing legacy root migration paths"
+    },
+    {
+      "command": "full pytest collection",
+      "exit_code": 0,
+      "result": "1282 tests collected; zero collection errors"
+    },
+    {
+      "command": "compile, scoped diff-check, privacy/prompt scan, SHA and control/lock validation",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only; CONTROL VALID"
+    }
+  ],
+  "self_tests_run": [
+    {"command": "Stage06 offline suite", "exit_code": 0, "result": "164 passed"},
+    {"command": "Observability sentinels", "exit_code": 0, "result": "6 passed"},
+    {"command": "Collection and static gates", "exit_code": 0, "result": "1282 collected; zero errors"}
+  ],
+  "known_out_of_scope_test_failures": [
+    {
+      "path": "tests/unit_tests/test_agents/test_manager_agent.py",
+      "count": 1,
+      "reason": "Unmodified Manager route/finalise mock response sequence."
+    },
+    {
+      "path": "tests/unit_tests/test_supabase_phase5_migration.py",
+      "count": 4,
+      "reason": "Missing legacy root supabase_phase5_provenance_migration.sql outside Stage06 ownership."
+    }
+  ],
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "database_reads": false,
+    "database_writes": false,
+    "legacy_data_deleted": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore pre-Stage06 Sentiment source/test bytes, reverse the prompt rename, and remove the Stage06 fixture and current-attempt artifacts.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_access": false,
+    "live_sentiment_provider_tests": "NOT_RUN",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage07_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "activated": false
+  },
+  "blocking_issues": [],
+  "limitations": [
+    "All Stage06 acceptance evidence is offline; live sentiment providers and external trace services were not contacted.",
+    "The full unit suite retains five known out-of-scope failures in unmodified paths.",
+    "Stage07 remains PENDING/NOT_STARTED."
+  ],
+  "implementation_ready": true,
+  "created_at": "2026-09-03T19:58:51.9301643Z"
+}

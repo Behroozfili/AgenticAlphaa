@@ -1,0 +1,225 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "reviewer",
+  "status": "REVIEW_APPROVED",
+  "review_status": "APPROVED",
+  "execution_phase": "REVIEW",
+  "control_revision": 179,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-10A-rev-1-attempt-3-review.json"
+  ],
+  "artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-3-draft-ready.json",
+      "sha256": "f2ab679571acd60a89de9e600b00b4e1b8e3811a8a58969b7ea0427c2bb25219",
+      "identity_valid": true,
+      "schema_valid": true,
+      "ready_for_observability": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-3-observability.json",
+      "sha256": "05e281d78aae8122aa2b8192c039e439ba889b5cc2749e51f0bd0ab13e03eb4f",
+      "identity_valid": true,
+      "schema_valid": true,
+      "status": "CHANGES_REQUESTED",
+      "requested_finding": "OBS-10A-A3-001",
+      "disposition": "RESOLVED_IN_PRIMARY_FINAL"
+    },
+    "change_request": {
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-3-1.json",
+      "sha256": "d3a162d334f4e95e17112e5e346a1cebf745cf056722c8e78966650f1c37a2fe",
+      "identity_valid": true,
+      "schema_valid": true,
+      "finding": "OBS-10A-A3-001",
+      "disposition": "RESOLVED_IN_PRIMARY_FINAL"
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-3-implementation.md",
+      "sha256": "6aca03576af980b1e64f16bd3d03b6f7efc54d51092e6a03aa8af4b524b11f0e"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-3-implementation.json",
+      "sha256": "72c392a8c5b472c104121db1ed5c7b09a8af198995e50c29d43b0ef909a68e6c",
+      "identity_valid": true,
+      "schema_valid": true,
+      "implementation_ready": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-3-qa.json",
+      "sha256": "256a53d77de97dd42c28406334632757706452f70cc8e8f2293927dc90e92b3f",
+      "identity_valid": true,
+      "schema_valid": true,
+      "qa_status": "PASS"
+    },
+    "dependency_handoffs": [
+      {
+        "stage": "09",
+        "path": ".codex/handoffs/stage-09-rev-1-handoff.json",
+        "sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+        "state_status": "CLOSED"
+      }
+    ]
+  },
+  "immutable_prior_attempt_artifacts": [
+    {"attempt": 1, "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-draft-ready.json", "sha256": "10cb19dd94d64f18ba1e88c86a1b5fa5116c83f3ba8c3424575fc096c17b1a06"},
+    {"attempt": 1, "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json", "sha256": "6952d6790995f426f5ace00dd323b2b96c317d7b35bd633cb74bc2b75816353c"},
+    {"attempt": 1, "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json", "sha256": "5293a8b273d7330ca11af9491cf9402a22a5a56ea630f8e1f5646805447a05f5"},
+    {"attempt": 1, "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-2.json", "sha256": "fa5a7f59fb8553138e72e691061fbb6418ad7abdd875b65d9424ddbdacca7895"},
+    {"attempt": 1, "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.md", "sha256": "2e8f4da71959373a0a70dae039ebcbc5c9072059ce4aaf91f9f7049cb4f4b72e"},
+    {"attempt": 1, "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.json", "sha256": "f30f3e154a2e8e977e1a97b44bb95f61b60c960873869d901f621f256cd63ae7"},
+    {"attempt": 1, "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-qa.json", "sha256": "5fcc4ebda0e6f3da92dd272270076c30857d5090b3c3a48e6062cd34b2fcd04e"},
+    {"attempt": 1, "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-review.json", "sha256": "d8f4a9bababc4232b41ad86173e27fafb51f9fffc739a8714018eb014529237c"},
+    {"attempt": 2, "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-draft-ready.json", "sha256": "9c6cd944b8858297b79f914580abd52cb9840a79b118610a67958861c96300c5"},
+    {"attempt": 2, "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-observability.json", "sha256": "56a491e16ba387a51f127e75996e94eb76471041dab85eaabf235de347aea3b1"},
+    {"attempt": 2, "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-implementation.md", "sha256": "5e78528df589e7a64b9e335c99ef523bc34d85350073f84c957a79295570fada"},
+    {"attempt": 2, "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-implementation.json", "sha256": "b69556d7481c27ca172028921cc8e239691bfd6aa570a86658cbfa8164b23ae6"},
+    {"attempt": 2, "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-qa.json", "sha256": "334707c81de099534339327330f4187277e429a51a245323a61668ac06352333"},
+    {"attempt": 2, "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-review.json", "sha256": "dffe9b9dca8a62ec440074dfa8024031188c413e0c93e82c4e60f3d018c60702"}
+  ],
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-10A-A3-NB-001",
+      "severity": "NON_BLOCKING",
+      "summary": "An earlier Attempt 2 Observability collection emitted an HF Hub unauthenticated-request warning; actual external contact was not verified.",
+      "assessment": "The historical observation remains explicitly UNVERIFIED, is not converted into a zero-contact claim, and is excluded from acceptance. Attempt 3 acceptance relies only on current forced-offline collection, socket-guarded tests, mocked clients and the independent 32-case zero-call matrix."
+    },
+    {
+      "id": "OBS-10A-004",
+      "severity": "NON_BLOCKING",
+      "summary": "The optional seed.command.selected local event remains unimplemented.",
+      "assessment": "Normal startup performs no seeding, and seed-rag remains the only explicit seed command. The event is optional and its absence does not weaken the Stage 10A runtime or safety contract."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [],
+  "review_blockers": [],
+  "resolved_findings": [
+    {
+      "id": "REVIEW-10A-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "External Sentry and LangSmith remain fail-closed even with full flags and credentials because the API boundary always invokes the disabled initializers. The 32-case reviewer run observed zero SDK init/capture, LangSmith Client and socket calls; local allowlisted lifecycle telemetry remained available and nonfatal."
+    },
+    {
+      "id": "REVIEW-10A-002",
+      "status": "PASS_RESOLVED",
+      "evidence": "api/routes/analyze.py resolves request.app.state.manager_agent exactly before the exception boundary and forwards any nonempty execution_status unchanged. Its Attempt 3 hash is unchanged from Attempt 2. The authorized diff is limited to privacy-safe logging, stable error codes and redacted persistence values while preserving request/response schemas, Manager.run arguments, result mapping, the 14-key persistence structure and progress/session behavior."
+    },
+    {
+      "id": "REVIEW-10A-A2-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "api.main._configure_optional_observability now invokes both fail-closed initializers for every Settings combination. All 32 default, incomplete and full hostile combinations cleared stale local flags, forced both tracing environment values false, removed LANGCHAIN_API_KEY, made tracing_is_enabled false and made zero external calls."
+    },
+    {
+      "id": "OBS-10A-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "Startup, shutdown, request, Manager factory and Manager memory lifecycle boundaries emit allowlisted local events."
+    },
+    {
+      "id": "OBS-10A-002",
+      "status": "PASS_RESOLVED",
+      "evidence": "Events use opaque per-request correlation, finite nonnegative monotonic latency and exact immutable runtime identity 10A/r1/a3/core without raw request, Manager state, exception, secret or evidence payloads."
+    },
+    {
+      "id": "OBS-10A-003",
+      "status": "PASS_RESOLVED",
+      "evidence": "Initializer and injected local-sink failures are isolated and cannot fail startup/request work or expose private exception text."
+    },
+    {
+      "id": "OBS-10A-A3-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "All direct assertions and emitted events use attempt 3 and implementation_version stage10a-r1-a3; no stale Attempt 1 or Attempt 2 runtime identity remains."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_ownership": "PASS: official control and Git-lock validation are valid at control_revision 179. Attempt 3 work is confined to the explicitly authorized API runtime cleanup, direct Core tests, Observability identity/tests and workflow artifacts. No test was deleted or weakened and no downstream Stage 10B path was activated or modified.",
+    "artifact_integrity": "PASS: the exact 10A/r1/a3 draft-ready, observability, change-request, implementation MD/JSON and matching QA PASS artifacts exist and validate. All 20 recorded source/test/MD hashes match, all 14 Attempt 1/2 artifacts retain their recorded hashes, and the review supersedes Attempt 2 without overwriting it.",
+    "dependency_and_downstream": "PASS: Stage 09 is CLOSED and its accepted handoff hash matches. Stage 10B remains PENDING/NOT_STARTED at revision 0 attempt 0.",
+    "temporal_safety": "PASS: canonical ForecastContext construction, distinct LIVE and HISTORICAL_BACKTEST dataset selection, strict UTC monthly-memory key parsing and safe temporal/data/version exception mapping remain enforced. Attempt 3 adds no current-data historical fallback, invalid-timestamp-to-now behavior or SEC acquisition change.",
+    "versioning_and_reproducibility": "PASS: runtime/schema/dataset/feature/model/backtest identities remain explicit, LIVE and HISTORICAL dataset identities are distinct, and local runtime telemetry is exactly 10A/r1/a3/core with implementation_version stage10a-r1-a3.",
+    "financial_and_numeric_integrity": "PASS: no Financial, DCF/WACC, nine-intent mapper, forecast model, action policy or deterministic Quant path changed. DCF remains valuation context and is not represented as the 21-trading-session forecast.",
+    "request_and_memory_isolation": "PASS: application state retains a frozen stateless ManagerAgentFactory compatibility alias, not a mutable Manager singleton. Each invocation creates fresh ManagerMemory and Manager instances. Monthly memory identity is exactly ticker, UTC as_of, horizon, analysis_mode and schema_version and never merges with legacy ticker memory.",
+    "api_lifecycle_and_route": "PASS: FastAPI lifecycle and health/readiness/analyze/progress skeletons remain intact. The analyze route preserves exact pre-exception app-state Manager resolution and unnormalized status pass-through; its only accepted changes are privacy/observability sanitation and do not alter schemas, business routing, result mapping, persistence key structure, progress behavior or Stage 10B behavior.",
+    "observability_and_data_hygiene": "PASS: Sentry/LangSmith are effectively disabled at every gate combination while unaudited legacy trace/capture paths remain. Local lifecycle telemetry is payload-safe, allowlisted, opaque-correlated, finite-latency and failing-sink tolerant; no CoT, brain_reasoning, raw chunks, full filings, secrets, request query, Manager state or raw exception reaches telemetry or persistence.",
+    "startup_and_seed": "PASS: ordinary startup never seeds. seed-rag is an explicit command only and accepted tests mock it; no real seed was executed.",
+    "regression": "PASS: Reviewer independently ran all ten focused Stage 10A modules forced-offline with 246 passed and separately ran the 22 analyze-route tests. Matching QA also reports 140 Stage 01/08/09 regressions passed and 1478 tests collected with zero errors under forced-offline settings.",
+    "operational_safety": "PASS: rollback is documented and requires no data mutation. No network/provider/exporter/database operation, migration, seed, dependency change, deletion, deployment, commit or push was performed by Review or reported in accepted Attempt 3 evidence.",
+    "contract_integrity": "PASS: Stage 10A preserves the canonical monthly horizon, modes, version identities, memory natural key and upstream Stage 09 contract while leaving persistence/progress/UI/E2E responsibilities to inactive Stage 10B."
+  },
+  "tests_and_checks": [
+    {
+      "command": "Official control, lock and Attempt 3 artifact validation",
+      "result": "PASS: CONTROL VALID at control_revision 179; draft-ready, observability, change-request, implementation and QA artifacts satisfy artifact.schema.json and exact 10A/r1/a3 identity."
+    },
+    {
+      "command": "Independent SHA-256 reconciliation",
+      "result": "PASS: 16 implementation-recorded source/test/MD paths plus four Observability-owned paths match; all 14 Attempt 1/2 artifacts are immutable; Stage 09 dependency and current chain hashes match; zero mismatches."
+    },
+    {
+      "command": "Forced-offline Reviewer run of tests/unit_tests/test_stage10a_observability.py::test_api_hostile_legacy_environment_matrix_always_disables_exporters",
+      "result": "PASS: one parameter-product test exercised all 32 hostile flag/credential combinations; stale flags and credential export environment were cleared, tracing_is_enabled was false, runtime identity was 10A/r1/a3/core, local telemetry remained safe, and SDK init/capture, LangSmith Client and socket calls were zero."
+    },
+    {
+      "command": "Forced-offline Reviewer run of ten exact Stage 10A focused modules",
+      "result": "PASS: 246 passed in 83.74 seconds with external tracing disabled."
+    },
+    {
+      "command": "Forced-offline Reviewer run of tests/unit_tests/api_test/test_analyze_cor_api.py",
+      "result": "PASS: 22 passed in 6.51 seconds; exact app-state Manager resolution, custom status pass-through, schemas, mapping, persistence key set, progress compatibility and privacy behavior are covered."
+    },
+    {
+      "command": "Independent source and route diff audit",
+      "result": "PASS: unconditional fail-closed cleanup is present; runtime identity is exactly Attempt 3; analyze.py retains request.app.state.manager_agent before try and unnormalized nonempty execution_status, with only authorized privacy sanitation in its base diff."
+    },
+    {
+      "command": "Matching QA broad evidence not rerun by Reviewer",
+      "result": "PASS: QA reports 140 prior-stage regressions passed and 1478 forced-offline collected tests with zero errors; the historical Attempt 2 HF warning is explicitly UNVERIFIED and excluded from this acceptance."
+    }
+  ],
+  "source_integrity": {
+    "implementation_source_hashes_checked": 16,
+    "observability_owned_hashes_checked": 4,
+    "current_source_hash_mismatches": 0,
+    "prior_attempt_artifacts_checked": 14,
+    "prior_attempt_artifact_hash_mismatches": 0,
+    "current_chain_hash_mismatches": 0,
+    "dependency_handoff_hash_mismatches": 0,
+    "all_changed_paths_locked_to_correct_owner": true,
+    "runtime_identity": "10A/r1/a3/core",
+    "implementation_version": "stage10a-r1-a3"
+  },
+  "operational_evidence_note": {
+    "historical_attempt2_hf_warning": "UNVERIFIED actual contact and excluded from acceptance",
+    "current_acceptance_mode": "FORCED_OFFLINE_SOCKET_GUARDS_AND_LOCAL_MOCKS",
+    "global_zero_contact_claim_for_earlier_process": false
+  },
+  "external_execution": {
+    "network_access_by_review": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "dependency_changes": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "stage10b_work": "NOT_RUN"
+  },
+  "downstream_gate": {
+    "stage10a_closure": "ELIGIBLE_FOR_ORCHESTRATOR_CLOSE",
+    "recommended_next_action": "Orchestrator should accept Attempt 3, write the revision handoff and close Stage 10A. Stage 10B must remain inactive until that close transition is complete.",
+    "stage10b_status": "PENDING",
+    "stage10b_phase": "NOT_STARTED",
+    "stage10b_activation": "FORBIDDEN_UNTIL_STAGE10A_CLOSED"
+  },
+  "supersedes": ".codex/handoffs/stage-10A-rev-1-attempt-2-review.json",
+  "created_at": "2026-09-13T22:50:43.2702158Z"
+}

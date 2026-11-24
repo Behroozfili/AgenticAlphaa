@@ -1,0 +1,91 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "CHANGES_REQUESTED",
+  "target_agent": "sentiment",
+  "requested_paths": [
+    "agents/sentiment_agent.py",
+    "agents/executor_helpers/sentiment_helper.py",
+    "tools/sentiment_tools/__init__.py",
+    "tools/sentiment_tools/finbert_analyzer.py",
+    "tools/sentiment_tools/vader_scorer.py",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py",
+    "tests/unit_tests/test_sentiment_phase4.py",
+    "tests/unit_tests/sentiment_test/test_finbert_anayzer.py",
+    "tests/unit_tests/sentiment_test/test_vader_scorer.py"
+  ],
+  "reason": "The Stage 06 draft has blocking observability and provenance gaps: private task/retrieval queries are emitted to logs and progress; forecast progress lacks run/context/version identity, semantic counts, degraded flags and measured latency; the traced MCP child call can record an unsanitized exception before the outer handler converts it to a stable code; and model provenance is not immutable because FinBERT records the mutable revision 'main' while VADER records only a package/resource label. Exact offline privacy, latency and immutable-version sentinels are also absent.",
+  "blocking": true,
+  "requested_changes": [
+    {
+      "id": "OBS-06-001",
+      "blocking": true,
+      "requested_paths": [
+        "agents/sentiment_agent.py",
+        "tests/unit_tests/test_agents/test_sentiments_agent.py"
+      ],
+      "request": "Remove task_query and retrieval_query values from logs and progress details at the run, plan and retrieval call sites. Do not propagate an MCP payload's free-form error text into logs, progress or persisted extraction errors; use fixed error codes and an allowlisted tool name. Add caplog/progress tests with PRIVATE_SENTINEL in task_query, retrieval_query and MCP error text and prove the sentinel is absent while fixed operation/outcome metadata remains."
+    },
+    {
+      "id": "OBS-06-002",
+      "blocking": true,
+      "requested_paths": [
+        "agents/sentiment_agent.py",
+        "tests/unit_tests/test_agents/test_sentiments_agent.py"
+      ],
+      "request": "Use the existing forecast-safe progress/metadata contract for Stage 06 lifecycle events. Emit only fixed event/message labels plus run_id, ticker, as_of, target, horizon, analysis_mode, dataset/feature/model/schema versions, stage=06, stage_revision=1, attempt=1 and agent=sentiment. Measure monotonic non-negative latency where execution occurs for whole run, planning, retrieval, FinBERT, VADER, fusion and feature aggregation/pre-State; add semantic evidence/result counts and missing/degraded flags when known. The current MCP result_count is the TextContent wrapper count and must not be presented as evidence count. Add an offline lifecycle-matrix test proving every emitted latency is measured, finite and non-negative and every event remains payload-free."
+    },
+    {
+      "id": "OBS-06-003",
+      "blocking": true,
+      "requested_paths": [
+        "agents/sentiment_agent.py",
+        "tests/unit_tests/test_agents/test_sentiments_agent.py"
+      ],
+      "request": "Sanitize failures inside the decorated sentiment.mcp_dispatch boundary so LangSmith never observes the original provider/MCP exception or its message. Preserve only a stable error_code, allowlisted tool, error_type, outcome and measured failure latency. Add a mocked processor/span sentinel whose exception includes PRIVATE_SENTINEL and prove the marker is absent from trace processors, logs, progress, Sentry and Shared State."
+    },
+    {
+      "id": "OBS-06-004",
+      "blocking": true,
+      "requested_paths": [
+        "tools/sentiment_tools/__init__.py",
+        "tools/sentiment_tools/finbert_analyzer.py",
+        "tools/sentiment_tools/vader_scorer.py",
+        "agents/executor_helpers/sentiment_helper.py",
+        "tests/unit_tests/sentiment_test/test_finbert_anayzer.py",
+        "tests/unit_tests/sentiment_test/test_vader_scorer.py",
+        "tests/unit_tests/test_sentiment_phase4.py"
+      ],
+      "request": "Replace mutable FinBERT provenance based on ProsusAI/finbert@main with a locally resolved immutable revision/content identity and record a deterministic VADER lexicon content/version identity rather than only the NLTK package version and resource name. Keep local-files-only/no-download behavior. Propagate the exact identities into MonthlySentimentFeatures and safe final lifecycle metadata, with deterministic offline tests showing the same local artifacts yield the same identities and no network call occurs."
+    }
+  ],
+  "evidence": [
+    "agents/sentiment_agent.py:265-270 logs and publishes the generated retrieval query.",
+    "agents/sentiment_agent.py:481-482 logs the retrieval query, and lines 785-788 log the complete task_query.",
+    "agents/sentiment_agent.py:434-443 copies free-form MCP error text into internal errors, logs and progress.",
+    "agents/sentiment_agent.py has five legacy _publish_progress call sites and no publish_forecast call; those events omit run_id, ForecastContext versions and measured latency.",
+    "agents/sentiment_agent.py:120-131 measures only successful MCP dispatch latency; session.call_tool exceptions leave the decorated child boundary unsanitized and emit no failure latency.",
+    "agents/sentiment_agent.py:128-130 records the count of MCP TextContent wrappers, not semantic evidence/result count.",
+    "tools/sentiment_tools/finbert_analyzer.py:30-31 identifies the model with mutable revision main.",
+    "tools/sentiment_tools/vader_scorer.py:12 identifies only NLTK package version plus vader_lexicon name and not the installed lexicon bytes.",
+    "No PRIVATE_SENTINEL, publish_forecast or latency contract assertions exist in the locked Stage 06 tests."
+  ],
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "created_at": "2026-09-03T13:32:54.128Z"
+}

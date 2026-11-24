@@ -1,0 +1,125 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "04B",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "reviewer",
+  "status": "REVIEW_REJECTED",
+  "review_status": "REJECTED",
+  "execution_phase": "REVIEW",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-draft-ready.json",
+      "sha256": "0d159dc3bad94068a22f8a7ec0b0e93dcb89f9e05fed60fcdfafeef6106b7ce3",
+      "identity_valid": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-observability.json",
+      "sha256": "ef761d3048f2dfff4ece394f0caddf0be369136ff82d82380b06f0d57e48aff9",
+      "identity_valid": true,
+      "status": "AUDITED"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-implementation.json",
+      "sha256": "89b600a3425fd394ab704ba3d64711623561319d4b01e3abae207e2869f1bf0d",
+      "identity_valid": true,
+      "recorded_source_hashes_valid": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-qa.json",
+      "sha256": "fd65241e6be8f07738b47dec9de78c5e3390f963862f2df3ead91d2ec0f5f2cf",
+      "identity_valid": true,
+      "qa_status": "PASS"
+    }
+  },
+  "blocking_findings": [
+    {
+      "id": "REVIEW-04B-001",
+      "category": "OBSERVABILITY_PROVENANCE",
+      "summary": "Runtime Stage 04B trace and lifecycle metadata identifies Attempt 1 while the reviewed and potentially accepted implementation chain is Attempt 2.",
+      "evidence": [
+        "agents/research_agent.py defines _TRACE_IDENTITY with attempt=1 and _trace_identity_from_state also calls forecast_trace_metadata with attempt=1.",
+        "tools/research_tools/__init__.py compact_lifecycle calls forecast_trace_metadata with attempt=1, so provider, SEC, Vector, Graph, Hybrid, comprehensive-analysis and leakage-gate lifecycle records are misattributed.",
+        "tools/research_tools/context_synthesizer.py uses attempt=1 in synthesis trace inputs, decorator metadata and compact lifecycle output.",
+        "The control plane is ACTIVE at Stage 04B revision 1 attempt 2 in REVIEW, and control-plane.md requires Observability, Primary final, QA and Reviewer evidence for the same stage/revision/attempt. The mismatch makes accepted-attempt operational provenance false even though the product bytes originated in Attempt 1 and were revalidated in Attempt 2."
+      ],
+      "impact": "Telemetry cannot be reliably joined to the accepted Stage 04B attempt and would incorrectly attribute future production research executions to the failed Attempt 1 evidence chain.",
+      "required_rework": "In a new attempt, make the Stage 04B trace/lifecycle identity derive from one explicit versioned implementation identity whose attempt matches the attempt eligible for acceptance; update privacy-safe observability tests to assert stage=04B, stage_revision=1 and the current accepted-candidate attempt across agent, synthesis, provider and leakage-gate metadata. Re-run the full same-attempt Primary -> Observability -> Primary final -> QA -> Review chain."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-04B-NB-001",
+      "summary": "The disclosed Attempt 1 legacy live probe remains a retained non-write safety incident and is not acceptance evidence.",
+      "assessment": "No external writes, database mutation, migration, seed, deploy, commit or push were found; Attempt 2 and this review did not rerun it. Retain it in the eventual handoff as a limitation."
+    },
+    {
+      "id": "REVIEW-04B-NB-002",
+      "summary": "Live-provider behavior was not verified.",
+      "assessment": "Historical and provider boundaries are supported by deterministic offline fixtures and mocks. No live/provider test should be run without separate authorization."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    "Resolve REVIEW-04B-001 without weakening allowlisted trace processors, privacy-safe stable error behavior, point-in-time gates or reference-only Shared State.",
+    "Preserve immutable Attempt 1 and Attempt 2 artifacts and increment the retry attempt rather than overwriting evidence.",
+    "Keep Stage 05 PENDING/NOT_STARTED until Stage 04B has a matching approved attempt and explicit downstream activation."
+  ],
+  "review_blockers": [
+    "The accepted-candidate attempt identity is not represented truthfully in Stage 04B runtime observability metadata."
+  ],
+  "contract_audit": {
+    "scope_and_locks": "PASS: all Stage 04B changed source/test/artifact paths inspected have exact owners; the Attempt 2 review path is locked to reviewer; no Stage 05 path was activated.",
+    "artifact_integrity": "PASS: same-attempt draft-ready, observability, implementation and QA identities/hashes match; QA is PASS; all 20 recorded source/test hashes match; all five recorded Attempt 1 artifact hashes remain immutable.",
+    "forecast_context_and_run_identity": "PASS: schemas, direct dispatcher routes, executor injection, agent and provider entry points require validated ForecastContext/run_id; missing identity fails before provider invocation.",
+    "temporal_safety": "PASS: historical Tavily/News/SEC execution admits retained allowlisted records only and fails closed without an archive; current web is not substituted; SEC filed_at is bounded by as_of; future and unknown timestamps are rejected before synthesis and again before Shared State.",
+    "citation_and_feature_integrity": "PASS: evidence identity is deterministic and dataset-version-sensitive; normalized evidence retains citation and dataset version; synthesis dedupes eligible evidence; Shared State stores compact ResearchFeatures and citation/evidence references rather than payloads.",
+    "vector_graph_hybrid": "PASS: vector-only, graph-only and hybrid coverage/degradation behavior is explicitly exercised and the prior Graph/RAG regression evidence is 333 passed.",
+    "prompt_rename": "PASS: prompt_research_agent.py is the runtime import/export and the old propt_search_agent Python reference scan is zero.",
+    "privacy": "PASS apart from the provenance blocker: OBS-04B-001 through OBS-04B-004 privacy properties remain resolved; no raw query, plan, arguments, exception text, URL, evidence, citation, synthesis or rejection payload was found on the audited trace/log/progress/Sentry/Shared-State surfaces.",
+    "financial_and_numeric_regression": "PASS_BY_SCOPE: no Financial, DCF/WACC, nine-intent mapper, Quant forecast-source, backtest, action-policy or Manager-singleton path is part of the Stage 04B Attempt 2 change set; prior Graph/RAG regression and collection gates pass.",
+    "operational_safety": "PASS: rollback is documented; no migration was applied and no external/database write, deletion, seed, deploy, commit or push was performed; Stage 05 is PENDING/NOT_STARTED.",
+    "observability_provenance": "FAIL: trace and lifecycle metadata is hard-coded to Attempt 1 instead of the reviewed Attempt 2 chain."
+  },
+  "tests_and_checks": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact draft-ready --artifact observability --artifact implementation --artifact qa",
+      "result": "PASS: CONTROL VALID"
+    },
+    {
+      "command": "independent SHA-256 verification of 20 implementation source_sha256 paths and five immutable Attempt 1 artifacts",
+      "result": "PASS: 20/20 current paths and 5/5 prior artifacts match"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_search_executor_helpers.py tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/search_test/test_tavily_search.py tests/unit_tests/search_test/test_news_search.py tests/unit_tests/search_test/test_search_sec_edgar.py tests/unit_tests/search_test/test_search_server.py -q",
+      "result": "PASS: 119 passed in 37.16s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "independent source and contract audit plus QA evidence assessment",
+      "result": "QA evidence accepted for search 66 passed, Graph/RAG 333 passed, collection 1311 with zero errors, compile/diff/privacy PASS; review verdict remains REJECTED solely for REVIEW-04B-001"
+    }
+  ],
+  "operational_incident_retained": {
+    "type": "ACCIDENTAL_READ_ONLY_LEGACY_LIVE_TEST",
+    "disclosed_reads": ["News", "SEC"],
+    "stopped_immediately": true,
+    "external_writes": false,
+    "attempt2_rerun": false,
+    "review_rerun": false,
+    "rerun_forbidden": true,
+    "used_as_acceptance_evidence": false
+  },
+  "stage05_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "supersedes": null,
+  "created_at": "2026-09-01T14:30:00.0000000Z"
+}

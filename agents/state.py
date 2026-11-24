@@ -4,8 +4,10 @@
 
 from __future__ import annotations
 
+import math
 import operator
-from typing import Annotated, Any, Union
+from collections.abc import Mapping
+from typing import Annotated, Any, TypeAlias, Union
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -41,11 +43,154 @@ class TypedClaim(TypedDict, total=False):
     validation_errors: list[str]
 
 
+class ForecastContextPayload(TypedDict):
+    """JSON-safe serialized ForecastContext stored in graph state."""
+    ticker: str
+    as_of: str
+    target: str
+    horizon_trading_days: int
+    lookback_days: int
+    benchmark: str
+    analysis_mode: str
+    cutoff_policy: str
+    schema_version: str
+    dataset_version: str
+    feature_version: str
+    model_version: str
+    calendar_version: str
+    label: str
+
+
+JSONScalar: TypeAlias = str | int | float | bool | None
+JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
+
+_MAX_FEATURE_DEPTH = 4
+_MAX_FEATURE_CONTAINER_ITEMS = 100
+_MAX_FEATURE_KEY_LENGTH = 128
+_MAX_FEATURE_TEXT_LENGTH = 4096
+
+
+def _materialize_json_value(
+    value: object,
+    *,
+    path: str,
+    depth: int,
+    active_containers: set[int],
+) -> JSONValue:
+    if depth > _MAX_FEATURE_DEPTH:
+        raise ValueError(f"{path} exceeds maximum JSON depth {_MAX_FEATURE_DEPTH}")
+    if value is None or isinstance(value, (str, bool, int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError(f"{path} must not contain NaN or infinity")
+        if isinstance(value, str) and len(value) > _MAX_FEATURE_TEXT_LENGTH:
+            raise ValueError(f"{path} text exceeds {_MAX_FEATURE_TEXT_LENGTH} characters")
+        return value
+    if isinstance(value, list):
+        identity = id(value)
+        if identity in active_containers:
+            raise ValueError(f"{path} contains a cycle")
+        if len(value) > _MAX_FEATURE_CONTAINER_ITEMS:
+            raise ValueError(f"{path} exceeds {_MAX_FEATURE_CONTAINER_ITEMS} items")
+        active_containers.add(identity)
+        try:
+            return [
+                _materialize_json_value(
+                    item,
+                    path=f"{path}[{index}]",
+                    depth=depth + 1,
+                    active_containers=active_containers,
+                )
+                for index, item in enumerate(value)
+            ]
+        finally:
+            active_containers.remove(identity)
+    if isinstance(value, Mapping):
+        identity = id(value)
+        if identity in active_containers:
+            raise ValueError(f"{path} contains a cycle")
+        if len(value) > _MAX_FEATURE_CONTAINER_ITEMS:
+            raise ValueError(f"{path} exceeds {_MAX_FEATURE_CONTAINER_ITEMS} items")
+        active_containers.add(identity)
+        try:
+            materialized: dict[str, JSONValue] = {}
+            for key, item in value.items():
+                if not isinstance(key, str) or not key or len(key) > _MAX_FEATURE_KEY_LENGTH:
+                    raise ValueError(f"{path} keys must be non-empty compact strings")
+                materialized[key] = _materialize_json_value(
+                    item,
+                    path=f"{path}.{key}",
+                    depth=depth + 1,
+                    active_containers=active_containers,
+                )
+            return materialized
+        finally:
+            active_containers.remove(identity)
+    raise TypeError(f"{path} contains non-JSON-safe {type(value).__name__}")
+
+
+def validate_forecast_feature_values(values: Mapping[str, JSONValue]) -> dict[str, JSONValue]:
+    """Validate and recursively materialize compact JSON-native feature values."""
+    if not isinstance(values, Mapping):
+        raise TypeError("feature values must be a mapping")
+    materialized = _materialize_json_value(
+        values,
+        path="values",
+        depth=0,
+        active_containers=set(),
+    )
+    if not isinstance(materialized, dict):  # Root is guaranteed by the Mapping check.
+        raise TypeError("feature values must materialize to a dictionary")
+    return materialized
+
+
+class ForecastFeatureSlot(TypedDict, total=False):
+    """Compact versioned feature payload; raw evidence stays out of State."""
+    version: str
+    values: dict[str, JSONValue]
+    evidence_ids: list[str]
+    missing: bool
+    degraded: bool
+    errors: list[str]
+
+
+class MonthlyForecastSlot(TypedDict, total=False):
+    status: str
+    ticker: str
+    as_of: str
+    target_date: str
+    horizon_trading_days: int
+    analysis_mode: str
+    cutoff_policy: str
+    benchmark: str
+    run_id: str
+    universe_manifest_hash: str | None
+    model_variant: str | None
+    feature_materialized_at: str | None
+    action: str
+    probability_positive: float | None
+    expected_return_21d: float | None
+    expected_excess_return: float | None
+    confidence_interval: list[float] | None
+    confidence: float | None
+    evidence_ids: list[str]
+    warnings: list[str]
+    missing: bool
+    degraded: bool
+    graph_coverage: bool | None
+    quality_gate_passed: bool
+    quality_gate_failures: list[str]
+    specialist_contributions: dict[str, JSONValue]
+    decision_drivers: list[dict[str, JSONValue]]
+    versions: dict[str, str | None]
+    narrative: str
+    implementation: dict[str, str | int]
+
+
 # ══════════════════════════════════════════════════════════════════
 # Level 1 — Public contract: Manager ↔ All Specialist Agents
 # ══════════════════════════════════════════════════════════════════
 
-class SharedManagerState(TypedDict, total=True):
+class _LegacySharedManagerState(TypedDict, total=True):
     
 
     task_query:                   str
@@ -56,6 +201,16 @@ class SharedManagerState(TypedDict, total=True):
     agent_execution_history:      list[dict[str, Any]]
     orchestrator_logs:            list[str]
     final_report:                 str
+
+
+class SharedManagerState(_LegacySharedManagerState, total=False):
+    """Legacy required state plus optional monthly-forecast migration slots."""
+    forecast_context: ForecastContextPayload
+    research_features: ForecastFeatureSlot
+    financial_features: ForecastFeatureSlot
+    sentiment_features: ForecastFeatureSlot
+    market_features: ForecastFeatureSlot
+    monthly_forecast: MonthlyForecastSlot
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -96,7 +251,7 @@ class FinancialAgentState(TypedDict):
     financial_sanity:    dict[str, Any]
 
 
-# ══════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════
 # Level 2 — Private memory: Sentiment Agent internal loop
 # ══════════════════════════════════════════════════════════════════
 

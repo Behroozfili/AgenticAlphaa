@@ -23,11 +23,13 @@ import logging
 from fastapi import APIRouter, Request
 from starlette.responses import StreamingResponse
 
+from api.routes.backtest import router as backtest_router
 from core.progress_bus import get_queue, close_session
 
 log = logging.getLogger("api.routes.progress")
 
 router = APIRouter()
+router.include_router(backtest_router)
 
 _HEARTBEAT_INTERVAL_S = 15  # keeps proxies/load balancers from closing an idle connection
 
@@ -59,7 +61,10 @@ async def stream_progress(session_id: str, request: Request):
                     yield ": heartbeat\n\n"
                     continue
                 yield f"data: {json.dumps(event)}\n\n"
-                if event["type"] in ("pipeline_complete", "pipeline_error"):
+                if event["type"] in (
+                    "pipeline_complete", "pipeline_error",
+                    "backtest_complete", "forecast_error",
+                ):
                     break
         except asyncio.CancelledError:
             log.info("SSE stream cancelled — session=%s", session_id)

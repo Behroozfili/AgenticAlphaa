@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "status": "CHANGES_REQUESTED",
+  "target_agent": "sentiment",
+  "requested_paths": [
+    "agents/executor_helpers/sentiment_helper.py",
+    "agents/sentiment_agent.py",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py"
+  ],
+  "reason": "Active Stage 06 revision 1 attempt 2 still emits attempt=1 and implementation_version=stage06-r1-a1 from the lifecycle and LangSmith trace paths. The preserved lifecycle sentinel also requires attempt 1. This makes Attempt 2 traces, progress metadata and lifecycle logs falsely identify themselves as the rejected Attempt 1 and violates the required current stage/revision/attempt provenance contract.",
+  "blocking": true,
+  "requested_changes": [
+    {
+      "id": "OBS-06-A2-001",
+      "blocking": true,
+      "owner": "sentiment",
+      "requested_paths": [
+        "agents/executor_helpers/sentiment_helper.py",
+        "agents/sentiment_agent.py",
+        "tests/unit_tests/test_agents/test_sentiments_agent.py"
+      ],
+      "request": "Advance the immutable runtime implementation identity to stage06-r1-a2 and emit attempt=2 from every sentiment lifecycle and trace metadata builder for this attempt. Prefer one exported Stage 06 implementation identity constant consumed by both helper and agent so version/attempt cannot diverge. Update the payload-free lifecycle sentinel and trace processor assertions to require attempt=2 and stage06-r1-a2 while preserving OBS-06-001 through OBS-06-004, all eight measured boundaries, stable errors and the no-private-payload guarantees. Do not rewrite any Attempt 1 artifact."
+    }
+  ],
+  "evidence": [
+    "agents/executor_helpers/sentiment_helper.py:25 defines SENTIMENT_IMPLEMENTATION_VERSION as stage06-r1-a1 during active Attempt 2.",
+    "agents/executor_helpers/sentiment_helper.py:90 emits attempt=1 from every sentiment_lifecycle_event.",
+    "agents/sentiment_agent.py:41-43 defines trace metadata with attempt=1 and stage06-r1-a1.",
+    "agents/sentiment_agent.py:101,119 and 161 pass attempt=1 into forecast trace metadata.",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py:747 explicitly asserts event attempt equals 1, so the suite passes while validating stale provenance.",
+    "Executable Attempt 2 probe emitted {attempt: 1, implementation_version: stage06-r1-a1, stage: 06} for a newly created whole_sentiment_run event."
+  ],
+  "preserve": [
+    "REVIEW-06-B-001 independently validated every present temporal field and future rejection",
+    "REVIEW-06-B-002 per-chunk filtering before canonical document grouping",
+    "REVIEW-06-B-003 unconditional MCP ForecastContext/run identity gate",
+    "OBS-06-001 payload-free logs/progress/error handling",
+    "OBS-06-002 eight measured versioned lifecycle boundaries",
+    "OBS-06-003 sanitized MCP failure child span",
+    "OBS-06-004 immutable local FinBERT and VADER provenance",
+    "compact reference-only Shared State"
+  ],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "created_at": "2026-09-03T20:32:13.6006923Z"
+}

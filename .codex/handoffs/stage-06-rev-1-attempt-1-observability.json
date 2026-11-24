@@ -1,0 +1,248 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    ".codex/handoffs/change-request-stage-06-rev-1-attempt-1-1.json",
+    ".codex/handoffs/stage-06-rev-1-attempt-1-observability.json"
+  ],
+  "requested_primary_changes": [
+    {
+      "id": "OBS-06-001",
+      "blocking": true,
+      "owner": "sentiment",
+      "requested_paths": [
+        "agents/sentiment_agent.py",
+        "tests/unit_tests/test_agents/test_sentiments_agent.py"
+      ],
+      "reason": "Private task/retrieval query text and untrusted free-form MCP error text can be persisted in logs and progress events.",
+      "change_request": ".codex/handoffs/change-request-stage-06-rev-1-attempt-1-1.json"
+    },
+    {
+      "id": "OBS-06-002",
+      "blocking": true,
+      "owner": "sentiment",
+      "requested_paths": [
+        "agents/sentiment_agent.py",
+        "tests/unit_tests/test_agents/test_sentiments_agent.py"
+      ],
+      "reason": "Stage 06 uses legacy progress events with no forecast/run/version identity or latency, and has no measured semantic lifecycle matrix beyond successful MCP round-trip latency.",
+      "change_request": ".codex/handoffs/change-request-stage-06-rev-1-attempt-1-1.json"
+    },
+    {
+      "id": "OBS-06-003",
+      "blocking": true,
+      "owner": "sentiment",
+      "requested_paths": [
+        "agents/sentiment_agent.py",
+        "tests/unit_tests/test_agents/test_sentiments_agent.py"
+      ],
+      "reason": "A failure raised by session.call_tool crosses the decorated child span before the outer handler replaces it with a stable code, so the raw exception may be recorded by LangSmith and failure latency is lost.",
+      "change_request": ".codex/handoffs/change-request-stage-06-rev-1-attempt-1-1.json"
+    },
+    {
+      "id": "OBS-06-004",
+      "blocking": true,
+      "owner": "sentiment",
+      "requested_paths": [
+        "tools/sentiment_tools/__init__.py",
+        "tools/sentiment_tools/finbert_analyzer.py",
+        "tools/sentiment_tools/vader_scorer.py",
+        "agents/executor_helpers/sentiment_helper.py",
+        "tests/unit_tests/sentiment_test/test_finbert_anayzer.py",
+        "tests/unit_tests/sentiment_test/test_vader_scorer.py",
+        "tests/unit_tests/test_sentiment_phase4.py"
+      ],
+      "reason": "FinBERT records the mutable branch main and VADER records no lexicon content identity, so the required exact model/lexicon provenance cannot be reconstructed from emitted metadata.",
+      "change_request": ".codex/handoffs/change-request-stage-06-rev-1-attempt-1-1.json"
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "All reachable Stage 06 LangSmith decorators define explicit input/output processors.",
+      "status": "PASS",
+      "evidence": "Five traceable call sites were found in agents/sentiment_agent.py: MCP dispatch, brain plan, brain analyze, executor and whole run. Each supplies process_inputs and process_outputs, and normal outputs are reduced to allowlisted identity/count/flag fields."
+    },
+    {
+      "check": "MCP failure spans cannot capture raw provider exceptions.",
+      "status": "FAIL",
+      "evidence": "_sentiment_call_tool awaits session.call_tool inside the decorated boundary without an inner failure sanitizer. The outer _call catches only after the child span has observed the original exception. OBS-06-003 is blocking."
+    },
+    {
+      "check": "Logs, progress and Sentry contain no raw evidence, private query text, credentials or free-form provider errors.",
+      "status": "FAIL",
+      "evidence": "Sentry server and agent paths use stable synthetic RuntimeError messages and do not capture raw evidence. However task_query is logged at agents/sentiment_agent.py:785-788; retrieval_query is logged/published at 265-270 and logged again at 481-482; free-form MCP payload error text is logged/published at 434-443. OBS-06-001 is blocking."
+    },
+    {
+      "check": "SharedManagerState persistence excludes brain_reasoning, raw chunks, duplicate source metadata and complete attempts.",
+      "status": "PASS",
+      "evidence": "The agent keeps working evidence only in private graph state, then commits compact_sentiment_summary plus MonthlySentimentFeatures.to_state_slot at lines 1014-1019. The allowlist omits brain_reasoning, attempts, retrieved_chunks and sources_metadata; the offline suite includes assertions for these exclusions."
+    },
+    {
+      "check": "Persisted feature evidence is reference-only and includes missing/degraded flags.",
+      "status": "PASS",
+      "evidence": "MonthlySentimentFeatures.to_state_slot stores aggregates, bounded counts, availability, compact evidence IDs, version fields, missing/degraded booleans and flags. No article text or full metadata is included."
+    },
+    {
+      "check": "Exact immutable sentiment model provenance is available for traces and reconstruction.",
+      "status": "FAIL",
+      "evidence": "FinBERT's model_version is ProsusAI/finbert@main plus transformers version; main is mutable. VADER records the NLTK version and vader_lexicon identifier but no resource content/version identity. OBS-06-004 is blocking."
+    },
+    {
+      "check": "No external provider, external trace service, database, migration, seed, deploy, commit or push was contacted or executed by Observability.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "FAIL_BLOCKING_SUCCESSFUL_MCP_ROUND_TRIP_ONLY_NO_VERSIONED_PROGRESS_OR_COMPLETE_STAGE06_LIFECYCLE_MATRIX",
+  "trace_metadata_audit": {
+    "required_fields": [
+      "run_id",
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent",
+      "latency_ms",
+      "evidence_count",
+      "degraded_flags"
+    ],
+    "traceable_call_sites": 5,
+    "traceable_sites_with_processors": 5,
+    "normal_trace_inputs_allowlisted": true,
+    "normal_trace_outputs_allowlisted": true,
+    "raw_mcp_result_in_normal_trace_output": false,
+    "raw_exception_can_cross_child_span": true,
+    "progress_call_sites": 5,
+    "progress_call_sites_using_forecast_contract": 0,
+    "progress_events_with_run_id_and_context": 0,
+    "observability_privacy_sentinels_present": false
+  },
+  "lifecycle_matrix": [
+    {
+      "boundary": "whole_sentiment_run",
+      "identity_status": "INPUT_TRACE_ONLY",
+      "latency_status": "MISSING",
+      "count_and_degraded_status": "OUTPUT_TRACE_ONLY"
+    },
+    {
+      "boundary": "brain_plan",
+      "identity_status": "INPUT_TRACE_ONLY",
+      "latency_status": "MISSING",
+      "count_and_degraded_status": "NOT_APPLICABLE"
+    },
+    {
+      "boundary": "point_in_time_retrieval",
+      "identity_status": "SUCCESSFUL_MCP_TRACE_ONLY",
+      "latency_status": "MEASURED_SUCCESS_ONLY",
+      "count_and_degraded_status": "WRAPPER_COUNT_NOT_EVIDENCE_COUNT"
+    },
+    {
+      "boundary": "finbert_inference",
+      "identity_status": "SUCCESSFUL_MCP_TRACE_ONLY",
+      "latency_status": "MEASURED_SUCCESS_ONLY",
+      "count_and_degraded_status": "WRAPPER_COUNT_NOT_ANALYZED_COUNT"
+    },
+    {
+      "boundary": "vader_scoring",
+      "identity_status": "SUCCESSFUL_MCP_TRACE_ONLY",
+      "latency_status": "MEASURED_SUCCESS_ONLY",
+      "count_and_degraded_status": "WRAPPER_COUNT_NOT_SCORED_COUNT"
+    },
+    {
+      "boundary": "fear_greed_fusion",
+      "identity_status": "SUCCESSFUL_MCP_TRACE_ONLY",
+      "latency_status": "MEASURED_SUCCESS_ONLY",
+      "count_and_degraded_status": "WRAPPER_COUNT_NOT_MODEL_COVERAGE"
+    },
+    {
+      "boundary": "brain_analyze",
+      "identity_status": "INPUT_TRACE_ONLY",
+      "latency_status": "MISSING",
+      "count_and_degraded_status": "MISSING"
+    },
+    {
+      "boundary": "feature_aggregation_and_pre_shared_state",
+      "identity_status": "RUN_INPUT_AND_COMPACT_STATE_ONLY",
+      "latency_status": "MISSING",
+      "count_and_degraded_status": "COMPACT_STATE_ONLY"
+    }
+  ],
+  "source_integrity": {
+    "draft_ready_artifact": ".codex/handoffs/stage-06-rev-1-attempt-1-draft-ready.json",
+    "draft_ready_sha256": "291fd6a2ad5a23d787cc28ecad9e71c2cb9e91bbc516c6d232c8681867107329",
+    "recorded_source_hash_count": 16,
+    "recorded_source_hash_match": "PASS_16_OF_16",
+    "dependency_handoff": ".codex/handoffs/stage-05-rev-1-handoff.json",
+    "dependency_handoff_sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+    "dependency_handoff_match": "PASS"
+  },
+  "tests_run": [
+    {
+      "command": "python -m pytest <all locked Stage06 sentiment unit and offline integration files> -q -m not-live/not-slow/not-db",
+      "exit_code": 0,
+      "result": "158 passed, 5 deselected, 1 deprecation warning in 17.60s",
+      "network_mode": "OFFLINE_MOCKS_FIXTURES_AND_LOCAL_MODELS"
+    },
+    {
+      "command": "SHA-256 verification of all 16 draft-recorded source/test paths and the Stage05 dependency handoff",
+      "exit_code": 0,
+      "result": "PASS_16_OF_16_CURRENT; DEPENDENCY_HANDOFF_MATCH"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact .codex/handoffs/stage-06-rev-1-attempt-1-draft-ready.json",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    },
+    {
+      "command": "independent static audit of Stage06 trace, progress, log, Sentry, Shared State, latency and version provenance surfaces",
+      "exit_code": 1,
+      "result": "FAIL_BLOCKING_OBS_06_001_THROUGH_OBS_06_004"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-06-001: private query/free-form error text can be persisted in logs and progress.",
+    "OBS-06-002: required versioned progress and measured Stage 06 lifecycle latency/count/degraded matrix is absent.",
+    "OBS-06-003: original MCP/provider exception can cross the decorated child span before sanitization.",
+    "OBS-06-004: FinBERT and VADER provenance is not an immutable exact local artifact identity."
+  ],
+  "stage_boundary": {
+    "previous_stage": "05",
+    "previous_stage_status": "CLOSED",
+    "next_stage": "07",
+    "next_stage_status": "PENDING",
+    "next_stage_phase": "NOT_STARTED",
+    "next_stage_activated": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "live_sentiment_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "limitations": [
+    "The audit was static and offline; no live sentiment provider, external trace service or database was contacted.",
+    "Passing functional tests do not clear the blockers because the locked Stage 06 suite has no payload-leak, failure-span, forecast-progress or lifecycle-latency sentinel.",
+    "Observability changed no source, test, control-state, migration or shared instrumentation file.",
+    "Stage 07 remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "created_at": "2026-09-03T13:32:54.128Z"
+}

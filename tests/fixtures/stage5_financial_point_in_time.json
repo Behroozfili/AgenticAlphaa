@@ -1,0 +1,35 @@
+{
+  "schema_version": "stage5-financial-point-in-time-v1",
+  "ticker": "NVDA",
+  "as_of": "2026-06-30T20:00:00Z",
+  "run_id": "stage05-fixture-run",
+  "dataset_version": "stage5-fixture-v1",
+  "companyfacts": {
+    "facts": {
+      "us-gaap": {
+        "RevenueFromContractWithCustomerExcludingAssessedTax": {
+          "units": {
+            "USD": [
+              {"form": "10-K", "fp": "FY", "fy": 2025, "start": "2025-01-01", "end": "2025-12-31", "val": 1000, "filed": "2026-02-01", "accn": "base-annual"},
+              {"form": "10-K/A", "fp": "FY", "fy": 2025, "start": "2025-01-01", "end": "2025-12-31", "val": 1050, "filed": "2026-03-01", "accn": "eligible-amendment"},
+              {"form": "10-K/A", "fp": "FY", "fy": 2025, "start": "2025-01-01", "end": "2025-12-31", "val": 9999, "filed": "2026-08-01", "accn": "future-amendment"},
+              {"form": "10-Q", "fp": "Q1", "fy": 2026, "start": "2026-01-01", "end": "2026-03-31", "val": 300, "filed": "2026-05-01", "accn": "eligible-quarter"}
+            ]
+          }
+        }
+      }
+    }
+  },
+  "adjusted_history": [
+    {"date": "2026-06-29", "adjusted_close": 150.0},
+    {"date": "2026-06-30", "adjusted_close": 152.0}
+  ],
+  "expected": {
+    "annual_accession": "eligible-amendment",
+    "annual_value": 1050.0,
+    "quarterly_accession": "eligible-quarter",
+    "quarterly_value": 300.0,
+    "future_accession_invisible": "future-amendment",
+    "adjustment_mode": "auto_adjust_total_return"
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "05",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "qa_status": "PASS",
+  "execution_phase": "QA",
+  "control_revision": 98,
+  "changed_files": [
+    ".codex/handoffs/stage-05-rev-1-attempt-1-qa.json"
+  ],
+  "implementation_artifact": ".codex/handoffs/stage-05-rev-1-attempt-1-implementation.json",
+  "implementation_sha256": "4065e2f304fc1421a14d131bc2ff2a122d1a4d222549f34dea4cebaaef40d459",
+  "input_artifact_chain": {
+    "dependency_handoff": {
+      "path": ".codex/handoffs/stage-04B-rev-1-handoff.json",
+      "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049"
+    },
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-05-rev-1-attempt-1-draft-ready.json",
+      "sha256": "8502285312cb84c996fb4229c7db2a3c5cdc2f7ebcc02c1a86bbe8ff63878323"
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-05-rev-1-attempt-1-observability.json",
+      "sha256": "5e63b54be759f486cb02b47fee17932decacdb179ae80de0fd5203728eacc2c7"
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-05-rev-1-attempt-1-implementation.md",
+      "sha256": "14c7b9b1b79988bcdd1fde6aaad4278503a2f11e6775ed62f10a32abf0b417a5"
+    },
+    "status": "PASS_ALL_HASHES_IDENTITIES_AND_SCHEMAS"
+  },
+  "tests_run": [
+    {
+      "command": "python -m pytest <13 locked Stage05 Financial unit files> -q",
+      "exit_code": 0,
+      "result": "281 passed in 23.11s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest <nine intent/mapper/valuation semantic files> -q",
+      "exit_code": 0,
+      "result": "138 passed in 35.61s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/financial_test/test_financial_ratio_calculator.py <nine intent/mapper/valuation semantic files> -q",
+      "exit_code": 0,
+      "result": "220 passed in 29.90s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_rag -q",
+      "exit_code": 0,
+      "result": "333 passed in 60.62s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_financial_agent_only.py",
+      "exit_code": 0,
+      "result": "1322 tests collected in 23.19s; zero errors; integration tests collected only and not executed"
+    },
+    {
+      "command": "nine exact Stage05 SEC/Yahoo/adapter/private-trace/scalar-log/lifecycle sentinels",
+      "exit_code": 0,
+      "result": "9 passed in 7.59s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "adversarial historical calls to all four Yahoo current-only entry points under patched yf.Ticker",
+      "exit_code": 0,
+      "result": "PASS_YAHOO_CURRENT_ONLY_4_OF_4_NO_PROVIDER_CONSTRUCTION",
+      "network_mode": "OFFLINE_PATCHED_PROVIDER"
+    },
+    {
+      "command": "independent introspection/runtime identity audit of SEC, Yahoo, MCP server and monthly adapter boundaries",
+      "exit_code": 0,
+      "result": "PASS_NINE_INTENTS_EXACT; PASS_IDENTITY_PRESENT_SOURCE_9_REQUIRED_SERVER_ADAPTER_10_FAILS_BEFORE_PROVIDER"
+    },
+    {
+      "command": "SHA-256 verification of dependency/input artifacts and all 29 implementation-recorded source/test/fixture paths",
+      "exit_code": 0,
+      "result": "PASS_5_OF_5_INPUT_CHAIN; PASS_29_OF_29_SOURCE; ZERO_MISMATCHES"
+    },
+    {
+      "command": "python -m compileall -q <Stage05 Financial Python paths>; git diff --check -- <Stage05 paths>",
+      "exit_code": 0,
+      "result": "COMPILE_PASS; DIFF_CHECK_PASS; LF/CRLF notices only"
+    },
+    {
+      "command": "static scans of agents/tools/tests for promt_finance_checker and Financial-owned traced_call_tool",
+      "exit_code": 0,
+      "result": "old prompt absent; zero source/test references; canonical prompt present; zero generic raw trace wrapper references"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact each Stage05 draft/observability/implementation artifact --agent qa",
+      "exit_code": 0,
+      "result": "CONTROL VALID for all three same-revision/attempt inputs"
+    }
+  ],
+  "contract_audit": {
+    "forecast_context_required": "PASS_FAILS_BEFORE_PROVIDER",
+    "run_id_required": "PASS_FAILS_BEFORE_PROVIDER",
+    "ticker_context_consistency": "PASS",
+    "sec_filed_at_not_after_as_of": "PASS",
+    "period_end_distinct_from_availability": "PASS",
+    "newest_eligible_restatement_selected": "PASS",
+    "future_amendment_invisible": "PASS",
+    "annual_and_eligible_quarterly_history": "PASS",
+    "yahoo_exact_adjusted_start_end_as_of": "PASS",
+    "historical_current_snapshot_fallback": "ABSENT_FAIL_CLOSED_4_OF_4",
+    "nine_intents_and_mappers": "PASS_EXACT_SET_AND_ROUTING",
+    "dcf_wacc_reverse_dcf_scenarios_monte_carlo": "PASS_REGRESSION",
+    "dcf_semantics": "PASS_LONG_TERM_VALUATION_NOT_21_DAY_FORECAST",
+    "monthly_financial_features": "PASS_FIXED_TYPED_COMPACT_REFERENCE_ONLY",
+    "missing_is_zero": false,
+    "missing_is_explicit_none": true,
+    "prompt_rename_atomic_and_collection_safe": "PASS"
+  },
+  "observability_audit": {
+    "OBS-05-001": "PASS_SAFE_ALLOWLISTED_MCP_TRACE_ALL_THREE_PATHS_NO_RAW_ARGS_RESULTS_OR_EXCEPTION_TEXT",
+    "OBS-05-002": "PASS_FIXED_EVENT_AND_BOUNDED_COUNT_LOGS_NO_RAW_FINANCIAL_SCALARS",
+    "OBS-05-003": "PASS_12_OF_12_MEASURED_COMPACT_LIFECYCLE_BOUNDARIES",
+    "private_sentinel_persisted": false,
+    "raw_mcp_trace_paths_remaining": 0,
+    "raw_financial_scalar_log_sites_observed": 0,
+    "measured_boundary_count": 12
+  },
+  "leakage_report": {
+    "status": "PASS_ZERO_FUTURE_FINANCIAL_RECORDS_EXPORTED",
+    "sec_boundary": "filed_at <= ForecastContext.as_of",
+    "future_restatement_visible": false,
+    "historical_yahoo_provider_constructed": false,
+    "current_snapshot_historical_fallback_used": false,
+    "live_provider_evidence_used": false
+  },
+  "regression_report": {
+    "financial_full": "PASS_281",
+    "intent_mapper_valuation_semantics": "PASS_138_AND_EXPANDED_PASS_220",
+    "graph_rag": "PASS_333",
+    "collection": "PASS_1322_ZERO_ERRORS",
+    "exact_stage05_sentinels": "PASS_9",
+    "compile": "PASS",
+    "diff_check": "PASS"
+  },
+  "source_integrity": {
+    "recorded_paths": 29,
+    "matching_paths": 29,
+    "mismatches": 0,
+    "old_prompt_exists": false,
+    "old_prompt_source_test_references": 0,
+    "scope_status": "PASS_LOCKED_STAGE05_SCOPE"
+  },
+  "stage_boundary": {
+    "previous_stage": "04B",
+    "previous_stage_status": "CLOSED",
+    "next_stage": "06",
+    "next_stage_status": "PENDING",
+    "next_stage_phase": "NOT_STARTED",
+    "next_stage_activated": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_sec_tests": "NOT_RUN",
+    "live_yahoo_tests": "NOT_RUN",
+    "financial_integration_tests": "COLLECTED_ONLY_NOT_RUN",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "qa_harness_notes": [
+    "Two exploratory one-off checks initially stopped in QA harness setup: one used an incomplete hand-written ForecastContext fixture, and one assumed source-level optional defaults were forbidden rather than validating fail-before-provider behavior. Both were corrected without any source/test/state edit and are excluded from acceptance evidence."
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [],
+  "limitations": [
+    "All acceptance evidence is offline; live SEC/Yahoo/provider behavior remains intentionally unverified.",
+    "Integration suites were collected but not executed because live/provider execution was not authorized.",
+    "No external SEC archive was acquired and no external database or trace provider was contacted.",
+    "LF/CRLF conversion notices are non-blocking; git diff --check exited zero."
+  ],
+  "created_at": "2026-09-02T10:58:39.2851908Z"
+}

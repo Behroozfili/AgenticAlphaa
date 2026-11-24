@@ -9,6 +9,7 @@ from tools.sentiment_tools.finbert_analyzer import FinBertResult
 from tools.sentiment_tools.vader_scorer import VaderResult
 
 logger = logging.getLogger(__name__)
+FEAR_GREED_MODEL_VERSION = "fear-greed-fusion-v1"
 
 # ---------------------------------------------------------------------------
 # Default weights
@@ -67,6 +68,7 @@ class FearGreedResult:
     diagnostics:   dict             = field(default_factory=dict)
     status:        str              = "VALID"
     polarity:      str | None       = None
+    model_version: str              = FEAR_GREED_MODEL_VERSION
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +176,7 @@ class FearGreedIndexCalculator:
                 weights={"finbert": self.finbert_weight, "vader": self.vader_weight},
                 confidence=0.0, diagnostics={"reason": "no valid model input"},
                 status="NO_DATA", polarity=None,
+                model_version=FEAR_GREED_MODEL_VERSION,
             )
 
         # Step 1 — FinBERT directional score  ∈ [−1, +1]
@@ -259,6 +262,7 @@ class FearGreedIndexCalculator:
                 "BULLISH" if clamped > 0.2 else "BEARISH" if clamped < -0.2
                 else "NEUTRAL"
             ),
+            model_version = FEAR_GREED_MODEL_VERSION,
         )
         logger.info(
             "Fear/Greed index: score=%.4f label='%s' confidence=%.4f "

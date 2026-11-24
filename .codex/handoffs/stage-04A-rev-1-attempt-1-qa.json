@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "status": "PASS",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_identity_artifacts_control_and_locks",
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact draft-ready --artifact observability --artifact implementation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID. Execution is enabled for Stage 04A revision 1 attempt 1 in QA, allowed_support_agents is qa, the QA path is locked to qa, and matching PRIMARY_DRAFT, Observability and PRIMARY_FINAL artifacts exist with implementation_ready=true."
+    },
+    {
+      "check": "input_artifact_and_current_source_integrity",
+      "command": "SHA-256 verification of draft-ready, observability, implementation JSON/MD and all six source/test/fixture paths recorded by the implementation",
+      "exit_code": 0,
+      "result": "PASS; draft-ready=5e287a091d583b62d667b599f74877d3ab4b43a7bc020383554c1706c9d982d3, observability=c85cd69662e64ef429953f368c7227bcd47ff3f56e5737ce114c65fdb40a04c9, implementation JSON=fdc9713de674a9d3e0745730bdf95e8d7d4e97ecea4e9722bc101fb73672ed1f, implementation MD=2156ab7d4f0d526c27166669ab5aae137846c55dbe4200609cbe124e8c86cff8, and all 6/6 recorded source/test/fixture hashes match current bytes."
+    },
+    {
+      "check": "focused_stage04a_graph_hybrid_suite",
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "65 passed in 16.33s"
+    },
+    {
+      "check": "exact_temporal_privacy_lifecycle_and_observability_matrix",
+      "command": "pytest -q TestTemporalEvidenceV2 TestGraphLifecyclePrivacy TestForecastContextBoundRetrieval TestRedactedTracingAndLifecycle tests/unit_tests/core_test/test_observability.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "36 passed in 17.02s"
+    },
+    {
+      "check": "same_relation_temporal_evidence_coexistence",
+      "command": "read-only in-memory assertion using AlphaProcessor and AlphaGraphStore._merge_temporal_observation for two identical SUPPLIES_TO relations with distinct published_at, retrieved_at, effective_from and dataset_version",
+      "exit_code": 0,
+      "result": "PASS; two evidence observations have distinct evidence_id values and produce two distinct TemporalRelationObservationV2 observation_id values while retaining pit-v1 and pit-v2 dataset versions."
+    },
+    {
+      "check": "rag_and_stage03_regression",
+      "command": "pytest -q tests/unit_tests/test_rag tests/unit_tests/test_stage3_narrative_stability.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "321 passed in 56.14s"
+    },
+    {
+      "check": "full_unit_integration_collection",
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1265 tests collected in 15.76s; zero collection errors."
+    },
+    {
+      "check": "compile_diff_hash_and_privacy_static_scan",
+      "command": "python -m py_compile scoped Stage 04A sources/tests; git diff --check scoped paths; implementation source SHA-256 comparison; rg raw exception/query/URL/secret logging and Sentry patterns",
+      "exit_code": 0,
+      "result": "PASS; compile and scoped diff-check succeeded with line-ending notices only; source hashes match implementation; no str(exception), capture_exception, raw query/chunk/citation/URL/secret interpolation, or original exception value reaches Stage 04A logs/Sentry. Stable code-only failure sites remain."
+    },
+    {
+      "check": "stage04b_inactive_gate",
+      "command": "read-only inspection of .codex/refactor-state.json stages.04B",
+      "exit_code": 0,
+      "result": "PASS; Stage 04B is PENDING/NOT_STARTED at revision 0 attempt 0 and was not activated or audited."
+    }
+  ],
+  "temporal_graph_report": {
+    "status": "PASS",
+    "immutable_shared_identity": "PASS; Graph extraction reuses Stage 03 document_id, chunk_id and evidence_id, while observation_id is deterministic and evidence-scoped.",
+    "same_relation_multi_observation_coexistence": "PASS; distinct temporal/dataset evidence versions do not average, overwrite or collapse into one aggregate relationship.",
+    "as_of_filter_before_traversal": "PASS; quarantine, ticker, dataset version, publication, retrieval, optional filing and effective interval predicates are present in temporal Cypher before entity traversal and ordering.",
+    "unknown_and_future_evidence": "EXCLUDED; unknown publication/retrieval/effective start and future publication/retrieval are ineligible.",
+    "fail_closed_without_temporal_enforcement": "PASS; a temporal Graph backend/query failure returns GRAPH_TRAVERSAL_FAILED with graph_error degradation and never falls back to legacy unbounded traversal."
+  },
+  "retrieval_and_fusion_report": {
+    "status": "PASS",
+    "shared_forecast_context": "PASS; one ForecastContext constrains both branches and is returned unchanged.",
+    "vector_temporal_boundary": "PASS; ticker, as_of, dataset_version and historical=true are passed before Stage 03 retrieval ranking.",
+    "graph_temporal_boundary": "PASS",
+    "shared_vector_graph_ids_and_citations": "PASS; document_id, chunk_id and evidence_id survive both branches; Graph adds observation_id; both provenance paths survive RRF deduplication.",
+    "deterministic_rrf": "PASS",
+    "explicit_modes": ["hybrid", "vector_only", "graph_only", "unavailable"],
+    "legacy_backward_compatibility": "PASS; focused legacy Graph/Hybrid callers remain collected and passing; no legacy route or namespace was removed."
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "future_publication_rejected": "PASS",
+    "future_retrieval_rejected": "PASS",
+    "unknown_published_retrieved_effective_start_rejected": "PASS",
+    "wrong_ticker_wrong_dataset_and_quarantine_rejected": "PASS",
+    "effective_interval_enforced": "PASS",
+    "eligibility_before_traversal_or_ranking": "PASS",
+    "legacy_temporal_fallback": "REJECTED_FAIL_CLOSED",
+    "live_graph_validation": "NOT_RUN_NOT_REQUIRED_FOR_OFFLINE_QA_JUDGMENT"
+  },
+  "privacy_and_observability_report": {
+    "status": "PASS",
+    "resolved_findings": ["OBS-04A-001", "OBS-04A-002", "OBS-04A-003"],
+    "trace_input_allowlist": "PASS; operation plus bounded Stage/ForecastContext version identity only.",
+    "trace_output_allowlist": "PASS; counts, stable error/degradation codes, bounded identity/version metadata and non-negative latency only.",
+    "trace_raw_query_chunk_citation_url_secret_exception": "ABSENT_IN_SENTINEL_TESTS",
+    "failure_result_raw_exception_secret_or_private_url": "ABSENT_IN_SENTINEL_TESTS",
+    "logs_and_sentry_original_exception_or_source_url": "ABSENT_IN_SENTINEL_TESTS_AND_STATIC_SCAN",
+    "stable_error_codes": ["VECTOR_RETRIEVAL_FAILED", "GRAPH_TRAVERSAL_FAILED", "GRAPH_EXTRACTION_FAILED", "GRAPH_UPSERT_FAILED"],
+    "latency_and_counts": "PASS; Vector, Graph, RRF/fusion, Hybrid, extraction and upsert expose compact non-negative latency/count lifecycle metadata.",
+    "graph_write_recovery": "PASS; caller_retry_deterministic_merge is explicit, partial-batch failure is sanitized and degraded/failed, and no fabricated checkpoint resume is claimed.",
+    "business_payload_boundary": "Normal successful caller results intentionally retain evidence text and citations required by the Stage 04A contract; those payloads are excluded from processed traces. Failure results contain stable codes only."
+  },
+  "regression_report": {
+    "focused_stage04a": {"passed": 65, "failed": 0},
+    "exact_temporal_privacy_lifecycle": {"passed": 36, "failed": 0},
+    "independent_same_relation_coexistence_assertions": {"passed": 1, "failed": 0},
+    "rag_and_stage03": {"passed": 321, "failed": 0},
+    "collection": {"collected": 1265, "errors": 0, "status": "PASS"},
+    "stage04a_regressions": 0
+  },
+  "blocking_issues": [],
+  "blocking_findings": [],
+  "environment_blockers": [
+    {
+      "id": "STAGE04A-LIVE-GRAPH-ENVIRONMENT",
+      "status": "NOT_RUN_NOT_AUTHORIZED",
+      "blocking_for_offline_qa_judgment": false,
+      "finding": "Temporal Graph behavior is fixture/mock validated. No Neo4j migration, reconciliation, external database read/write, production latency benchmark or provider call was authorized or performed.",
+      "required_for_live_validation": "A separately authorized development Graph target and applied additive V2 schema, with scoped credentials and reconciliation plan."
+    }
+  ],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "04B",
+      "status": "MUST_REMAIN_PENDING_NOT_STARTED_UNTIL_ORCHESTRATOR_ACTIVATION",
+      "reason": "QA validated only Stage 04A and did not activate or inspect Stage 04B implementation scope."
+    }
+  ],
+  "non_blocking_limitations": [
+    "Temporal V2 Graph behavior and latency are deterministic offline fixture/mock evidence; no live database correctness, reconciliation or production latency claim is made.",
+    "The independent coexistence command initialized the locally available embedding model and emitted an unauthenticated Hugging Face Hub warning; no download or provider request was observed, and the assertion itself performed no explicit network or external database operation.",
+    "Legacy calls without ForecastContext remain backward-compatible but are not represented as point-in-time safe."
+  ],
+  "operational_safety": {
+    "explicit_network_or_provider_call": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_applied": false,
+    "seed_or_backfill_executed": false,
+    "legacy_data_deleted": false,
+    "production_route_switched": false,
+    "stage04B_activated": false,
+    "deploy_commit_or_push": false
+  },
+  "requested_primary_changes": [],
+  "supersedes": null,
+  "created_at": "2026-08-31T15:54:53.9806950Z"
+}

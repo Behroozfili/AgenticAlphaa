@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "02",
+  "stage_revision": 2,
+  "attempt": 1,
+  "agent": "data_rag",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_DRAFT",
+  "supersedes": ".codex/handoffs/stage-02-rev-1-attempt-3-implementation.json",
+  "supersedes_handoff": ".codex/handoffs/stage-02-rev-1-handoff.json",
+  "revision_2_changed_files": [
+    "database/supabase/004_alpha_documents_v2_evidence_identity.sql",
+    "tests/unit_tests/test_database_v2_migrations.py",
+    ".codex/handoffs/stage-02-rev-2-attempt-1-milestone-SCHEMA_CONTRACT_FROZEN.json",
+    ".codex/handoffs/stage-02-rev-2-attempt-1-implementation.md",
+    ".codex/handoffs/stage-02-rev-2-attempt-1-implementation.json"
+  ],
+  "changed_files": [
+    "database/supabase/004_alpha_documents_v2_evidence_identity.sql",
+    "tests/unit_tests/test_database_v2_migrations.py",
+    ".codex/handoffs/stage-02-rev-2-attempt-1-milestone-SCHEMA_CONTRACT_FROZEN.json",
+    ".codex/handoffs/stage-02-rev-2-attempt-1-implementation.md",
+    ".codex/handoffs/stage-02-rev-2-attempt-1-implementation.json"
+  ],
+  "cumulative_stage02_paths": [
+    "database/supabase/001_alpha_documents_v2.sql",
+    "database/supabase/002_forecast_tables.sql",
+    "database/supabase/003_analysis_versioning.sql",
+    "database/supabase/004_alpha_documents_v2_evidence_identity.sql",
+    "database/neo4j/001_temporal_evidence.cypher",
+    "tests/unit_tests/test_database_v2_migrations.py"
+  ],
+  "milestone_artifact": ".codex/handoffs/stage-02-rev-2-attempt-1-milestone-SCHEMA_CONTRACT_FROZEN.json",
+  "blocking_finding_resolutions": [
+    {
+      "id": "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+      "status": "RESOLVED",
+      "resolution": "A new reversible migration replaces evidence-independent document/chunk uniqueness with evidence-scoped identities. Offline processor/embedder/V2 row mapping proves distinct dataset, retrieval, and effective observations satisfy every primary/unique identity without collision."
+    }
+  ],
+  "preserved_finding_resolutions": [
+    "STAGE02-RLS-VIEW-001",
+    "STAGE02-RECONCILIATION-HASH-002",
+    "STAGE02-NEO4J-RECONCILIATION-003"
+  ],
+  "contract_diff": [
+    "Accepted migrations 001-003 remain immutable; revision 2 is expressed only as ordered migration 004.",
+    "alpha_documents_v2_document_identity is replaced by alpha_documents_v2_document_evidence_chunk_identity, which includes canonical source/content/document semantics plus document/evidence/dataset/chunk/embedding identity.",
+    "alpha_documents_v2_evidence_identity is replaced by alpha_documents_v2_evidence_chunk_identity so one immutable evidence observation may retain multiple chunks.",
+    "chunk_id remains the primary key and V2 adapter conflict target.",
+    "Forward migration checks exact definitions, is idempotent, changes no rows, and fails on schema drift.",
+    "Rollback preflights revision-1 collisions and fails closed without deleting or rewriting evidence.",
+    "Temporal RPC, RLS, security-invoker views, reconciliation, least-privilege grants, route defaults, and legacy data are unchanged."
+  ],
+  "schema_identity_contract": {
+    "primary_key": ["chunk_id"],
+    "document_evidence_chunk_unique": [
+      "canonical_source_id",
+      "content_hash",
+      "document_version",
+      "document_id",
+      "evidence_id",
+      "dataset_version",
+      "chunk_index",
+      "chunk_hash",
+      "embedding_version"
+    ],
+    "evidence_chunk_unique": [
+      "evidence_id",
+      "dataset_version",
+      "chunk_index",
+      "chunk_hash",
+      "embedding_version"
+    ]
+  },
+  "self_tests_run": [
+    {
+      "command": "python -m py_compile tests/unit_tests/test_database_v2_migrations.py",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_database_v2_migrations.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "17 passed in 12.67s",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "pytest -q exact focused Stage 01 plus Stage 02 regressions --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "112 passed in 15.77s",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests --disable-warnings",
+      "exit_code": 0,
+      "result": "1234 tests collected in 14.73s; zero collection errors"
+    },
+    {
+      "command": "git diff --check on exact revision-2 paths; validate_refactor_control.py --check-control",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID"
+    }
+  ],
+  "migration_hashes": {
+    "database/supabase/001_alpha_documents_v2.sql": "fe6b214dc2b9e155f8a7e637f85d4f7fef1a1e7e04ccc0a949fcfd7ed5a7c299",
+    "database/supabase/002_forecast_tables.sql": "226011cb62fad81c90c280dc39ccb01d2bec581dc2e4481cc584590069e413b9",
+    "database/supabase/003_analysis_versioning.sql": "acd6e3caa5e42cb30862d1ee0f982bd2a5ab5258ad9b7155e315326320b6773f",
+    "database/neo4j/001_temporal_evidence.cypher": "e1b5f08d97bca6929a7ed86bc5791c1c4fb49b8366c519ac6e89cb37979fae85",
+    "database/supabase/004_alpha_documents_v2_evidence_identity.sql": "fced2fc6fcca6ef6bda11b887746b03a1fa98d7eaaa4b717a5c7dfb7c646f481"
+  },
+  "data_counts": {
+    "focused_stage02_passed": 17,
+    "focused_stage01_stage02_passed": 112,
+    "unit_integration_collected": 1234,
+    "collection_errors": 0,
+    "coexistence_fixture_rows": 4,
+    "external_rows_read": null,
+    "external_rows_written": 0,
+    "migrations_applied": 0,
+    "seed_runs": 0
+  },
+  "blocking_issues": [],
+  "known_limitations": [
+    "Migration 004 is statically/offline validated only; application and live reconciliation require separate explicit authorization.",
+    "Production remains on legacy-v1 and V2 remains a shadow schema.",
+    "Stage 03 revision 1 is stale; ticker/materialization and pre-materialization-resume findings remain separate Stage 03 rework.",
+    "The missing legacy Phase 5 migration retains its Stage 00 disposition and is not replaced by migration 004."
+  ],
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Use only the separately authorized rollback SQL embedded in migration 004.",
+    "Rollback first checks for revision-1 document/evidence identity collisions and aborts without mutation when coexistence rows would be lost.",
+    "When preflight passes, drop only the two revision-2 constraints and restore the two exact revision-1 constraints.",
+    "Never delete, rewrite, merge, or map unknown evidence time to make rollback pass; preserve legacy and V2 rows."
+  ],
+  "rollback_tested": false,
+  "operational_safety": {
+    "migration_application": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "live_reconciliation": false,
+    "seed_or_backfill": false,
+    "legacy_deletion": false,
+    "route_switch": false,
+    "network_used": false,
+    "deploy_commit_or_push": false
+  },
+  "implementation_ready": true,
+  "created_at": "2026-08-30T12:08:03.1040356Z"
+}

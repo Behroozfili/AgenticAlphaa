@@ -448,9 +448,110 @@ class TestLongTermRecall:
         assert result["total_tickers_cached"] == 2
 
 
+class TestMonthlyMemoryIsolation:
+    def _build(self):
+        return LongTermMemory(user_id="u1", supabase_client=MagicMock())
+
+    def test_natural_key_is_exact_and_utc_normalized(self):
+        from memory.manager_memory import MonthlyMemoryKey
+
+        key = MonthlyMemoryKey.create(
+            ticker="msft",
+            as_of="2024-06-28T16:00:00-04:00",
+            horizon=21,
+            analysis_mode="HISTORICAL_BACKTEST",
+            schema_version="schema-v2",
+        )
+        assert key.as_tuple() == (
+            "MSFT",
+            "2024-06-28T20:00:00+00:00",
+            21,
+            "HISTORICAL_BACKTEST",
+            "schema-v2",
+        )
+
+    def test_monthly_values_do_not_merge_across_cutoff_mode_or_schema(self):
+        memory = self._build()
+        base = dict(ticker="MSFT", horizon=21)
+        memory.store_monthly_insight(
+            **base, as_of="2024-05-31T20:00:00Z", analysis_mode="LIVE",
+            schema_version="v2", insight={"value": "live-may"},
+        )
+        memory.store_monthly_insight(
+            **base, as_of="2024-06-28T20:00:00Z", analysis_mode="LIVE",
+            schema_version="v2", insight={"value": "live-june"},
+        )
+        memory.store_monthly_insight(
+            **base, as_of="2024-05-31T20:00:00Z", analysis_mode="HISTORICAL_BACKTEST",
+            schema_version="v2", insight={"value": "historical-may"},
+        )
+        assert len(memory.monthly_insights) == 3
+        assert memory.get_monthly_insight(
+            **base, as_of="2024-05-31T20:00:00Z", analysis_mode="LIVE",
+            schema_version="v2",
+        ) == {"value": "live-may"}
+
+    def test_legacy_and_monthly_ticker_values_never_merge(self):
+        memory = self._build()
+        memory.store_ticker_insight("MSFT", {"legacy": True})
+        memory.store_monthly_insight(
+            ticker="MSFT", as_of="2024-05-31T20:00:00Z", horizon=21,
+            analysis_mode="LIVE", schema_version="v2", insight={"monthly": True},
+        )
+        assert memory.get_ticker_insight("MSFT")["legacy"] is True
+        assert "monthly" not in memory.get_ticker_insight("MSFT")
+        assert "legacy" not in memory.get_monthly_insight(
+            ticker="MSFT", as_of="2024-05-31T20:00:00Z", horizon=21,
+            analysis_mode="LIVE", schema_version="v2",
+        )
+
+    def test_monthly_store_and_read_are_copy_safe(self):
+        memory = self._build()
+        payload = {"nested": {"value": 1}}
+        kwargs = dict(
+            ticker="MSFT", as_of="2024-05-31T20:00:00Z", horizon=21,
+            analysis_mode="LIVE", schema_version="v2",
+        )
+        memory.store_monthly_insight(**kwargs, insight=payload)
+        payload["nested"]["value"] = 2
+        recalled = memory.get_monthly_insight(**kwargs)
+        recalled["nested"]["value"] = 3
+        assert memory.get_monthly_insight(**kwargs)["nested"]["value"] == 1
+        memory.monthly_insights.clear()
+        query = MagicMock()
+        query.eq.return_value = query
+        query.order.return_value = query
+        query.limit.return_value = query
+        query.execute.return_value.data = [{"forecast_payload": {"monthly_insight": {"nested": {"value": 1}}}, "feature_snapshot_id": "snapshot-1"}]
+        memory._db.table.return_value.select.return_value = query
+        recovered = memory.get_monthly_insight(**kwargs, model_version="model-v1")
+        assert recovered["nested"]["value"] == 1
+        assert recovered["feature_snapshot_id"] == "snapshot-1"
+        query.eq.assert_any_call("model_version", "model-v1")
+        query.eq.assert_any_call("forecast_payload->>analysis_mode", "LIVE")
+
+
 # ---------------------------------------------------------------------------
 # ManagerMemory — unified facade (delegation correctness)
 # ---------------------------------------------------------------------------
+
+def test_memory_logs_never_expose_private_values_or_exception_text(caplog):
+    private = "PRIVATE_SENTINEL"
+    client = MagicMock()
+    client.table.return_value.select.return_value.eq.return_value.execute.side_effect = RuntimeError(private)
+    with caplog.at_level("DEBUG", logger="manager-memory"):
+        memory = ManagerMemory(user_id=private, supabase_client=client)
+        memory.new_session(private, private)
+        memory.add_message("user", private)
+        memory.store_preference(private, private)
+        memory.store_heuristic(private, private)
+        memory.store_ticker_insight("NVDA", {private: private})
+        memory.long.load()
+        client.table.return_value.upsert.return_value.execute.side_effect = RuntimeError(private)
+        with pytest.raises(RuntimeError, match=private):
+            memory.long.persist()
+    assert private not in caplog.text
+
 
 class TestManagerMemoryFacade:
     @pytest.fixture

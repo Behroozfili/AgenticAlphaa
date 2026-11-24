@@ -1,0 +1,128 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "control_revision": 126,
+  "implementation_artifact": ".codex/handoffs/stage-07-rev-1-attempt-1-implementation.json",
+  "implementation_sha256": "dceb8e12017775c771a442143806d12c4b5297fa6673d0cd29c49c8f7abec898",
+  "qa_status": "FAIL",
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "CONTROL VALID; execution enabled; Stage 07 revision 1 attempt 1 remained ACTIVE in QA; the QA artifact path was locked to qa and did not previously exist."
+    },
+    {
+      "command": "Draft-ready, observability, change-request, DATA_READINESS, MODEL_READY and final implementation identity/schema/hash validation",
+      "exit_code": 0,
+      "result": "All six prerequisite JSON artifacts satisfy artifact.schema.json. Stage/revision/attempt/agent identities are consistent; 15/15 final source hashes, implementation MD, immutable input links, both milestone file hashes and accepted 04B/05/06 dependency handoff hashes match their declarations."
+    },
+    {
+      "command": "python -m pytest --collect-only tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "64 tests collected in 2.04s; zero collection errors."
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "64 passed in 5.90s using offline deterministic local fixtures."
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test -q",
+      "exit_code": 0,
+      "result": "114 passed in 72.10s; exact US-session target behavior, State compatibility and Stage 07 regressions passed."
+    },
+    {
+      "command": "python -m pytest --collect-only tests/unit_tests -q",
+      "exit_code": 0,
+      "result": "1357 tests collected in 28.83s; zero unit-test collection errors."
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/test_agents/test_financial_agent.py tests/unit_tests/test_sentiment_phase4.py tests/unit_tests/test_aspect_sentiment_phase6.py tests/unit_tests/test_period_provenance_phase5.py -q",
+      "exit_code": 0,
+      "result": "112 passed in 24.69s; typed Research, Financial and Sentiment upstream feature regressions passed offline."
+    },
+    {
+      "command": "Independent 36-cutoff train-only imputer/scaler/selector/residual-interval probe",
+      "exit_code": 0,
+      "result": "Recomputed medians, means, scales and 5/95 residual interval exactly matched the model fitted on the 36-row fold; selected features were derived only from that fold; passing later rows under the fold readiness artifact was rejected. No separate probability calibration component is implemented, so calibration isolation is not applicable."
+    },
+    {
+      "command": "Independent current-runtime DATA_READINESS and MODEL_READY reproduction against the declared milestone artifacts",
+      "exit_code": 1,
+      "result": "FAIL: current runtime DATA_READINESS hash 4acfedac5bb7849e69480b1831d1b5f0348cc56fbcf1c87d59bb055a4730ebc does not reproduce milestone hash c55fa5a85e9002bdc762572eda1d2a9b25619341694faf64dc19bd36713ec326; the milestone lacks eligible_rows_sha256. Current runtime model version logistic-ridge-21d-v1+sha256:c2f0df5fb3a76d41c601ff85a074fe36acc771a652ec2eba4f2d830f5f005b7c does not reproduce MODEL_READY version logistic-ridge-21d-v1+sha256:6e85cb305a98f846ca304ff6478e8bf5593e1ac9fbb3b96b8e836a5e9df50040."
+    }
+  ],
+  "leakage_report": {
+    "status": "PASS_RUNTIME_IMPLEMENTATION",
+    "exact_21_trading_session_target": "PASS",
+    "future_target_bar_isolation": "PASS",
+    "pre_target_outcome_rejection": "PASS",
+    "snapshot_finalization_boundary": "PASS",
+    "universe_membership_binding": "PASS",
+    "readiness_row_content_binding": "PASS",
+    "train_through_rejection": "PASS",
+    "training_only_imputer_scaler_selector": "PASS",
+    "calibration": "NOT_APPLICABLE_NO_SEPARATE_CALIBRATOR",
+    "note": "Runtime methodology passed; the overall QA failure is the stale, non-reproducible mandatory milestone evidence."
+  },
+  "regression_report": {
+    "status": "PASS",
+    "focused_stage07": "64/64 passed",
+    "forecast_context_state_combined": "114/114 passed",
+    "typed_upstream_features": "112/112 passed",
+    "unit_collection": "1357 collected with zero errors",
+    "determinism": "PASS for reversed input order, repeated fit/predict and independent fold probe",
+    "privacy_and_failure_paths": "PASS for bounded opaque IDs, PRIVATE_SENTINEL rejection and payload-free failure lifecycle events"
+  },
+  "artifact_integrity_report": {
+    "byte_hash_integrity": "PASS",
+    "semantic_reproducibility": "FAIL",
+    "data_readiness_milestone": {
+      "declared_status": "PASS",
+      "artifact_sha256": "4eedd96ead18106ecb44aa149c9ef1caac2344ef5d9fc144f30144aa5591d939",
+      "declared_manifest_hash": "c55fa5a85e9002bdc762572eda1d2a9b25619341694faf64dc19bd36713ec326",
+      "current_runtime_manifest_hash": "4acfedac5bb7849e69480b1831d1b5f0348cc56fbcf1c87d59bb055a4730ebc",
+      "eligible_rows_sha256_present": false
+    },
+    "model_ready_milestone": {
+      "declared_status": "PASS",
+      "artifact_sha256": "bb8908a3b739a96a9b458b275effaeb12f4ee8564d409f4b2ea5c31e80eb8ea4",
+      "declared_model_version": "logistic-ridge-21d-v1+sha256:6e85cb305a98f846ca304ff6478e8bf5593e1ac9fbb3b96b8e836a5e9df50040",
+      "current_runtime_model_version": "logistic-ridge-21d-v1+sha256:c2f0df5fb3a76d41c601ff85a074fe36acc771a652ec2eba4f2d830f5f005b7c"
+    }
+  },
+  "blocking_issues": [
+    {
+      "id": "QA-07-001",
+      "severity": "BLOCKING",
+      "responsible_agent": "quant",
+      "finding": "The mandatory DATA_READINESS and MODEL_READY PASS artifacts are pre-remediation draft evidence and are not reproducible from the final Stage 07 implementation. DATA_READINESS lacks the eligible-row content hash introduced to resolve OBS-07-003, and MODEL_READY is bound to the old readiness hash/model version. Consequently the declared milestone PASS evidence does not validate the final revision/attempt implementation required by the Stage 07 gate.",
+      "required_disposition": "Orchestrator must start a new attempt. Quant must generate new, non-overwriting DATA_READINESS and MODEL_READY artifacts from the final remediated implementation and bind the final implementation artifact to those current hashes before QA is rerun."
+    }
+  ],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [
+    "08",
+    "09",
+    "10A",
+    "10B",
+    "11",
+    "FINAL_QA",
+    "FINAL_REVIEW"
+  ],
+  "external_execution": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "delete": false,
+    "deploy": false,
+    "commit_or_push": false
+  },
+  "created_at": "2026-09-07T13:43:04.8012049Z"
+}

@@ -1,0 +1,130 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "10B",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "integration",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 188,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "retry_scope": "Strict repair of REVIEW-10B-001 and REVIEW-10B-002 only. Preserve required forecast provenance in the existing compact storage payload and replace report-hash reuse with a canonical input-only backtest reproducibility hash. No formula, migration, route response, progress, UI, external operation or Stage 11 change.",
+  "trigger_review": {
+    "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-review.json",
+    "sha256": "f2d56f2d79e3e0df5d76d3c4077742d75293af3fbfed5d52769262610e08c044",
+    "review_status": "REJECTED",
+    "blocking_findings": [
+      "REVIEW-10B-001",
+      "REVIEW-10B-002"
+    ],
+    "disposition": "RESOLVED_IN_CURRENT_DRAFT"
+  },
+  "dependency_handoffs": [
+    {
+      "stage": "10A",
+      "path": ".codex/handoffs/stage-10A-rev-1-handoff.json",
+      "sha256": "5d4e36d9f1db1c2dec6c5909d4bbf11d6f572edc569604396fadffc221670625",
+      "state_status": "CLOSED"
+    }
+  ],
+  "immutable_prior_attempt_artifacts": [
+    {"path": ".codex/handoffs/stage-10B-rev-1-attempt-1-draft-ready.json", "sha256": "2b607d13576f2943c18aa0317f0ab8fab018da0ec3dd77576d899bbb6081f4ac"},
+    {"path": ".codex/handoffs/stage-10B-rev-1-attempt-1-observability.json", "sha256": "b338b677fd555010fda445431e5c62d38892f9a8e2dc4c59878a1b534e9622e9"},
+    {"path": ".codex/handoffs/change-request-stage-10B-rev-1-attempt-1-1.json", "sha256": "967eb092d32ee1d445bbf26a0e5b66b06f54df6ed54b02d007241133abcbd01e"},
+    {"path": ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.md", "sha256": "9db7ef6a75f355987b80866f94f8755952df7b4e470d34ea7192ae279fc8332f"},
+    {"path": ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.json", "sha256": "48bba32d7d2caa09e4f231450847d4e84beeb4f1bb772d142bf8f1a11faa06c7"},
+    {"path": ".codex/handoffs/stage-10B-rev-1-attempt-1-qa.json", "sha256": "261a2e7511f9f8334c1745f9a898d4f798a7eec86e7c58ca6305632d3d5180dc"},
+    {"path": ".codex/handoffs/stage-10B-rev-1-attempt-1-review.json", "sha256": "f2d56f2d79e3e0df5d76d3c4077742d75293af3fbfed5d52769262610e08c044"}
+  ],
+  "changed_files": [
+    "api/routes/analyze.py",
+    "api/routes/backtest.py",
+    "tests/unit_tests/test_stage10b_end_to_end.py",
+    "tests/unit_tests/api_test/test_backtest_api.py",
+    ".codex/handoffs/stage-10B-rev-1-attempt-2-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "finding_disposition": {
+    "REVIEW-10B-001": "PASS_RESOLVED: universe_manifest_hash and feature_materialized_at are required and preserved in monthly_forecasts.forecast_payload; missing provenance prevents row construction.",
+    "REVIEW-10B-002": "PASS_RESOLVED: reproducibility_hash is derived from canonical reproduction inputs, excludes run_id/report hash/metrics/records/leakage outputs, and is sensitive to universe, schedule, folds, costs, dataset, feature, model, action, code and config identity."
+  },
+  "reproducibility_contract": {
+    "input_only": true,
+    "run_id_included": false,
+    "report_hash_included": false,
+    "metrics_or_predictions_included": false,
+    "universe_manifest_included": true,
+    "fold_definitions_included": true,
+    "transaction_cost_policy_included": true,
+    "dataset_feature_model_action_versions_included": true,
+    "code_and_config_versions_included": true,
+    "report_hash_preserved_separately": true,
+    "config_version": "stage10b-r1-a2"
+  },
+  "draft_self_tests": [
+    {
+      "command": "forced-offline direct Stage10B provenance/reproducibility/observability/concurrency and analyze-route tests",
+      "exit_code": 0,
+      "result": "45 passed in 1.57s",
+      "network_mode": "FORCED_OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "forced-offline Stage10B plus sensitive Stage08/09/10A regression suite",
+      "exit_code": 0,
+      "result": "130 passed in 25.78s",
+      "network_mode": "FORCED_OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 pytest --collect-only -q",
+      "exit_code": 0,
+      "result": "1506 tests collected in 28.34s; zero collection errors",
+      "network_mode": "FORCED_OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": "py_compile and scoped git diff --check on exact Attempt 2 repair paths",
+      "exit_code": 0,
+      "result": "PASS; line-ending notice only",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent integration",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 188",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "source_sha256": {
+    "api/routes/analyze.py": "d6633a6e96166c6c631cbb920b972dcc8026379a2168ff34a4aa7d29830459c9",
+    "api/routes/backtest.py": "38010166645af7580b0d2dbfea5672ed0c627b247392b656661c1a08c7a231ac",
+    "tests/unit_tests/test_stage10b_end_to_end.py": "932babf55d69a2ceedf417716ebfed9b6d99af4c0f23aad94931d4d2e91d0c1e",
+    "tests/unit_tests/api_test/test_backtest_api.py": "3ebb1511ae39ba2a91e25b0894032a7253644b48c9e82fefc05698c35ba0191f"
+  },
+  "observability_review_focus": [
+    "Advance only Observability-owned Stage 10B runtime identity and direct assertions from attempt 1 to attempt 2.",
+    "Confirm provenance additions and canonical reproducibility identity are never serialized as raw report/state payloads in local telemetry.",
+    "Preserve local-only fail-closed exporters, stable error codes, measured latency and concurrent run isolation.",
+    "Do not request feature changes unless a privacy or attribution defect is demonstrated."
+  ],
+  "known_limitations": [
+    "External providers and database writes remain intentionally untested; deterministic mocks cover persistence shape.",
+    "Runtime telemetry identity intentionally remains attempt 1 until the separately owned Observability pass advances it to attempt 2.",
+    "Final implementation artifacts are deferred until the required Observability pass completes."
+  ],
+  "operational_safety": {
+    "network_intentionally_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "dependency_change": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false,
+    "prior_attempt_artifacts_changed": false,
+    "stage11_activated": false
+  },
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-14T20:13:42.2601977Z"
+}

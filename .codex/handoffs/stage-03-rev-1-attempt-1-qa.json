@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "status": "FAIL",
+  "qa_status": "FAIL",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_identity_artifacts_control_and_locks",
+      "command": "validate refactor state, matching draft-ready/observability/final implementation artifacts, QA write lock, control, and global locks",
+      "exit_code": 0,
+      "result": "PASS_WITH_SEPARATE_PREEXISTING_LIMITATION; Stage 03 revision 1 attempt 1 is ACTIVE in QA, all required same-attempt artifacts validate, implementation_ready=true, the QA path is locked to qa, and CONTROL VALID. Global --check-locks separately reports only the pre-existing unrelated agents/state.py attribution mismatch."
+    },
+    {
+      "check": "stage03_compile",
+      "command": "python -m py_compile rag/__init__.py rag/loader.py rag/processor.py rag/embedding_manager.py rag/vector_store.py rag/retriever.py rag/ingestion.py rag/seed.py main.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "check": "focused_stage03_offline_gate",
+      "command": "pytest -q tests/unit_tests/test_rag/test_embedding_manager.py tests/unit_tests/test_rag/test_ingestion.py tests/unit_tests/test_rag/test_loader.py tests/unit_tests/test_rag/test_processor.py tests/unit_tests/test_rag/test_retriever.py tests/unit_tests/test_rag/test_vectore_store.py tests/unit_tests/test_rag/test_pipline_rag.py tests/unit_tests/test_root_main.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "203 passed in 62.57s"
+    },
+    {
+      "check": "focused_stage01_stage02_regression",
+      "command": "pytest -q tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/core_test/test_error_handler.py tests/unit_tests/core_test/test_observability.py tests/unit_tests/test_database_v2_migrations.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "109 passed in 3.72s"
+    },
+    {
+      "check": "full_collection",
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests --disable-warnings",
+      "exit_code": 2,
+      "result": "FAIL; 1202 tests collected but collection was interrupted by one error: tests/unit_tests/test_stage3_narrative_stability.py imports tests/fixtures/stage3_ticker_regressions.json and raises KeyError: 'cases'."
+    },
+    {
+      "check": "fixture_backward_compatibility_root_cause",
+      "command": "compare working fixture with HEAD and inspect tests/unit_tests/test_stage3_narrative_stability.py",
+      "exit_code": 1,
+      "result": "FAIL; Stage 03 replaced the shared fixture's existing top-level cases array with a temporal rows schema. The existing narrative-stability consumer still requires cases at collection time, so the Stage 03 change breaks repository collection."
+    },
+    {
+      "check": "diff_whitespace_integrity",
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only, no whitespace errors."
+    }
+  ],
+  "leakage_report": {
+    "status": "PASS_FOCUSED_OFFLINE_FIXTURES",
+    "historical_loader_requires_start_end_as_of": "PASS",
+    "historical_live_fallback_disabled": "PASS",
+    "invalid_or_unknown_time_quarantine": "PASS",
+    "future_record_rejection_before_freshness_ranking": "PASS",
+    "wrong_ticker_rejection_before_freshness_ranking": "PASS",
+    "wrong_dataset_version_rejection_before_freshness_ranking": "PASS",
+    "legacy_historical_backend_fail_closed": "PASS",
+    "v2_boundary": "PASS_WITH_MOCKS_AND_STATIC_STAGE02_RPC_CONTRACT_ONLY",
+    "external_network_connections_completed": 0,
+    "external_database_reads": 0,
+    "external_database_writes": 0
+  },
+  "regression_report": {
+    "focused_stage03": {
+      "passed": 203,
+      "failed": 0
+    },
+    "focused_stage01_stage02": {
+      "passed": 109,
+      "failed": 0
+    },
+    "collection": {
+      "collected_before_interrupt": 1202,
+      "errors": 1,
+      "status": "FAIL"
+    },
+    "temporal_ingestion_quarantine": "PASS_FOCUSED_OFFLINE",
+    "idempotency_and_checkpoint_resume": "PASS_FOCUSED_OFFLINE",
+    "separate_vector_graph_status_and_graph_retry": "PASS_FOCUSED_OFFLINE",
+    "embedding_cache_model_version_identity": "PASS_FOCUSED_OFFLINE",
+    "explicit_seed_cli_and_no_normal_startup_auto_seed": "PASS_FOCUSED_OFFLINE",
+    "observability_allowlist_latency_and_sanitized_exception_sentinel": "PASS_FOCUSED_OFFLINE",
+    "repository_collection": "FAIL_STAGE03_FIXTURE_SCHEMA_REGRESSION"
+  },
+  "blocking_issues": [
+    {
+      "id": "STAGE03-FIXTURE-COLLECTION-001",
+      "owner": "data_rag",
+      "path": "tests/fixtures/stage3_ticker_regressions.json",
+      "severity": "BLOCKING",
+      "finding": "The Stage 03 temporal leakage fixture overwrote a pre-existing shared fixture schema. tests/unit_tests/test_stage3_narrative_stability.py evaluates cases() during collection and requires the top-level 'cases' array, producing KeyError: 'cases' and interrupting full collection.",
+      "required_resolution": "Preserve backward compatibility for the existing narrative-stability cases while adding the temporal retrieval rows, or use a separately locked temporal fixture and update only direct Stage 03 references. Full unit/integration collection must complete without errors."
+    }
+  ],
+  "blocking_findings": [
+    "STAGE03-FIXTURE-COLLECTION-001"
+  ],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "04A",
+      "finding": "Stage 04A must not start from a Stage 03 revision that leaves repository collection broken or loses the pre-existing narrative regression fixture."
+    },
+    {
+      "stage": "FINAL_QA",
+      "finding": "Full collection cannot pass while STAGE03-FIXTURE-COLLECTION-001 remains unresolved."
+    }
+  ],
+  "non_blocking_out_of_scope_findings": [
+    {
+      "id": "PREEXISTING-LOCK-STATE-001",
+      "path": "agents/state.py",
+      "finding": "Global --check-locks reports that the real Git change has no current/permanent/accepted lock owner. This mismatch predates Stage 03, is unrelated to Stage 03 behavior, and was neither modified nor attributed by QA."
+    }
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migrations_applied": false,
+    "seed_or_backfill_executed": false,
+    "deploy_commit_or_push": false
+  },
+  "requested_primary_changes": [
+    {
+      "id": "STAGE03-FIXTURE-COLLECTION-001",
+      "requested_paths": [
+        "tests/fixtures/stage3_ticker_regressions.json"
+      ],
+      "reason": "Restore collection-safe backward compatibility while retaining deterministic temporal leakage coverage."
+    }
+  ],
+  "created_at": "2026-08-29T07:00:43.1780978Z"
+}

@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "core",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "changed_files": [
+    "core/forecast_contract.py",
+    "agents/state.py",
+    "core/error_handler.py",
+    "core/__init__.py",
+    "agents/__init__.py",
+    "tests/unit_tests/test_forecast_contract.py",
+    "tests/unit_tests/test_state_forecast_contract.py",
+    "tests/unit_tests/core_test/test_error_handler.py",
+    ".codex/handoffs/stage-01-rev-1-attempt-1-draft-ready.json",
+    ".codex/handoffs/stage-01-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-01-rev-1-attempt-1-implementation.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-01-rev-1-attempt-1-draft-ready.json",
+  "observability_artifact": ".codex/handoffs/stage-01-rev-1-attempt-1-observability.json",
+  "observability_status": {
+    "status": "INSTRUMENTED",
+    "requested_primary_changes": [],
+    "change_request": null,
+    "audited_changed_files": [
+      "core/observability.py",
+      "core/progress_bus.py",
+      ".codex/handoffs/stage-01-rev-1-attempt-1-observability.json"
+    ],
+    "compatibility": "ADDITIVE_LEGACY_PUBLISH_PRESERVED",
+    "privacy": "ALLOWLIST_PASS",
+    "runtime_latency_measurement": "NOT_FABRICATED"
+  },
+  "contract_diff": {
+    "forecast_context": [
+      "ticker",
+      "aware UTC as_of at actual monthly XNYS close",
+      "exact 21-session target",
+      "positive lookback",
+      "SPY benchmark",
+      "LIVE/HISTORICAL_BACKTEST",
+      "schema/dataset/feature/model versions"
+    ],
+    "calendar": "XNYS-regular-v1, supported 1998..2100, standard holidays, Black Friday close, known exceptional closures, fail-closed outside range",
+    "label": "ticker adjusted total return minus SPY adjusted total return over the identical as_of-to-target interval",
+    "guards": ["missing timestamp", "future timestamp", "version mismatch", "invalid monthly cutoff", "wrong target", "unsupported calendar year"],
+    "state": "Legacy eight required keys preserved; six optional JSON-safe forecast slots added."
+  },
+  "self_tests_run": [
+    {
+      "command": "pytest focused Stage01 plus observability tests",
+      "exit_code": 0,
+      "duration_seconds": 2.51,
+      "result": "68 passed"
+    },
+    {
+      "command": "inline forecast metadata allowlist, publish_forecast, and legacy publish assertions",
+      "exit_code": 0,
+      "result": "OBSERVABILITY_ADDITIVE_COMPATIBILITY=PASS"
+    },
+    {
+      "command": "guarded pytest --collect-only -qq --disable-warnings tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "duration_seconds": 70.26,
+      "result": "1160 collected: 1109 unit, 51 integration; external_attempts=[]",
+      "network_mode": "LOCALHOST_ONLY_GUARD"
+    },
+    {
+      "command": "guarded pytest -q --disable-warnings --tb=no tests/unit_tests",
+      "exit_code": 1,
+      "duration_seconds": 46.55,
+      "result": "1071 passed, 38 pre-existing failed, 6 warnings; external_attempts=[]",
+      "network_mode": "LOCALHOST_ONLY_GUARD"
+    },
+    {
+      "command": "python -m py_compile forecast contract, error handler, State, Observability and progress modules",
+      "exit_code": 0,
+      "result": "PASS"
+    }
+  ],
+  "known_failures": [
+    {"owner": "financial", "responsible_stage": "05", "count": 28},
+    {"owner": "sentiment", "responsible_stage": "06", "count": 4},
+    {"owner": "integration", "responsible_stage": "08", "count": 1},
+    {"owner": "data_rag", "responsible_stage": "03", "count": 1},
+    {"owner": "explicit_recovery_or_retirement_decision", "responsible_stage": "00", "count": 4, "reason": "missing legacy Supabase migration"}
+  ],
+  "resolved_baseline_failures": [
+    {"owner": "core", "responsible_stage": "01", "count": 2, "reason": "Breadcrumb extras now preserve only JSON-safe scalars and drop non-scalar State/evidence payloads."}
+  ],
+  "blocking_issues": [],
+  "known_limitations": [
+    "Calendar rules are versioned and bounded to 1998..2100; future rule changes require a contract/calendar version change.",
+    "Historical datasets, universe manifests, outcomes and model artifacts are later-stage work.",
+    "Database backup/restore evidence and the legacy migration remain unavailable under their Stage 00 dispositions.",
+    "Observability runtime feature call sites and measured production latency are intentionally outside Stage 01."
+  ],
+  "out_of_scope_findings": [],
+  "requested_changes": [],
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Remove core/forecast_contract.py and the two new Stage 01 test files.",
+    "Restore pre-Stage-01 agents/state.py, core/error_handler.py, core/__init__.py, agents/__init__.py, and the locked error-handler test.",
+    "Restore core/observability.py and core/progress_bus.py using the independent Observability artifact.",
+    "Remove only Stage 01 revision 1 attempt 1 artifacts; preserve accepted Stage 00 artifacts, state history, dfc.md, and product data."
+  ],
+  "implementation_ready": true,
+  "created_at": "2026-08-28T06:15:06.8462965Z"
+}

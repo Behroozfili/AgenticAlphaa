@@ -236,3 +236,34 @@ class TestRetrievePipeline:
         _, kwargs = mock_store.hybrid_search.call_args
         assert kwargs["ticker"] == "NVDA"
         assert kwargs["days_back"] == 7
+
+    def test_live_temporal_query_passes_as_of_without_historical_mode(
+        self, retriever, mock_store
+    ):
+        mock_store.hybrid_search.return_value = [{
+            **make_chunk(published_at="2024-01-20T00:00:00+00:00"),
+            "chunk_id": "live-ok",
+            "dataset_version": "live-v1",
+            "effective_from": "2024-01-20T00:00:00+00:00",
+            "effective_to": None,
+        }]
+
+        rows = retriever.retrieve_raw(
+            "q", ticker="NVDA", as_of="2024-01-31T21:00:00+00:00",
+            dataset_version="live-v1", historical=False,
+        )
+
+        kwargs = mock_store.hybrid_search.call_args.kwargs
+        assert kwargs["historical"] is False
+        assert kwargs["as_of"] == "2024-01-31T21:00:00+00:00"
+        assert [row["chunk_id"] for row in rows] == ["live-ok"]
+
+    def test_historical_filters_leakage_before_freshness_ranking(self, retriever, mock_store):
+        mock_store.hybrid_search.return_value = [
+            {**make_chunk(rrf_score=0.2, published_at="2024-01-20T00:00:00+00:00"), "chunk_id": "ok", "dataset_version": "v1", "effective_from": "2024-01-20T00:00:00+00:00", "effective_to": None},
+            {**make_chunk(rrf_score=0.99, published_at="2024-02-02T00:00:00+00:00"), "chunk_id": "future", "dataset_version": "v1", "effective_from": "2024-02-02T00:00:00+00:00", "effective_to": None},
+            {**make_chunk(rrf_score=0.98, ticker="AMD", published_at="2024-01-20T00:00:00+00:00"), "chunk_id": "other", "dataset_version": "v1", "effective_from": "2024-01-20T00:00:00+00:00", "effective_to": None},
+        ]
+        rows = retriever.retrieve_raw("q", ticker="NVDA", as_of="2024-02-01T00:00:00+00:00", dataset_version="v1", historical=True)
+        assert [row["chunk_id"] for row in rows] == ["ok"]
+        assert rows[0]["hours_old"] == 12 * 24

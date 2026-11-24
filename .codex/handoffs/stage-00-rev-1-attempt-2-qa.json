@@ -1,0 +1,135 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "00",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "qa_status": "FAIL",
+  "tests_run": [
+    {
+      "check": "control_plane_exact_locks_and_artifact_identity",
+      "command": "validate_refactor_control --check-control --check-locks plus jsonschema validation",
+      "exit_code": 0,
+      "result": "PASS; active Stage 00 revision 1 attempt 2 QA identity and exact qa lock are valid"
+    },
+    {
+      "check": "attempt_1_immutability_and_minimal_fix",
+      "command": "artifact timestamps/SHA-256 inventory and in-memory reconstruction of attempt-1 pytest.ini",
+      "exit_code": 0,
+      "result": "PASS; attempt-1 artifacts predate attempt 2 and remain present; removing the single -p no:langsmith_plugin token reconstructs the recorded attempt-1 pytest.ini SHA-256 967b5e451ee69ef49d414cbd4927d699c2b0fbb8d706f5f60ea9f65afdcedfae"
+    },
+    {
+      "check": "langsmith_plugin_registration",
+      "command": "pytest --trace-config --collect-only -q tests/unit_tests/test_supabase_phase5_migration.py",
+      "exit_code": 0,
+      "result": "PASS; langsmith_plugin and langsmith.pytest_plugin are not registered"
+    },
+    {
+      "check": "guarded_full_collection",
+      "command": "external-DNS/connect guarded pytest --collect-only tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "PASS; 1136 collected: 1085 unit and 51 integration; QA_EXTERNAL_ATTEMPTS=[]"
+    },
+    {
+      "check": "guarded_default_collection",
+      "command": "external-DNS/connect guarded pytest --collect-only",
+      "exit_code": 0,
+      "result": "PASS; 1085 unit tests collected; QA_EXTERNAL_ATTEMPTS=[]"
+    },
+    {
+      "check": "guarded_offline_unit_baseline",
+      "command": "external-DNS/connect guarded pytest -q --disable-warnings --tb=no tests/unit_tests",
+      "exit_code": 1,
+      "result": "FAIL_OFFLINE_GATE; counts match at 1045 passed, 40 known failures and 35 warnings, but the process attempted external DNS for api.smith.langchain.com repeatedly and www.reddit.com twice; all attempts were blocked and no external connection completed"
+    },
+    {
+      "check": "legacy_migration_disposition",
+      "command": "focused guarded migration test plus git integrity check",
+      "exit_code": 1,
+      "result": "EXPECTED_KNOWN_FAILURE; test unchanged, exactly four FileNotFoundError failures, NO_VALID_RETARGET, QA_EXTERNAL_ATTEMPTS=[]"
+    },
+    {
+      "check": "dependency_and_manifest_hash_integrity",
+      "command": "uv lock --check --offline and SHA-256 comparison",
+      "exit_code": 0,
+      "result": "PASS; 210 packages resolved and all recorded runner/dependency/model hashes match"
+    },
+    {
+      "check": "backup_restore_and_obsolete_trace_dispositions",
+      "command": "attempt-2 manifest and prior local inventory review",
+      "exit_code": 0,
+      "result": "PASS_DISPOSITION_ONLY; backup/restore remains NOT_AVAILABLE/NOT_RUN, never PASS; obsolete trace remains OBSOLETE_BY_USER_DECISION"
+    }
+  ],
+  "leakage_report": {
+    "status": "NOT_APPLICABLE_STAGE_00",
+    "historical_dataset": "NOT_AVAILABLE"
+  },
+  "regression_report": {
+    "collection": {
+      "unit": 1085,
+      "integration": 51,
+      "total": 1136,
+      "comparison_to_attempt_1": "MATCH"
+    },
+    "unit_baseline": {
+      "passed": 1045,
+      "failed_known": 40,
+      "warnings": 35,
+      "comparison_to_attempt_1": "MATCH"
+    },
+    "known_failure_separation": "PASS; 36 product-contract failures and 4 missing-migration failures remain visible and match the manifest groups",
+    "product_or_test_changes": 0,
+    "offline_runner_findings_resolved": 0,
+    "offline_runner_findings_open": 2
+  },
+  "blocking_issues": [
+    {
+      "id": "STAGE00-OFFLINE-RUNNER-001",
+      "severity": "BLOCKING",
+      "responsible_stage": "00",
+      "responsible_agent": "core",
+      "finding": "Attempt 2 disables the LangSmith pytest plugin, but runtime tracing still attempts multipart POST delivery to api.smith.langchain.com during the complete unit suite. The QA guard recorded and blocked the external DNS attempts, so no request completed.",
+      "required_change": "Prevent runtime LangSmith tracing from being enabled or leaked during the complete offline unit run; disabling only the pytest plugin is insufficient. Preserve all tests and known-failure classifications, then rerun under the same external-network guard."
+    },
+    {
+      "id": "STAGE00-OFFLINE-UNIT-IO-002",
+      "severity": "BLOCKING",
+      "responsible_stage": "00",
+      "responsible_agent": "core",
+      "finding": "The nominal offline unit suite also attempted DNS resolution for www.reddit.com twice. The QA guard blocked both attempts; no connection completed.",
+      "required_change": "Identify and isolate or mock the remaining Reddit I/O in the offline unit suite without deselecting or weakening tests, then rerun collection and the full unit baseline under the external-network guard."
+    }
+  ],
+  "environment_blockers": [
+    {
+      "item": "Supabase, Neo4j, backup artifact, checksum and restore target",
+      "status": "NOT_AVAILABLE_NOT_RUN",
+      "blocking_for_stage_00_disposition": false,
+      "note": "User-directed honest disposition; no PASS claim or external check was made."
+    },
+    {
+      "item": "Historical point-in-time dataset",
+      "status": "NOT_AVAILABLE",
+      "blocking_for_stage_00_disposition": false,
+      "note": "Belongs to Stages 07 and 09."
+    }
+  ],
+  "candidate_downstream_stages_affected": [
+    "01",
+    "03",
+    "04B",
+    "05",
+    "06",
+    "08",
+    "FINAL_QA"
+  ],
+  "requested_primary_changes": [
+    {
+      "target_agent": "core",
+      "reason": "Resolve both external-I/O findings in a new immutable attempt; do not hide tests, weaken assertions, or claim offline based only on absence of unguarded error output."
+    }
+  ],
+  "created_at": "2026-08-27T15:15:51.2082688Z"
+}

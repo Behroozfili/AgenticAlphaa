@@ -1,6 +1,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from dataclasses import dataclass, field
@@ -9,6 +10,27 @@ import nltk
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 
 logger = logging.getLogger(__name__)
+VADER_LEXICON_RESOURCE = (
+    "sentiment/vader_lexicon.zip/vader_lexicon/vader_lexicon.txt"
+)
+
+
+def _resolve_vader_lexicon_sha256() -> str:
+    """Hash the exact locally installed lexicon bytes without downloading."""
+    pointer = nltk.data.find(VADER_LEXICON_RESOURCE)
+    with pointer.open() as stream:
+        return hashlib.sha256(stream.read()).hexdigest()
+
+
+try:
+    VADER_LEXICON_SHA256 = _resolve_vader_lexicon_sha256()
+except LookupError:
+    # Construction still fails closed in _ensure_vader_lexicon. The module may
+    # be imported in an environment where the optional local resource is absent.
+    VADER_LEXICON_SHA256 = "unavailable"
+VADER_MODEL_VERSION = (
+    f"nltk-{nltk.__version__}:vader_lexicon:sha256-{VADER_LEXICON_SHA256}"
+)
 
 # VADER thresholds (NLTK recommended values)
 _POSITIVE_THRESHOLD: float =  0.05
@@ -43,9 +65,9 @@ def reset_vader() -> None:
 
 def _ensure_vader_lexicon() -> None:
     """
-    Download the VADER lexicon if it is not already present.
+    Require the VADER lexicon to be present locally.
 
-    Thread-safe; subsequent calls are no-ops after the first download.
+    Thread-safe; subsequent calls are no-ops after the first verification.
     Uses double-checked locking to avoid redundant I/O.
     """
     global _VADER_LOADED
@@ -55,11 +77,12 @@ def _ensure_vader_lexicon() -> None:
         if _VADER_LOADED:
             return
         try:
-            nltk.data.find("sentiment/vader_lexicon.zip")
+            nltk.data.find(VADER_LEXICON_RESOURCE)
             logger.info("VADER lexicon already present.")
-        except LookupError:
-            logger.info("Downloading VADER lexicon (one-time)...")
-            nltk.download("vader_lexicon", quiet=True)
+        except LookupError as exc:
+            raise LookupError(
+                "VADER lexicon is unavailable locally; automatic network download is disabled"
+            ) from exc
         _VADER_LOADED = True
 
 
@@ -113,6 +136,8 @@ class VaderResult:
     skipped_chunks: int                   = 0
     status:         str                   = "VALID"
     polarity:       str | None            = None
+    model_version:  str                   = VADER_MODEL_VERSION
+    deterministic:  bool                  = True
 
 
 # ---------------------------------------------------------------------------
@@ -127,7 +152,8 @@ class VaderLexiconScorer:
     financial news snippets, and any short-form content where FinBERT's
     deep contextual understanding is overkill or too slow.
 
-    The VADER lexicon is auto-downloaded on first use and cached globally.
+    The VADER lexicon must already be installed locally; network download is
+    never attempted by this scorer.
 
     Example
     -------
@@ -222,6 +248,8 @@ class VaderLexiconScorer:
             skipped_chunks = skipped,
             status         = "VALID",
             polarity       = corpus_label.upper(),
+            model_version  = VADER_MODEL_VERSION,
+            deterministic  = True,
         )
         logger.info(
             "VADER scoring complete: %d chunks | %s (compound=%.4f)",
@@ -317,4 +345,6 @@ class VaderLexiconScorer:
             skipped_chunks = skipped,
             status         = "NO_DATA",
             polarity       = None,
+            model_version  = VADER_MODEL_VERSION,
+            deterministic  = True,
         )

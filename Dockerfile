@@ -4,14 +4,13 @@
 # =========================
 # Multi-stage build for the FastAPI multi-agent service.
 #
-#   Entry point : uvicorn api.main:app   (main.py is only a stub)
+#   Entry point : uvicorn api.main:app   (main.py also supports serve and seed-rag)
 #   Python      : 3.12   (pyproject.toml → requires-python = ">=3.12")
 #   Deps        : uv + committed uv.lock  (reproducible install)
 #
 # Notes
 # -----
-# * uvicorn is declared only in requirements.txt (not pyproject.toml/uv.lock),
-#   yet it is what actually boots the app, so it is installed explicitly below.
+# * uvicorn is installed from the committed dependency lock.
 # * The ML stack (torch / transformers / sentence-transformers) is inherently
 #   large; the multi-stage layout keeps build-only tooling out of the final
 #   image, but the runtime image is still sizeable because of these wheels.
@@ -40,14 +39,9 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 
 # Install the locked dependencies into /opt/venv.
-#   --frozen             : fail if uv.lock is out of sync (no silent drift)
+#   --locked             : fail if uv.lock is out of sync (no silent drift)
 #   --no-install-project : the root package is a stub; we run from source
-RUN uv sync --frozen --no-install-project
-
-# uvicorn is the ASGI server the app is started with but is missing from
-# pyproject.toml/uv.lock (it lives only in requirements.txt). Add it so the
-# runtime image can actually launch the application.
-RUN uv pip install --python /opt/venv/bin/python "uvicorn>=0.34.0"
+RUN uv sync --locked --no-dev --no-install-project
 
 # ─────────────────────────────────────────────────────────────
 # Stage 2 — Runtime: minimal image running as a non-root user
@@ -83,4 +77,4 @@ EXPOSE 3000
 
 # The app spawns MCP tool servers as `python tools/**/**_server.py` subprocesses
 # and serves frontend/alpha-agent-app.html, so the full source tree is present.
-CMD ["uvicorn", "api.main:app","--reload", "--port", "3000"]
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "3000", "--workers", "1"]

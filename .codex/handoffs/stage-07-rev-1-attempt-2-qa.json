@@ -1,0 +1,102 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "control_revision": 130,
+  "implementation_artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-implementation.json",
+  "implementation_sha256": "10c860a89da895317fac0beb52f02130650cdb8b401ca8cdd4c732168e1cc26e",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "CONTROL VALID; execution enabled; Stage 07 revision 1 attempt 2 remained ACTIVE in QA; the Attempt 2 QA artifact path was locked to qa and did not previously exist."
+    },
+    {
+      "command": "Attempt 2 artifact schema, identity, cross-link, dependency and runtime byte-preservation validation",
+      "exit_code": 0,
+      "result": "All five prerequisite JSON artifacts satisfy artifact.schema.json. Thirty of thirty SHA-256/binding checks passed across draft-ready, observability, implementation MD, DATA_READINESS, MODEL_READY, accepted 04B/05/06 handoffs, seven runtime inputs and all fifteen Attempt 1 final source/test/fixture paths. Attempt 1 QA remained immutable at 4aba365346b22ec8e88a1f28844bd1783b7142f4d81bbc7d91b2ab76a1162034."
+    },
+    {
+      "command": "Independent current-runtime normal/reversed DATA_READINESS, model-fit and prediction reproduction",
+      "exit_code": 0,
+      "result": "Both input orders reproduced readiness ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6, eligible rows 1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4 and model logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126. Model objects and predictions were identical."
+    },
+    {
+      "command": "Independent full semantic comparison of current-runtime outputs to Attempt 2 milestone content",
+      "exit_code": 0,
+      "result": "The complete DATA_READINESS manifest, complete MODEL_READY model artifact and deterministic prediction exactly matched the milestone evidence; both milestone_status values are PASS and MODEL_READY binds the exact readiness and eligible-row hashes."
+    },
+    {
+      "command": "python -m pytest --collect-only tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "64 tests collected in 1.02s; zero collection errors."
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "64 passed in 11.18s using deterministic offline local fixtures."
+    },
+    {
+      "command": "Immutable Attempt 1 independent QA regression evidence",
+      "exit_code": 0,
+      "result": "Referenced .codex/handoffs/stage-07-rev-1-attempt-1-qa.json at SHA-256 4aba365346b22ec8e88a1f28844bd1783b7142f4d81bbc7d91b2ab76a1162034. That independent run recorded 114/114 ForecastContext/State/Stage07 passes, 112/112 typed upstream feature passes and 1357 unit tests collected with zero errors. Reuse is valid because every declared Attempt 1 product/test/fixture source hash remains byte-identical and Attempt 2 changed evidence artifacts only."
+    }
+  ],
+  "leakage_report": {
+    "status": "PASS",
+    "exact_21_trading_session_target": "PASS",
+    "future_target_bar_isolation": "PASS",
+    "pre_target_outcome_rejection": "PASS",
+    "snapshot_finalization_boundary": "PASS",
+    "universe_membership_binding": "PASS",
+    "eligible_row_content_binding": "PASS",
+    "model_to_readiness_binding": "PASS",
+    "train_through_rejection": "PASS",
+    "training_only_imputer_scaler_selector": "PASS_PRESERVED_BYTE_IDENTICAL_RUNTIME",
+    "normal_reversed_order_determinism": "PASS",
+    "calibration": "NOT_APPLICABLE_NO_SEPARATE_CALIBRATOR"
+  },
+  "regression_report": {
+    "status": "PASS",
+    "attempt2_focused_stage07": "64/64 passed",
+    "attempt2_focused_collection": "64 collected with zero errors",
+    "attempt1_forecast_context_state_combined": "114/114 passed; immutable evidence reused against byte-identical runtime",
+    "attempt1_typed_upstream_features": "112/112 passed; immutable evidence reused against byte-identical runtime",
+    "attempt1_unit_collection": "1357 collected with zero errors; immutable evidence reused",
+    "privacy_and_failure_paths": "PASS in the repeated focused suite",
+    "scientific_scope": "PRELIMINARY synthetic single-ticker 40-cutoff engineering fixture; no investment-performance claim"
+  },
+  "semantic_reproducibility_report": {
+    "status": "PASS",
+    "resolved_finding": "QA-07-001",
+    "data_readiness_artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-DATA_READINESS.json",
+    "data_readiness_artifact_sha256": "cd406506c1b9c001ea4f62861796aadf9243e7d9c049b705cb93611b692b8b6e",
+    "readiness_manifest_hash": "ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6",
+    "eligible_rows_sha256": "1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4",
+    "model_ready_artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-MODEL_READY.json",
+    "model_ready_artifact_sha256": "3c52a74ebc9c3f74ae5db54bff131696e6362997d4edd8af860121813d27f6b1",
+    "model_version": "logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126",
+    "normal_order": "EXACT_MATCH",
+    "reversed_order": "EXACT_MATCH",
+    "complete_manifest_model_prediction_match": true
+  },
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [],
+  "external_execution": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "delete": false,
+    "deploy": false,
+    "commit_or_push": false,
+    "stage08_work": false
+  },
+  "created_at": "2026-09-07T14:15:16.8311740Z"
+}

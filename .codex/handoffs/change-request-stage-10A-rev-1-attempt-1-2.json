@@ -1,0 +1,152 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 166,
+  "status": "CHANGES_REQUESTED",
+  "target_agent": "core",
+  "supplemental_to": [
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json",
+      "sha256": "6952d6790995f426f5ace00dd323b2b96c317d7b35bd633cb74bc2b75816353c"
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json",
+      "sha256": "5293a8b273d7330ca11af9491cf9402a22a5a56ea630f8e1f5646805447a05f5"
+    }
+  ],
+  "changed_files": [
+    "core/observability.py",
+    "tests/unit_tests/core_test/test_observability.py",
+    ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-2.json"
+  ],
+  "reason": "The exact observability-owned portion of OBS-10A-003 is repaired. Sentry and LangSmith initializers now require an explicit global gate, explicit per-exporter gate and a non-empty credential; accept Settings-provided credentials without logging them; do not construct a LangSmith client; and convert initializer failures into stable payload-free False results with environment rollback. Remaining work is narrowed to Core call-site wiring, request/lifecycle correlation and privacy sanitation on already Core-owned paths. api/routes/analyze.py remains unresolved and is intentionally excluded from this Core request because it is outside the currently authorized/locked Stage 10A scope.",
+  "blocking": true,
+  "observability_owned_repair": {
+    "finding": "OBS-10A-003",
+    "status": "OBSERVABILITY_INITIALIZERS_RESOLVED_CORE_CALL_SITE_PENDING",
+    "core_observability_path": "core/observability.py",
+    "core_observability_sha256": "414b6b661c85138c17e81109e5dabeafba083767019fa9117fd68aa8fe6d6e88",
+    "test_path": "tests/unit_tests/core_test/test_observability.py",
+    "test_sha256": "817498ede42a0f2d7d581b6441332be6475ea284c78b4109f0a6f3a380bf8b6f",
+    "global_gate_required": true,
+    "per_exporter_gate_required": true,
+    "credential_gate_required": true,
+    "settings_credentials_supported": true,
+    "credentials_logged": false,
+    "exception_text_logged": false,
+    "initializer_failure_nonfatal": true,
+    "langsmith_client_constructed": false,
+    "external_contact": false,
+    "core_observability_requested_from_primary": false
+  },
+  "requested_paths": [
+    "api/main.py",
+    "api/dependencies.py",
+    "memory/manager_memory.py",
+    "main.py",
+    "tests/unit_tests/api_test/test_api_main.py",
+    "tests/unit_tests/api_test/test_dependencies_api.py",
+    "tests/unit_tests/test_memory/test_manager_memory.py",
+    "tests/unit_tests/test_root_main.py",
+    "tests/unit_tests/test_stage10a_runtime_foundation.py"
+  ],
+  "requested_changes": [
+    {
+      "id": "OBS-10A-001",
+      "blocking": true,
+      "request": "Wire langsmith_trace.new_stage10a_run_id and emit_stage10a_event on the already Core-owned API startup/shutdown, request started/completed/failed, Manager factory created/failed and Manager memory created/failed boundaries. Assign one opaque run_id to request.state before downstream work and reuse it for every event from that request. Preserve exact 10A/r1/a1/core and stage10a-r1-a1 identity, the closed metadata allowlist, monotonic finite non-negative latency and injected-sink failure isolation. Add success, downstream-error, concurrent-request and always-raising-sink tests."
+    },
+    {
+      "id": "OBS-10A-002-CORE-PART",
+      "blocking": true,
+      "request": "On currently Core-owned paths, replace api/main.py log.exception/raw sentry capture with stable payload-free error codes and correlated safe events. In memory/manager_memory.py stop logging task_query, preference or memory values, user/session identity and exception text/stack; retain only stable operation/status/count metadata. Add PRIVATE_SENTINEL caplog and fake-sink tests. Do not alter memory contents, persistence schema, request schemas, routing or numeric/temporal behavior."
+    },
+    {
+      "id": "OBS-10A-003-CALLSITE",
+      "blocking": true,
+      "request": "Update api/main.py _configure_optional_observability to pass runtime.OBSERVABILITY_ENABLED plus the matching exporter flag and Settings credential/project into the repaired initializer signatures. Isolate each initializer call so even an unexpected monkeypatched/third-party exception returns that exporter as disabled and cannot break application startup. Never log or emit credentials, DSNs, headers or exception text. Offline tests must prove disabled and incomplete gates make zero initializer/client calls, explicit complete gates consume Settings values, and failing initializer/sink does not break lifecycle or requests. Do not modify core/observability.py; its observability-owned repair is complete at the recorded hash."
+    },
+    {
+      "id": "OBS-10A-004",
+      "blocking": false,
+      "request": "Optionally emit seed.command.selected only after explicit seed-rag CLI selection, using a new opaque run_id and no ticker list, credential, archive data or exception text. Preserve all existing proof that normal serve/default paths never invoke seed and do not contact external systems."
+    }
+  ],
+  "unresolved_out_of_scope": [
+    {
+      "id": "OBS-10A-002-ROUTE-PART",
+      "path": "api/routes/analyze.py",
+      "test_path": "tests/unit_tests/api_test/test_analyze_cor_api.py",
+      "status": "UNRESOLVED_BLOCKING_PENDING_ORCHESTRATOR_OR_USER_AUTHORIZATION",
+      "reason": "The registered route logs req.user_id and raw req.query, creates an unconditional Sentry breadcrumb, logs exception text and persists str(exc). Neither source nor test is locked in control revision 166, and Stage 10B route/persistence behavior remains unauthorized. Observability did not edit either path. Stage 10A must not be represented as fully privacy-safe until the Orchestrator obtains explicit narrow authorization and assigns exact locks, or records an approved stage-boundary disposition."
+    }
+  ],
+  "evidence": [
+    "Control revision 166 is valid with Stage 10A revision 1 attempt 1 ACTIVE/OBSERVABILITY, observability as the only support agent, exact locks for core/observability.py, its test and this CR2, Stage 09 CLOSED and Stage 10B PENDING/NOT_STARTED.",
+    "core/observability.py init_sentry now short-circuits unless observability_enabled is exactly true, exporter_enabled is exactly true and the explicit or environment DSN is non-empty; the DSN is passed only to sentry_sdk.init and logs contain no environment or credential value.",
+    "core/observability.py init_langsmith applies the same three gates, accepts explicit api_key/project, creates no Client, writes SDK environment only after opt-in, rolls environment back on setup failure and emits only fixed status messages.",
+    "All initializer exception handlers discard exception objects and text. PRIVATE_DSN, PRIVATE_LANGSMITH_KEY and PRIVATE_EXCEPTION sentinels were absent from captured logs.",
+    "Incomplete-gate counterexamples make no sentry_sdk.init call and do not mutate LANGCHAIN tracing/key/project environment. The explicit LangSmith credential test patched langsmith.Client and proved it was never constructed.",
+    "The dedicated observability suite passed 26 tests; combined repaired observability plus seven Stage 10A focused modules passed 175 tests; the complete core_test directory passed 54 tests. All execution used mocks/in-memory state without network, client construction, exporter, database or seed.",
+    "langsmith_trace.py remains unchanged from CR1 with SHA-256 e348fae4ac31277fa8c1a2483a225797eb13dc3969b0d47c9dfbfad45043b691.",
+    "The prior observability artifact and CR1 hashes remain unchanged. No prior artifact, state, API/route/memory/main source, Stage 10B path or dependency was modified by this repair."
+  ],
+  "remaining_scope_constraints": [
+    "core/observability.py and tests/unit_tests/core_test/test_observability.py are complete observability-owned outputs and are not requested Core paths.",
+    "Do not edit api/routes/analyze.py or tests/unit_tests/api_test/test_analyze_cor_api.py without a new exact lock and explicit Orchestrator/user authorization; the privacy finding remains open.",
+    "Do not change request/response schemas, Manager routing, memory contents, persistence schema/structure, progress/UI, forecast contracts, formulas, numeric output, temporal behavior or Stage 10B business wiring.",
+    "Do not serialize raw request/query/preferences/Manager state/memory values, credentials/tokens/headers/DSNs, exception text/stack, secrets, prompts, chain-of-thought/brain_reasoning, article chunks, filing text, evidence content or duplicated tool payloads.",
+    "Do not contact external telemetry/providers/network/databases, run migrations or seed, install dependencies, delete, deploy, commit, push or activate Stage 10B."
+  ],
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/core_test/test_observability.py -q",
+      "exit_code": 0,
+      "result": "26 passed in 0.60s",
+      "network_mode": "OFFLINE_MOCKS_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <observability test plus seven exact Stage10A focused modules> -q",
+      "exit_code": 0,
+      "result": "175 passed in 13.10s",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/core_test -q",
+      "exit_code": 0,
+      "result": "54 passed in 0.65s",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile core/observability.py tests/unit_tests/core_test/test_observability.py and git diff --check on both paths",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent observability",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 166 before CR2 creation",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "external_client_constructed": false,
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-12T09:57:07.5334037Z"
+}

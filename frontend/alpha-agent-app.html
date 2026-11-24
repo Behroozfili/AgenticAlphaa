@@ -75,6 +75,10 @@ header{position:relative;z-index:20;display:flex;align-items:center;justify-cont
 #run-btn:hover:not(:disabled){opacity:.85}
 #run-btn:active:not(:disabled){transform:scale(.97)}
 #run-btn:disabled{background:var(--bg3);color:var(--t3);cursor:not-allowed}
+.forecast-controls{border-top:1px solid var(--border);padding:10px 16px;display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end}
+.forecast-controls input,.forecast-controls select{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 8px;font-family:var(--mono);font-size:10px;outline:none}
+#backtest-btn{background:transparent;color:var(--blue);border:1px solid rgba(99,130,255,.35);border-radius:7px;padding:7px 11px;font:600 11px var(--font);cursor:pointer;white-space:nowrap}
+#backtest-btn:disabled{opacity:.4;cursor:not-allowed}
 .kbd-hint{font-size:10px;color:var(--t3);margin-top:8px;padding:0 16px 12px}
 kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:1px 5px;color:var(--t2)}
 
@@ -106,6 +110,7 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
 .ll-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;margin-top:4px}
 .ll-dot.manager{background:var(--blue)}.ll-dot.research{background:var(--purple)}
 .ll-dot.financial{background:var(--amber)}.ll-dot.sentiment{background:var(--green)}
+.ll-dot.quant{background:var(--orange)}.ll-dot.monthly_forecast{background:#22D3EE}
 .ll-dot.error{background:var(--red)}
 .ll-msg{color:var(--t2);flex:1}
 .ll-ts{font-family:var(--mono);font-size:9px;color:var(--t3);flex-shrink:0;margin-top:1px}
@@ -127,6 +132,19 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
 .m-item{display:flex;flex-direction:column;gap:2px}
 .m-key{font-size:9.5px;color:var(--t3)}
 .m-val{font-family:var(--mono);font-size:13px;font-weight:500;color:var(--amber)}
+.forecast-card{border-color:rgba(99,130,255,.28)}
+.forecast-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.forecast-note{margin-top:11px;padding-top:9px;border-top:1px solid var(--border);font-size:10px;color:var(--t3)}
+.forecast-warn{color:var(--amber)}
+.backtest-status{font-family:var(--mono);font-size:10px;color:var(--t2)}
+.contribution-list,.driver-list{display:flex;flex-direction:column;gap:8px}
+.contribution-row,.driver-row{border:1px solid var(--border);border-radius:7px;padding:9px 10px;background:var(--bg3)}
+.contribution-top,.driver-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.contribution-name,.driver-name{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--t2)}
+.contribution-value{font:600 12px var(--mono)}
+.driver-detail{margin-top:5px;font:9.5px/1.55 var(--mono);color:var(--t3);overflow-wrap:anywhere}
+.decision-copy{font-size:11px;line-height:1.7;color:var(--t2);white-space:pre-wrap}
+.quality-pass{color:var(--green)}.quality-fail{color:var(--red)}
 
 .sent-score-row{display:flex;align-items:baseline;gap:8px;margin-bottom:8px}
 .sent-score{font-family:var(--mono);font-size:20px;font-weight:600}
@@ -199,18 +217,34 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
       <div class="input-card">
         <div class="q-wrap">
           <label class="field-label" for="query-input">Question</label>
-          <textarea id="query-input" rows="3" maxlength="500" placeholder="Is NVIDIA a good buy for Q4 2025 given current AI spending?"></textarea>
+          <textarea id="query-input" rows="3" maxlength="500" placeholder="Should I buy, hold, or avoid MSFT for the next month, and why?"></textarea>
         </div>
         <div class="t-wrap">
           <div class="ticker-group">
             <label class="field-label" for="ticker-input">Ticker</label>
-            <input id="ticker-input" type="text" maxlength="5" placeholder="NVDA" autocomplete="off" spellcheck="false"/>
+            <input id="ticker-input" type="text" maxlength="5" placeholder="MSFT" autocomplete="off" spellcheck="false"/>
           </div>
-          <button id="run-btn" onclick="runAnalysis()">
+          <button id="run-btn" onclick="runAnalysis()" disabled>
             <svg width="11" height="11" viewBox="0 0 11 11"><path d="M1 1L10 5.5L1 10V1Z" fill="white"/></svg>
             Run Analysis
           </button>
         </div>
+        <div class="forecast-controls">
+          <div>
+            <label class="field-label" for="as-of-input">Monthly cutoff</label>
+            <input id="as-of-input" type="date" aria-describedby="cutoff-help"/>
+          </div>
+          <div>
+            <label class="field-label" for="mode-input">Mode</label>
+            <select id="mode-input"><option value="LIVE">Live</option><option value="HISTORICAL_BACKTEST">Historical</option></select>
+          </div>
+          <div>
+            <label class="field-label" for="cutoff-policy-input">Cutoff policy</label>
+            <select id="cutoff-policy-input"><option value="MONTH_TO_DATE">Month to date</option><option value="MONTH_END">Month end</option></select>
+          </div>
+          <button id="backtest-btn" type="button" onclick="runBacktest()">Run backtest</button>
+        </div>
+        <div class="kbd-hint" id="cutoff-help">Loading the active model universe and latest available market cutoff…</div>
         <div class="kbd-hint"><kbd>⌘</kbd> <kbd>↵</kbd> to run</div>
       </div>
     </div>
@@ -242,6 +276,18 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
           <div class="a-tools" id="at-sentiment">finbert · vader · fear_greed</div>
           <div class="a-time" id="atime-sentiment"></div>
         </div>
+        <div class="a-row" id="ar-quant">
+          <div class="a-dot"></div>
+          <div class="a-name">Quant / Market</div>
+          <div class="a-tools" id="at-quant">market data · features · 21d model</div>
+          <div class="a-time" id="atime-quant"></div>
+        </div>
+        <div class="a-row" id="ar-monthly_forecast">
+          <div class="a-dot"></div>
+          <div class="a-name">MonthlyForecast</div>
+          <div class="a-tools" id="at-monthly_forecast">quality gate · fusion · explanation</div>
+          <div class="a-time" id="atime-monthly_forecast"></div>
+        </div>
       </div>
     </div>
 
@@ -262,6 +308,15 @@ kbd{font-family:var(--mono);font-size:9px;background:var(--bg3);border:1px solid
 </div>
 
 <script>
+
+function forecastDisplayState(data) {
+  const mf = data.monthly_forecast;
+  if (data.status === 'failed' || ['DATA_QUALITY_BLOCKED', 'DATA_INSUFFICIENT'].includes(data.publication_status)
+      || (mf && (mf.quality_gate_passed !== true || mf.missing === true))) return 'blocked';
+  if (mf?.degraded || data.publication_status === 'PUBLISHED_WITH_WARNINGS') return 'degraded';
+  return 'ready';
+}
+
 document.getElementById('api-host').textContent = window.location.host;
 /* ═══════════════════════════════════════════
    GRAPH ENGINE
@@ -283,7 +338,8 @@ const NODE_DEFS = [
   { id:'research',  label:'Research',  sub:'Tavily·SEC·RAG',color:'#A78BFA', x:.22, y:.72 },
   { id:'financial', label:'Financial', sub:'Ratios·XBRL',   color:'#F5A623', x:.5,  y:.78 },
   { id:'sentiment', label:'Sentiment', sub:'FinBERT·VADER',  color:'#2DD4A0', x:.78, y:.72 },
-
+  { id:'quant', label:'Quant', sub:'MarketFeatures·21d', color:'#FB923C', x:.32, y:.16 },
+  { id:'monthly_forecast', label:'Monthly', sub:'Fusion·Decision', color:'#22D3EE', x:.68, y:.16 },
 ];
 
 const EDGE_DEFS = [
@@ -293,7 +349,9 @@ const EDGE_DEFS = [
   { from:'research', to:'manager',   label:'results' },
   { from:'financial',to:'manager',   label:'metrics' },
   { from:'sentiment',to:'manager',   label:'scores' },
-
+  { from:'manager',to:'quant', label:'joined features' },
+  { from:'quant',to:'monthly_forecast', label:'prediction' },
+  { from:'monthly_forecast',to:'manager', label:'decision' },
 ];
 
 function resize() {
@@ -895,7 +953,7 @@ function setAgentDetail(id, text) {
 }
 
 function resetRail() {
-  ['manager','research','financial','sentiment'].forEach(id => {
+  ['manager','research','financial','sentiment','quant','monthly_forecast'].forEach(id => {
     const el = document.getElementById('ar-'+id);
     if (el) el.className='a-row';
     const t = document.getElementById('atime-'+id);
@@ -906,6 +964,8 @@ function resetRail() {
     research:   'tavily · sec_edgar · rag_hybrid',
     financial:  'ratios · xbrl · pe · roe · composite',
     sentiment:  'finbert · vader · fear_greed',
+    quant:      'market data · features · 21d model',
+    monthly_forecast: 'quality gate · fusion · explanation',
   };
   Object.entries(DEFAULT_TOOLS).forEach(([id, text]) => setAgentDetail(id, text));
 }
@@ -986,6 +1046,25 @@ function sentLabel(s) {
   return 'Neutral';
 }
 
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>'"]/g, ch => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'
+  })[ch]);
+}
+
+function formatDriver(driver) {
+  const parts=[];
+  if(driver.reason) parts.push(`<strong>${escapeHtml(driver.reason)}</strong>`);
+  if(driver.event_signals?.length) parts.push(driver.event_signals.map(escapeHtml).join(' · '));
+  if(driver.metrics && Object.keys(driver.metrics).length) {
+    parts.push(Object.entries(driver.metrics).map(([k,v]) => `${escapeHtml(k.replace(/_/g,' '))}: ${Number(v).toFixed(3)}`).join(' · '));
+  }
+  if(driver.source) parts.push(`source: ${escapeHtml(driver.source)}`);
+  if(driver.timestamp) parts.push(`time: ${escapeHtml(driver.timestamp)}`);
+  return parts.join('<br>') || 'No compact driver details returned.';
+}
+
+
 function renderResults(data) {
   const sec = document.getElementById('results-section');
   sec.style.display='flex';
@@ -994,13 +1073,84 @@ function renderResults(data) {
   // strip
   const strip = document.createElement('div');
   strip.className='r-strip';
+  const forecastState = forecastDisplayState(data);
+  const stateClass = forecastDisplayState(data) === 'ready' ? 'ok' : 'fail';
   strip.innerHTML=`
-    <span class="chip ok">completed</span>
+    <span class="chip ${stateClass}">${forecastState}</span>
     <span class="chip">${data.duration_s}s</span>
     ${data.analysis_id?`<span class="chip">#${data.analysis_id.slice(0,8)}</span>`:''}
   `;
   sec.appendChild(strip);
+  if (data.persistence_status !== 'SAVED') {
+    const warning = document.createElement('div');
+    warning.className = 'forecast-note forecast-warn';
+    warning.textContent = 'Storage: ' + (data.persistence_status || 'UNKNOWN') + '. Analysis: ' + (data.persistence_details?.analysis || 'UNKNOWN') + '; forecast: ' + (data.persistence_details?.forecast || 'UNKNOWN') + '. Keep this result before leaving the page.';
+    sec.appendChild(warning);
+  }
 
+  // Deterministic 21-session forecast. DCF remains a separate long-term metric.
+  const mf=data.monthly_forecast;
+  if (mf) {
+    const pct=v=>typeof v==='number'?(v*100).toFixed(2)+'%':'—';
+    const interval=Array.isArray(mf.confidence_interval)
+      ? mf.confidence_interval.map(pct).join(' → ') : '—';
+    const card=document.createElement('div');card.className='r-card forecast-card';
+    card.innerHTML=`<div class="r-card-head"><span class="r-card-title">21-session forecast · ${escapeHtml(mf.analysis_mode)}</span><span class="backtest-status">${forecastDisplayState(data)}</span></div>
+      <div class="r-card-body"><div class="forecast-grid">
+        <div class="m-item"><span class="m-key">Target date</span><span class="m-val">${escapeHtml(mf.target_date||'—')}</span></div>
+        <div class="m-item"><span class="m-key">Action</span><span class="m-val">${escapeHtml(mf.action||'—')}</span></div>
+        <div class="m-item"><span class="m-key">Positive probability</span><span class="m-val">${pct(mf.probability_positive)}</span></div>
+        <div class="m-item"><span class="m-key">Expected return</span><span class="m-val">${pct(mf.expected_return_21d)}</span></div>
+        <div class="m-item"><span class="m-key">Expected excess return</span><span class="m-val">${pct(mf.expected_excess_return)}</span></div>
+        <div class="m-item"><span class="m-key">Confidence</span><span class="m-val">${pct(mf.confidence)}</span></div>
+        <div class="m-item"><span class="m-key">Uncertainty</span><span class="m-val">${interval}</span></div>
+        <div class="m-item"><span class="m-key">Graph coverage</span><span class="m-val">${mf.graph_coverage===true?'covered':mf.graph_coverage===false?'not covered':'unknown'}</span></div>
+        <div class="m-item"><span class="m-key">Evidence refs</span><span class="m-val">${mf.evidence_ids?.length||0}</span></div>
+        <div class="m-item"><span class="m-key">Quality gate</span><span class="m-val ${mf.quality_gate_passed?'quality-pass':'quality-fail'}">${mf.quality_gate_passed?'passed':'blocked'}</span></div>
+        <div class="m-item"><span class="m-key">Model</span><span class="m-val">${escapeHtml(mf.model_variant||'—')}</span></div>
+      </div>
+      ${mf.quality_gate_failures?.length?`<div class="forecast-note forecast-warn">Quality failures: ${mf.quality_gate_failures.map(escapeHtml).join(' · ')}</div>`:''}
+      ${mf.warnings?.length?`<div class="forecast-note forecast-warn">${mf.warnings.map(escapeHtml).join(' · ')}</div>`:''}
+      <div class="forecast-note">DCF fair value is a long-term valuation feature and is not the expected 21-day price.</div></div>`;
+    sec.appendChild(card);
+
+    const contributions=mf.specialist_contributions||{};
+    const adjustments=contributions.return_adjustments||{};
+    if(Object.keys(adjustments).length) {
+      const base=contributions.base_model||{};
+      const cc=document.createElement('div');cc.className='r-card';
+      cc.innerHTML=`<div class="r-card-head"><span class="r-card-title">Specialist impact on forecast</span><span class="backtest-status">${escapeHtml(contributions.version||'')}</span></div>
+        <div class="r-card-body">
+          <div class="forecast-grid" style="margin-bottom:10px">
+            <div class="m-item"><span class="m-key">Base expected return</span><span class="m-val">${pct(base.expected_return_21d)}</span></div>
+            <div class="m-item"><span class="m-key">Total agent adjustment</span><span class="m-val">${pct(contributions.total_return_adjustment)}</span></div>
+          </div>
+          <div class="contribution-list">${['research','financial','sentiment'].map(name=>{
+            const value=adjustments[name]; const color=Number(value)>=0?'var(--green)':'var(--red)';
+            const score=contributions.scores?.[name];
+            return `<div class="contribution-row"><div class="contribution-top"><span class="contribution-name">${name}</span><span class="contribution-value" style="color:${color}">${pct(value)}</span></div><div class="driver-detail">normalized score: ${typeof score==='number'?score.toFixed(3):'—'}</div></div>`;
+          }).join('')}</div>
+        </div>`;
+      sec.appendChild(cc);
+    }
+
+    if(mf.decision_drivers?.length) {
+      const dc=document.createElement('div');dc.className='r-card';
+      dc.innerHTML=`<div class="r-card-head"><span class="r-card-title">Evidence-backed decision drivers</span><span class="backtest-status">${mf.decision_drivers.length} drivers</span></div>
+        <div class="r-card-body"><div class="driver-list">${mf.decision_drivers.map(driver=>{
+          const direction=escapeHtml(driver.direction||'NEUTRAL');
+          const adjustment=typeof driver.return_adjustment==='number'?pct(driver.return_adjustment):'—';
+          return `<div class="driver-row"><div class="driver-top"><span class="driver-name">${escapeHtml(driver.specialist||'unknown')} · ${direction}</span><span class="contribution-value">${adjustment}</span></div><div class="driver-detail">${formatDriver(driver)}</div></div>`;
+        }).join('')}</div></div>`;
+      sec.appendChild(dc);
+    }
+
+    if(mf.narrative) {
+      const nc=document.createElement('div');nc.className='r-card';
+      nc.innerHTML=`<div class="r-card-head"><span class="r-card-title">Why ${escapeHtml(mf.action||'this decision')}</span></div><div class="r-card-body"><div class="decision-copy">${escapeHtml(mf.narrative)}</div></div>`;
+      sec.appendChild(nc);
+    }
+  }
   // financial
   const fm = data.financial_metrics || {};
   const fk = Object.keys(fm);
@@ -1016,20 +1166,32 @@ function renderResults(data) {
 
   // sentiment
   const sa=data.sentiment_analysis||{};
-  const raw=sa.composite_score??sa.overall_score??sa.score??null;
+  const raw=sa.fear_greed_score??sa.direction_strength??null;
   const sn=typeof raw==='number'?raw:null;
-  const pct=sn!==null?Math.round((sn+1)/2*100):50;
-  const sc=sentColor(sn); const sl=sentLabel(sn);
-  const sx=Object.entries(sa).filter(([k])=>!['composite_score','overall_score','score'].includes(k)).slice(0,4);
+  const sentimentPct=sn!==null?Math.max(0,Math.min(100,Math.round((sn+1)/2*100))):50;
+  const sc=sentColor(sn);
+  const sl=sa.fear_greed_label||sa.polarity||sa.overall_sentiment||sentLabel(sn);
+  const sentimentRows=[
+    ['Status',sa.status],
+    ['Polarity',sa.polarity],
+    ['FinBERT',sa.finbert_label],
+    ['VADER',sa.vader_label],
+    ['Confidence',typeof sa.fear_greed_confidence==='number'?`${(sa.fear_greed_confidence*100).toFixed(1)}%`:sa.fear_greed_confidence],
+    ['Evidence analyzed',sa.total_chunks_analyzed],
+    ['Unique documents',sa.unique_document_count],
+    ['Quality gate',sa.quality_passed===true?'passed':sa.quality_passed===false?'degraded':null],
+  ].filter(([,value])=>value!==null&&value!==undefined&&value!=='');
   const c2=document.createElement('div');c2.className='r-card';
-  c2.innerHTML=`<div class="r-card-head"><span class="r-card-title">Sentiment</span></div>
+  c2.innerHTML=`<div class="r-card-head"><span class="r-card-title">Sentiment</span><span class="backtest-status">${escapeHtml(sa.status||'unknown')}</span></div>
   <div class="r-card-body">
-    <div class="sent-score-row"><span class="sent-score" style="color:${sc}">${sl}</span><span class="sent-sublabel">${sn!==null?(sn>0?'+':'')+sn.toFixed(3):''}</span></div>
+    <div class="sent-score-row"><span class="sent-score" style="color:${sc}">${escapeHtml(sl)}</span><span class="sent-sublabel">${sn!==null?(sn>0?'+':' ')+sn.toFixed(3):'no score'}</span></div>
     <div class="sent-bar"><div class="sent-fill" style="width:0%;background:${sc}" id="sent-fill-el"></div></div>
-    <div class="sent-rows">${sx.map(([k,v])=>`<div class="sent-r"><span class="sent-rk">${k.replace(/_/g,' ')}</span><span class="sent-rv">${typeof v==='number'?v.toFixed(3):v}</span></div>`).join('')}</div>
+    <div class="sent-rows">${sentimentRows.map(([k,v])=>`<div class="sent-r"><span class="sent-rk">${escapeHtml(k)}</span><span class="sent-rv">${escapeHtml(v)}</span></div>`).join('')}</div>
+    ${sa.narrative?`<div class="forecast-note">${escapeHtml(sa.narrative)}</div>`:''}
   </div>`;
   sec.appendChild(c2);
-  setTimeout(()=>{ const el=document.getElementById('sent-fill-el'); if(el) el.style.width=pct+'%'; },100);
+  setTimeout(()=>{ const el=document.getElementById('sent-fill-el'); if(el) el.style.width=sentimentPct+'%'; },100);
+
 
   // research
   const hist=data.agent_execution_history||[];
@@ -1078,7 +1240,7 @@ function findEdgeIndex(from, to) {
   return edges.findIndex(e => e.from === from && e.to === to);
 }
 
-const AGENT_COLOR = { manager: '#6382FF', research: '#A78BFA', financial: '#F5A623', sentiment: '#2DD4A0' };
+const AGENT_COLOR = { manager: '#6382FF', research: '#A78BFA', financial: '#F5A623', sentiment: '#2DD4A0', quant:'#FB923C', monthly_forecast:'#22D3EE' };
 
 /* ────────────────────────────────────────────────────────────────
    DEMO DRIVER — preview the growing tool-call tree with no backend.
@@ -1139,6 +1301,91 @@ function handleProgressEvent(evt) {
       showBubble('manager', message);
       if (type === 'route' && detail?.action) setAgentDetail('manager', 'action: ' + detail.action);
       break;
+
+    case 'forecast_context':
+      setAgentDetail('manager', `${detail?.ticker||''} · cutoff accepted`);
+      showBubble('manager', message);
+      break;
+
+    case 'feature_start': {
+      if((message||'').includes('MARKET_QUANT')) {
+        activateAgentRow('quant');
+        setAgentDetail('quant', 'building point-in-time market features…');
+        const n=nodes.find(x=>x.id==='quant'); if(n){n.active=true;n.done=false;}
+        const idx=findEdgeIndex('manager','quant'); if(idx>=0) edges[idx].active=true;
+        showBubble('quant', message);
+      } else {
+        setAgentDetail('manager', 'running specialists concurrently…');
+        for(const id of ['research','financial','sentiment']){
+          activateAgentRow(id);
+          const n=nodes.find(x=>x.id===id); if(n){n.active=true;n.done=false;}
+          const idx=findEdgeIndex('manager',id); if(idx>=0) edges[idx].active=true;
+        }
+        showBubble('manager', message);
+      }
+      break;
+    }
+
+    case 'feature_complete': {
+      if((message||'').includes('MARKET_QUANT')) {
+        completeAgentRow('quant');
+        setAgentDetail('quant', `${detail?.evidence_count??0} evidence refs · complete`);
+        const n=nodes.find(x=>x.id==='quant'); if(n){n.active=false;n.done=true;}
+        const idx=findEdgeIndex('manager','quant'); if(idx>=0) edges[idx].active=false;
+        showBubble('quant', message);
+      } else if((message||'').includes('SPECIALISTS_JOINED')) {
+        setAgentDetail('manager', `${detail?.evidence_count??0} specialist evidence refs joined`);
+        for(const id of ['research','financial','sentiment']){
+          completeAgentRow(id);
+          const n=nodes.find(x=>x.id===id); if(n){n.active=false;n.done=true;}
+          const outIdx=findEdgeIndex('manager',id); if(outIdx>=0) edges[outIdx].active=false;
+          const inIdx=findEdgeIndex(id,'manager'); if(inIdx>=0){edges[inIdx].active=true;setTimeout(()=>edges[inIdx].active=false,1800);}
+        }
+        showBubble('manager', message);
+      } else if(['research','financial','sentiment'].includes(agent)) {
+        completeAgentRow(agent);
+        setAgentDetail(agent, `${detail?.evidence_count??0} evidence refs · feature complete`);
+        const n=nodes.find(x=>x.id===agent); if(n){n.active=false;n.done=true;}
+        showBubble(agent, message);
+      }
+      break;
+    }
+
+    case 'monthly_forecast_start': {
+      activateAgentRow('monthly_forecast');
+      setAgentDetail('monthly_forecast', 'quality gate · specialist fusion · narrative…');
+      const n=nodes.find(x=>x.id==='monthly_forecast'); if(n){n.active=true;n.done=false;}
+      const idx=findEdgeIndex('quant','monthly_forecast'); if(idx>=0) edges[idx].active=true;
+      showBubble('monthly_forecast', message);
+      break;
+    }
+
+    case 'monthly_forecast_complete': {
+      completeAgentRow('monthly_forecast');
+      setAgentDetail('monthly_forecast', `${detail?.evidence_count??0} evidence refs · complete`);
+      const n=nodes.find(x=>x.id==='monthly_forecast'); if(n){n.active=false;n.done=true;}
+      const qidx=findEdgeIndex('quant','monthly_forecast'); if(qidx>=0) edges[qidx].active=false;
+      const midx=findEdgeIndex('monthly_forecast','manager'); if(midx>=0){edges[midx].active=true;setTimeout(()=>edges[midx].active=false,2600);}
+      showBubble('monthly_forecast', message);
+      break;
+    }
+
+    case 'forecast_degraded': {
+      const target=['research','financial','sentiment'].includes(agent) ? agent : 'monthly_forecast';
+      completeAgentRow(target);
+      setAgentDetail(target, `${detail?.evidence_count??0} evidence refs · degraded`);
+      const n=nodes.find(x=>x.id===target); if(n){n.active=false;n.done=true;}
+      showBubble(target, message);
+      break;
+    }
+
+    case 'forecast_error': {
+      const target=['research','financial','sentiment'].includes(agent) ? agent : 'monthly_forecast';
+      errorAgentRow(target);
+      const n=nodes.find(x=>x.id===target); if(n){n.active=false;n.errored=true;}
+      showBubble(target, message);
+      break;
+    }
 
     case 'dispatch_start': {
       activateAgentRow(agent);
@@ -1208,13 +1455,21 @@ function handleProgressEvent(evt) {
     }
   }
 
-  appendLogLine(agent, message, evt.ts, type === 'pipeline_error' || detail?.outcome === 'error');
+  const logAgent = type.startsWith('monthly_forecast')
+    ? 'monthly_forecast'
+    : (type.startsWith('forecast_') && !['research','financial','sentiment'].includes(agent)
+      ? 'monthly_forecast'
+      : ((type==='feature_start'||type==='feature_complete') && (message||'').includes('MARKET_QUANT') ? 'quant' : agent));
+  appendLogLine(logAgent, message, evt.ts, type === 'pipeline_error' || type === 'forecast_error' || detail?.outcome === 'error');
 }
 
 /* ── RUN ── */
 async function runAnalysis() {
   const query=document.getElementById('query-input').value.trim();
   const ticker=document.getElementById('ticker-input').value.trim().toUpperCase();
+  const asOf=document.getElementById('as-of-input').value;
+  const mode=document.getElementById('mode-input').value;
+  const cutoffPolicy=document.getElementById('cutoff-policy-input').value;
   // Mirror the server-side AnalyzeRequest constraints (query: 10-500 chars)
   // so a bad input is caught here instead of coming back as an opaque 422.
   if (query.length<10 || query.length>500) {
@@ -1222,6 +1477,11 @@ async function runAnalysis() {
     renderError(query.length<10
       ? 'Question must be at least 10 characters.'
       : `Question must be at most 500 characters (currently ${query.length}).`);
+    return;
+  }
+  if (!ticker || !asOf) {
+    document.getElementById(!ticker?'ticker-input':'as-of-input').focus();
+    renderError('Ticker and a verified market cutoff are required for the monthly pipeline.');
     return;
   }
 
@@ -1254,8 +1514,9 @@ async function runAnalysis() {
   } catch (_) { /* SSE unsupported/blocked — analysis still runs, just without live view */ }
 
   try {
-    const body={query,user_id:'anonymous',search_depth:'advanced',days_back:14,include_sentiment:true,session_id:sessionId};
+    const body={query,search_depth:'advanced',days_back:30,include_sentiment:true,session_id:sessionId};
     if(ticker) body.ticker=ticker;
+    if(asOf) Object.assign(body,{as_of:asOf,horizon:21,mode,cutoff_policy:cutoffPolicy});
 
     const res=await fetch(`${API_BASE}/api/v1/analyze`,{
       method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)
@@ -1274,7 +1535,7 @@ async function runAnalysis() {
           return field ? `${field}: ${d.msg}` : d.msg;
         }).join(' · ');
       } else {
-        msg = e.detail?.message || e.message || e.detail;
+        msg = e.error?.message || e.detail?.message || e.message || e.detail;
       }
       throw new Error(msg || `HTTP ${res.status}`);
     }
@@ -1291,10 +1552,15 @@ async function runAnalysis() {
       });
     }
     completeAgentRow('manager');
+    if(data.monthly_forecast){
+      completeAgentRow('quant'); completeAgentRow('monthly_forecast');
+      for(const id of ['quant','monthly_forecast']){const n=nodes.find(x=>x.id===id);if(n){n.active=false;n.done=true;}}
+    }
     { const n = nodes.find(x=>x.id==='manager'); if(n){n.active=false;n.done=true;} }
 
-    document.getElementById('live-dot').className='live-dot done';
-    document.getElementById('status-label').textContent='done · '+data.duration_s+'s';
+    const finalState = forecastDisplayState(data);
+    document.getElementById('live-dot').className = finalState === 'ready' ? 'live-dot done' : 'live-dot error';
+    document.getElementById('status-label').textContent = finalState + ' · ' + data.duration_s + 's';
     renderResults(data);
 
   } catch(err){
@@ -1311,12 +1577,87 @@ async function runAnalysis() {
 }
 
 /* ── INIT ── */
+async function runBacktest() {
+  const button=document.getElementById('backtest-btn');
+  const sec=document.getElementById('results-section');
+  const API_BASE=window.location.origin;
+  button.disabled=true;
+  sec.style.display='flex';
+  sec.innerHTML='<div class="r-card"><div class="r-card-head"><span class="r-card-title">Walk-forward backtest</span><span class="backtest-status">submitting</span></div></div>';
+  try {
+    let response=await fetch(`${API_BASE}/api/v1/backtests`,{
+      method:'POST',headers:{'Content-Type':'application/json'},body:'{}'
+    });
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    let job=await response.json();
+    let attempts=0;
+    while(!['COMPLETED','FAILED'].includes(job.status) && attempts<120) {
+      await new Promise(resolve=>setTimeout(resolve,500));
+      response=await fetch(`${API_BASE}/api/v1/backtests/${job.run_id}`);
+      if(!response.ok) throw new Error(`HTTP ${response.status}`);
+      job=await response.json(); attempts++;
+      const label=sec.querySelector('.backtest-status');
+      if(label) label.textContent=job.status.toLowerCase();
+    }
+    if(job.status!=='COMPLETED') throw new Error(job.error_code||'BACKTEST_TIMEOUT');
+    response=await fetch(`${API_BASE}${job.artifact_url}`);
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    const artifact=await response.json();
+    const level=artifact.manifest?.scientific_report_level||'PRELIMINARY';
+    const storageWarning = job.persistence_status === 'SAVED' ? '' : '<div class="forecast-note forecast-warn">Backtest storage was not confirmed.</div>';
+    sec.innerHTML=`<div class="r-card forecast-card"><div class="r-card-head"><span class="r-card-title">Walk-forward backtest</span><span class="chip ${level==='SCIENTIFIC'?'ok':'fail'}">${level}</span></div>
+      ${storageWarning}<div class="r-card-body"><div class="forecast-grid">
+        <div class="m-item"><span class="m-key">Folds</span><span class="m-val">${artifact.fold_count}</span></div>
+        <div class="m-item"><span class="m-key">Forecast records</span><span class="m-val">${artifact.record_count}</span></div>
+        <div class="m-item"><span class="m-key">Future evidence</span><span class="m-val">${artifact.leakage_audit?.future_record_count??'—'}</span></div>
+        <div class="m-item"><span class="m-key">Report hash</span><span class="m-val">${(artifact.report_hash||'—').slice(0,12)}</span></div>
+      </div><div class="forecast-note">Gross metrics, baselines and ablations remain in the compact versioned artifact. Preliminary evidence is not investment-performance evidence.</div></div></div>`;
+  } catch(error) {
+    renderError('Backtest failed', error.message);
+  } finally {
+    button.disabled=false;
+  }
+}
+
 document.getElementById('query-input').addEventListener('keydown',e=>{
   if((e.metaKey||e.ctrlKey)&&e.key==='Enter') runAnalysis();
 });
 document.getElementById('ticker-input').addEventListener('input',e=>{
   e.target.value=e.target.value.toUpperCase().replace(/[^A-Z]/g,'');
 });
+
+function fallbackMonthlyCutoff() {
+  const nyParts=Object.fromEntries(new Intl.DateTimeFormat('en-US',{
+    timeZone:'America/New_York',year:'numeric',month:'2-digit',day:'2-digit',
+    weekday:'short',hour:'2-digit',hourCycle:'h23'
+  }).formatToParts(new Date()).filter(p=>p.type!=='literal').map(p=>[p.type,p.value]));
+  let date=new Date(`${nyParts.year}-${nyParts.month}-${nyParts.day}T12:00:00Z`);
+  if(Number(nyParts.hour)<16) date.setUTCDate(date.getUTCDate()-1);
+  while([0,6].includes(date.getUTCDay())) date.setUTCDate(date.getUTCDate()-1);
+  return date.toISOString().slice(0,10);
+}
+
+async function initializeForecastDefaults() {
+  const button=document.getElementById('run-btn');
+  const tickerInput=document.getElementById('ticker-input');
+  const cutoffInput=document.getElementById('as-of-input');
+  const help=document.getElementById('cutoff-help');
+  try {
+    const response=await fetch(`${window.location.origin}/api/v1/forecast/defaults`);
+    if(!response.ok) throw new Error(`HTTP ${response.status}`);
+    const defaults=await response.json();
+    if(defaults.ticker) tickerInput.value=defaults.ticker;
+    if(defaults.as_of) cutoffInput.value=defaults.as_of;
+    if(help) help.textContent=`21-session forecast · active universe: ${(defaults.active_tickers||[]).join(', ')||'not configured'} · verified cutoff: ${defaults.as_of||'select manually'}`;
+  } catch (_) {
+    if(!tickerInput.value) tickerInput.value='MSFT';
+    if(!cutoffInput.value) cutoffInput.value=fallbackMonthlyCutoff();
+    if(help) help.textContent='Runtime defaults were unavailable; verify ticker and cutoff before running.';
+  } finally {
+    button.disabled=false;
+  }
+}
+initializeForecastDefaults();
 
 window.addEventListener('resize', resize);
 resize();
@@ -1328,6 +1669,8 @@ const IDLE_MSGS = [
   {node:'research',text:'ready to\nsearch'},
   {node:'financial',text:'XBRL parsers\nstandby'},
   {node:'sentiment',text:'FinBERT\ninitialized'},
+  {node:'quant',text:'21-session model\nready'},
+  {node:'monthly_forecast',text:'quality gate\nstandby'},
 ];
 let idleBubbleI=0;
 setInterval(()=>{

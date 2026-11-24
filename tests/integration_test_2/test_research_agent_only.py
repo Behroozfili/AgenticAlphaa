@@ -127,6 +127,7 @@ async def main():
     try:
         from agents.research_agent import ResearchAgent  # noqa: E402
         from agents.state import SharedManagerState       # noqa: E402
+        from core.forecast_contract import ForecastContext  # noqa: E402
     except Exception:
         print("    IMPORT FAILED -- این یعنی مسیر یا پکیج‌بندی پروژه درست نیست:", flush=True)
         traceback.print_exc()
@@ -144,9 +145,15 @@ async def main():
         sys.exit(1)
     print("    OK", flush=True)
 
+    forecast_context = ForecastContext(
+        ticker=ticker, as_of="2026-08-31T20:00:00Z",
+        schema_version="v1", dataset_version="integration-live-v1",
+        feature_version="research-features-v1", model_version="model-v1",
+    )
     shared_state: SharedManagerState = {
         "task_query":                  task_query,
-        "manager_directives":          {"ticker": ticker},
+        "manager_directives":          {"ticker": ticker, "run_id": "stage04b-agent-only"},
+        "forecast_context":            forecast_context.to_dict(),
         "aggregated_research_context": [],
         "financial_metrics_summary":   {},
         "sentiment_analysis_summary":  {},

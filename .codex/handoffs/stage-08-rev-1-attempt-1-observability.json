@@ -1,0 +1,191 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 143,
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    ".codex/handoffs/change-request-stage-08-rev-1-attempt-1-1.json",
+    ".codex/handoffs/stage-08-rev-1-attempt-1-observability.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-08-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "1b1f6632636c4d869dfdc76bd8cbe98d5e719dd6e39c7986218515a2f68e1de6",
+  "requested_primary_changes": [
+    {
+      "id": "OBS-08-001",
+      "blocking": true,
+      "owner": "integration",
+      "requested_paths": [
+        "agents/manager_agent.py",
+        "tests/unit_tests/test_stage8_manager_integration.py"
+      ],
+      "reason": "ManagerAgent.run has default @traceable capture without allowlist processors, exposing task_query/directives and the complete returned SharedManagerState to trace serialization.",
+      "change_request": ".codex/handoffs/change-request-stage-08-rev-1-attempt-1-1.json"
+    },
+    {
+      "id": "OBS-08-002",
+      "blocking": true,
+      "owner": "integration",
+      "requested_paths": [
+        "agents/manager_agent.py",
+        "tests/unit_tests/test_stage8_manager_integration.py"
+      ],
+      "reason": "The monthly early-return path emits no stage-scoped progress/lifecycle event, measured latency, stable degraded/error signal or exact run/stage/revision/attempt identity, so concurrent telemetry isolation is not auditable.",
+      "change_request": ".codex/handoffs/change-request-stage-08-rev-1-attempt-1-1.json"
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "Static forbidden-field scan of the new monthly agent/helper/prompt, Stage 08 fixture/test and draft-ready artifact.",
+      "status": "PASS",
+      "evidence": "No brain_reasoning, chain-of-thought, API key, secret, authorization header, raw article/chunk/filing/payload or full filing marker was found. No external trace service was contacted."
+    },
+    {
+      "check": "Manager entrypoint trace input/output are allowlisted rather than serializing private task content or complete SharedManagerState.",
+      "status": "FAIL",
+      "evidence": "ManagerAgent.run is decorated with @traceable(name=..., run_type=...) only. A PRIVATE_SENTINEL task query remains in the returned SharedManagerState, so default input and output trace capture exposes both private input and full State when tracing is enabled."
+    },
+    {
+      "check": "Stage 08 progress events are compact, payload-free, identity-bound and do not include Quant values, evidence IDs, State, narratives or exceptions.",
+      "status": "NOT_IMPLEMENTED",
+      "evidence": "The monthly path emits zero progress events; safe event shape, error-path redaction and bounded degraded flags therefore cannot be verified."
+    }
+  ],
+  "latency_instrumentation_status": "FAIL_BLOCKING_NO_MEASURED_STAGE08_MONTHLY_LIFECYCLE_OR_IDENTITY_BOUND_PROGRESS",
+  "trace_metadata_audit": {
+    "required_fields": [
+      "run_id",
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent",
+      "latency_ms",
+      "evidence_count",
+      "degraded_flags"
+    ],
+    "immutable_runtime_identity": {
+      "status": "PASS_OUTPUT_ONLY",
+      "stage": "08",
+      "stage_revision": 1,
+      "attempt": 1,
+      "agent": "integration",
+      "implementation_version": "stage08-r1-a1"
+    },
+    "forecast_output_metadata": "PASS_AVAILABLE_IN_MONTHLY_FORECAST",
+    "manager_trace_allowlist_processors": false,
+    "measured_monthly_lifecycle_boundaries": 0,
+    "identity_bound_progress_events": 0,
+    "concurrent_progress_isolation_auditable": false
+  },
+  "lifecycle_matrix": [
+    {"boundary": "forecast_context_accepted", "status": "MISSING_STAGE_SCOPED_PROGRESS"},
+    {"boundary": "specialist_feature_start_and_controlled_join", "status": "MISSING_MEASURED_PROGRESS"},
+    {"boundary": "market_feature_and_quant_forecast", "status": "MISSING_MEASURED_PROGRESS"},
+    {"boundary": "monthly_forecast_and_publication", "status": "MISSING_MEASURED_PROGRESS"},
+    {"boundary": "degraded_completion", "status": "MISSING_STABLE_PROGRESS_SIGNAL"},
+    {"boundary": "fail_closed_error", "status": "MISSING_REDACTED_PROGRESS_SIGNAL"}
+  ],
+  "behavior_and_concurrency_audit": {
+    "complete_state_schema": "PASS",
+    "incomplete_state_null_confidence": "PASS",
+    "future_evidence_fail_closed": "PASS",
+    "quant_action_tamper_fail_closed": "PASS",
+    "quant_numeric_and_action_immutable": "PASS",
+    "llm_numeric_override_ignored": "PASS",
+    "stage_run_dataset_model_identity_binding": "PASS_IN_OUTPUT_AND_EXISTING_TESTS",
+    "manager_result_concurrency_isolation": "PASS_TWO_RUNS_NO_CROSS_TALK",
+    "manager_progress_concurrency_isolation": "NOT_AUDITABLE_ZERO_EVENTS"
+  },
+  "source_integrity": {
+    "draft_ready_hash_exact": true,
+    "draft_recorded_source_hash_count": 12,
+    "draft_recorded_source_hash_mismatches": [],
+    "deleted_prompt_path": "agents/prompts/promt_manager_agent.py",
+    "deleted_prompt_status": "DELETED_AS_RECORDED",
+    "dependency_handoffs_checked": 5,
+    "dependency_handoff_mismatches": []
+  },
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex\\scripts\\validate_refactor_control.py --check-control --check-locks --artifact .codex\\handoffs\\stage-08-rev-1-attempt-1-draft-ready.json --agent integration",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 143; draft schema, tuple and locks valid",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "result": "59 passed in 13.26s, including complete/incomplete/future evidence, Quant immutability, node order, legacy compatibility and two concurrent Manager product runs",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "Offline AST Manager trace/lifecycle counterprobe",
+      "exit_code": 1,
+      "result": "EXPECTED_FINDING: process_inputs=false, process_outputs=false, _run_monthly publish_forecast calls=0, _run_monthly legacy progress calls=0, scoped Stage 08 publish_forecast symbols=0",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": "Offline monthly runtime PRIVATE_SENTINEL/session progress counterprobe",
+      "exit_code": 1,
+      "result": "EXPECTED_FINDING: forecast READY and correct run_id, private task sentinel present in returned full State, session queue event_count=0",
+      "network_mode": "OFFLINE_FIXTURE_ONLY_TRACING_DISABLED"
+    },
+    {
+      "command": "SHA-256 verification of draft-ready, twelve recorded current source/test/fixture paths and five dependency handoffs",
+      "exit_code": 0,
+      "result": "PASS: draft hash exact; 12 of 12 recorded current paths match; deleted typo prompt absent as recorded; 5 of 5 dependency handoffs match draft hashes",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "Restricted static privacy scan over new Stage 08 monthly source/prompt/fixture/test and draft artifact",
+      "exit_code": 0,
+      "result": "PASS_NO_FORBIDDEN_MARKERS",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-08-001: ManagerAgent.run lacks allowlisted trace processors and can serialize private task/directive data plus the complete returned SharedManagerState.",
+    "OBS-08-002: the Stage 08 monthly branch has no measured, payload-free, identity-bound lifecycle/progress/error instrumentation, so concurrent telemetry isolation cannot be verified."
+  ],
+  "stage_boundary": {
+    "feature_behavior_changed_by_observability": false,
+    "source_or_test_files_changed_by_observability": false,
+    "observability_source_files_changed": false,
+    "change_request_created": true,
+    "primary_reactivation_required": true,
+    "state_or_qa_or_review_changed": false,
+    "stage09_work_performed": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "limitations": [
+    "Validation was offline with deterministic fixtures and mocks; no live provider, external trace service, network source or database was contacted.",
+    "The existing focused suite proves product result isolation but has no assertions for Stage 08 trace redaction or identity-bound concurrent progress streams.",
+    "Observability changed only its two exact locked current-attempt artifacts and did not edit Integration product/tests or shared observability/progress code."
+  ],
+  "created_at": "2026-09-10T11:23:16.6070939Z"
+}

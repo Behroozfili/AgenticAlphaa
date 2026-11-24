@@ -1,0 +1,96 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "02",
+  "stage_revision": 2,
+  "attempt": 2,
+  "agent": "reviewer",
+  "status": "APPROVED",
+  "review_status": "APPROVED",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "id": "STAGE02-REV2-LIVE-APPLICATION-001",
+      "finding": "Migration 004 and its rollback are approved only under the authorized static/offline contract. No external database application, live collision preflight, reconciliation, RLS/RPC execution, seed/backfill, or route-switch rehearsal occurred; each remains separately authorization-gated and no live-environment success claim is made."
+    },
+    {
+      "id": "GLOBAL-AGENTS-STATE-ATTRIBUTION-MISMATCH",
+      "finding": "The global --check-locks audit still reports agents/state.py as a real Git change without current, permanent, or accepted lock ownership. That path predates and is outside the exact Stage 02 revision 2 migration/test/artifact scope, was not edited or claimed by data_rag, QA, or Reviewer in this revision, and does not invalidate the reviewed schema behavior; it remains a separate repository-level closure limitation for Orchestrator reconciliation."
+    },
+    {
+      "id": "STAGE03-STALE-SEPARATE-REWORK-002",
+      "finding": "This approval resolves only STAGE03-V2-EVIDENCE-COEXISTENCE-006 at the Stage 02 storage-contract boundary. Stage 03 revision 1 remains stale and its separately reviewed ticker/materialization and pre-materialization-resume findings require a new authorized Stage 03 attempt before Stage 03 can close."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [],
+  "review_blockers": [],
+  "evidence": [
+    {
+      "check": "artifact_identity_phase_and_required_chain",
+      "status": "PASS",
+      "detail": "Control is ACTIVE/REVIEW for Stage 02 revision 2 attempt 2 with reviewer support only. Observability is not required. The matching SCHEMA_CONTRACT_FROZEN milestone is PASS, the implementation JSON/MD both identify PRIMARY_FINAL with implementation_ready=true, QA is PASS, all three JSON inputs validate against artifact.schema.json, and the review path is explicitly locked to reviewer. Attempt 2 supersedes the immutable Attempt 1 artifact-only failure without overwriting it."
+    },
+    {
+      "check": "trigger_finding_stage03_v2_evidence_coexistence_006",
+      "status": "PASS_RESOLVED_AT_STORAGE_CONTRACT",
+      "detail": "The independently rerun actual AlphaProcessor -> cached AlphaEmbedder -> AlphaVectorStore._to_v2_row counterexample produced four same-content observations differing by dataset, retrieval time, or effective time. The revision-1 document identity collapses to one tuple, while chunk_id, alpha_documents_v2_document_evidence_chunk_identity, and alpha_documents_v2_evidence_chunk_identity are all non-null and distinct for all four rows. The V2 adapter continues to upsert on the retained chunk_id primary key."
+    },
+    {
+      "check": "versioned_identity_amendment_and_immutability",
+      "status": "PASS",
+      "detail": "Revision 2 is an ordered additive 004 migration. SHA-256 is fced2fc6fcca6ef6bda11b887746b03a1fa98d7eaaa4b717a5c7dfb7c646f481 and its migration-test SHA-256 is 3f543f17f26d6ea4cf7afdcc7c069e50256f929491a012a6d3e269a180e43ece, matching implementation and QA evidence. Accepted migrations 001-003 and Neo4j retain their accepted hashes fe6b214d..., 226011cb..., acd6e3ca..., and e1b5f08d...; no accepted prior migration or graph contract was modified."
+    },
+    {
+      "check": "forward_idempotency_drift_and_row_safety",
+      "status": "PASS_STATIC_OFFLINE",
+      "detail": "Forward execution requires alpha_documents_v2, validates exact expected definitions for both revision-1 and both revision-2 constraints, tolerates the expected already-applied revision-2 state, and fails closed on named-constraint drift. It changes constraints only inside a transaction and contains no INSERT, UPDATE, DELETE, TRUNCATE, row rewrite, legacy deletion, or route switch."
+    },
+    {
+      "check": "rollback_reversibility_and_collision_preflight",
+      "status": "PASS_STATIC_OFFLINE",
+      "detail": "The separately authorization-gated rollback checks both revision-1 document and evidence identity collision sets before dropping revision-2 constraints. Any coexistence row that would collide aborts rollback before constraint replacement; no row is deleted, rewritten, merged, or timestamp-adjusted. On a clean preflight it drops only the two revision-2 constraints and restores the exact two revision-1 identities."
+    },
+    {
+      "check": "temporal_security_reconciliation_and_routes",
+      "status": "PASS_UNCHANGED",
+      "detail": "Migration 004 does not create or replace functions, views, policies, grants, or routes. The accepted historical RPC continues to require ticker, as_of, dataset_version and effective interval before ranking; unknown evidence time remains null/quarantined. RLS, security-invoker views, public RPC revocation, least-privilege grants, reconciliation counts/hashes, chunk primary key, legacy-v1 default route, and shadow-V2 boundary remain unchanged."
+    },
+    {
+      "check": "independent_test_and_regression_evidence",
+      "status": "PASS",
+      "detail": "Reviewer independently reran tests/unit_tests/test_database_v2_migrations.py offline: 17 passed in 65.28s, including the real Stage 03 row path and exact amendment/rollback/security gates. QA additionally reports 112 Stage 01-02 regressions passed and 1234 tests collected with zero errors. No test was weakened or deleted."
+    },
+    {
+      "check": "scope_ownership_and_downstream_boundary",
+      "status": "PASS_WITH_SEPARATE_GLOBAL_LIMITATION",
+      "detail": "The revision-2 technical change is confined to the exact data_rag-locked migration 004 and migration-test paths; Attempt 2 itself changes only its locked milestone and PRIMARY_FINAL implementation artifacts, with QA and this review under their exact owners. Stage 03 product paths, migrations 001-003, Neo4j, downstream Graph/Hybrid, Research, Financial, Sentiment, Quant, API, dependency, and migration-application scopes were not changed. The unrelated agents/state.py attribution mismatch is recorded separately and was not caused or claimed by this stage."
+    },
+    {
+      "check": "financial_numeric_scientific_contract_and_data_hygiene",
+      "status": "NOT_APPLICABLE_UNCHANGED",
+      "detail": "DCF/WACC semantics, all nine financial intents/mappers, deterministic Quant source-of-truth, monthly target/provider/universe/action policy, forecast storage keys, and walk-forward scientific reporting are outside this constraint-only amendment and remain unchanged. No CoT, brain_reasoning, secret, raw chunk, full filing, or duplicated payload persistence was introduced."
+    },
+    {
+      "check": "operational_safety",
+      "status": "PASS",
+      "detail": "No migration apply, external database/network access, live reconciliation, seed/backfill, production read/write switch, legacy deletion, rollback execution, deploy, commit, push, or destructive filesystem action occurred. Production remains on legacy-v1 and V2 remains an offline-validated shadow schema pending separate authorization."
+    }
+  ],
+  "rollback_reviewed": true,
+  "resolved_findings": [
+    "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+    "STAGE02-REV2-FINAL-ARTIFACT-PHASE-001"
+  ],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "03",
+      "effect": "After Orchestrator validates and closes Stage 02 revision 2, a new Stage 03 attempt may consume the evidence-scoped identities; Stage 03 remains stale until its separate findings are repaired and its full attempt chain passes."
+    }
+  ],
+  "external_database_execution": "NOT_RUN_UNAUTHORIZED",
+  "supersedes": ".codex/handoffs/stage-02-rev-1-attempt-3-review.json",
+  "supersedes_handoff": ".codex/handoffs/stage-02-rev-1-handoff.json",
+  "created_at": "2026-08-30T21:27:25.8394988Z"
+}

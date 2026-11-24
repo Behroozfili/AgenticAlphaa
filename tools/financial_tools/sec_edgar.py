@@ -41,9 +41,17 @@ import time
 from datetime import date
 import html as _html
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 import requests
+
+from core.forecast_contract import ForecastContext
+from tools.financial_tools import (
+    deterministic_financial_reference, financial_lifecycle_event,
+    require_eligible_filed_at,
+    require_financial_context,
+)
 
 log = logging.getLogger("sec_edgar")
 
@@ -74,6 +82,8 @@ _session.headers.update({"User-Agent": _USER_AGENT,
 
 # Cache the (large) ticker->CIK map for the lifetime of the process.
 _ticker_map_cache: dict[str, dict] | None = None
+_companyfacts_cache: dict[str, dict[str, Any]] = {}
+_submissions_cache: dict[str, dict[str, Any]] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -106,8 +116,6 @@ def _get(url: str, *, host: str, as_json: bool = True) -> Any:
         On a non-recoverable HTTP error after exhausting retries.
     """
     headers = {"Host": host}
-    last_exc: Exception | None = None
-
     for attempt in range(1, _MAX_RETRIES + 1):
         try:
             resp = _session.get(url, headers=headers, timeout=_TIMEOUT)
@@ -128,17 +136,18 @@ def _get(url: str, *, host: str, as_json: bool = True) -> Any:
             resp.raise_for_status()
             return resp.json() if as_json else resp.text
 
-        except requests.RequestException as exc:
-            last_exc = exc
+        except requests.RequestException:
             if attempt < _MAX_RETRIES:
                 wait = _RETRY_BACKOFF * attempt
-                log.warning("SEC request failed (%s); retry %d/%d in %.1fs",
-                            exc, attempt, _MAX_RETRIES, wait)
+                log.warning(
+                    "SEC_REQUEST_RETRY attempt=%d max_attempts=%d wait_seconds=%.1f",
+                    attempt, _MAX_RETRIES, wait,
+                )
                 time.sleep(wait)
             else:
                 break
 
-    raise RuntimeError(f"SEC request failed for {url}: {last_exc}")
+    raise RuntimeError("SEC_REQUEST_FAILED")
 
 
 def _pad_cik(cik: str | int) -> str:
@@ -202,7 +211,11 @@ def _strip_html(raw: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def get_cik(ticker: str) -> dict:
+def get_cik(
+    ticker: str,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict:
     """
     Resolve a stock ticker symbol to its SEC Central Index Key (CIK).
 
@@ -225,6 +238,7 @@ def get_cik(ticker: str) -> dict:
     '0001045810'
     """
     t = (ticker or "").upper().strip()
+    context, identity = require_financial_context(forecast_context, run_id, ticker=t)
     try:
         mapping = _load_ticker_map()
         entry = mapping.get(t)
@@ -237,13 +251,18 @@ def get_cik(ticker: str) -> dict:
             "ticker":       t,
             "cik":          entry["cik"],
             "company_name": entry["title"],
+            "dataset_version": context.dataset_version, "run_id": identity,
             "error":        None,
         }
-    except Exception as exc:
-        return {"ticker": t, "cik": None, "company_name": None, "error": str(exc)}
+    except Exception:
+        return {"ticker": t, "cik": None, "company_name": None, "error_code": "SEC_CIK_UNAVAILABLE", "error": "SEC CIK data is unavailable."}
 
 
-def list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
+def list_filings(
+    ticker: str, form_type: str = "10-K", limit: int = 5,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict:
     """
     List the most recent SEC EDGAR filings of a given form type for a ticker.
 
@@ -269,15 +288,26 @@ def list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
     t = (ticker or "").upper().strip()
     form_type = (form_type or "10-K").strip()
 
-    cik_info = get_cik(t)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=t)
+    started_at = time.perf_counter()
+    cik_info = get_cik(t, context, identity)
     if cik_info.get("error"):
+        financial_lifecycle_event(
+            context=context, run_id=identity, boundary="sec_submissions",
+            started_at=started_at, outcome="unavailable",
+            counts={"result_count": 0, "missing_count": 1},
+            missing=True, degraded=True, error_code="SEC_SUBMISSIONS_UNAVAILABLE",
+        )
         return {"ticker": t, "cik": None, "form_type": form_type,
                 "filings": [], "error": cik_info["error"]}
 
     cik = cik_info["cik"]
     try:
-        data = _get(f"https://data.sec.gov/submissions/CIK{cik}.json",
-                    host="data.sec.gov")
+        data = _submissions_cache.get(cik)
+        if data is None:
+            data = _get(f"https://data.sec.gov/submissions/CIK{cik}.json",
+                        host="data.sec.gov")
+            _submissions_cache[cik] = data
 
         recent = data.get("filings", {}).get("recent", {})
         forms      = recent.get("form", [])
@@ -290,7 +320,7 @@ def list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
         filings: list[dict] = []
 
         for i, form in enumerate(forms):
-            if form != form_type:
+            if form not in {form_type, f"{form_type}/A"}:
                 continue
 
             accession = accessions[i] if i < len(accessions) else None
@@ -304,28 +334,76 @@ def list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
                 f"{accession_nodash}/{accession}-index.htm"
             )
 
+            filed_at = fil_dates[i] if i < len(fil_dates) else None
+            try:
+                filed_at = require_eligible_filed_at(filed_at, context)
+            except Exception:
+                continue
+            report_date = rep_dates[i] if i < len(rep_dates) else None
             filings.append({
                 "accession_number": accession,
-                "filing_date":      fil_dates[i] if i < len(fil_dates) else None,
-                "report_date":      rep_dates[i] if i < len(rep_dates) else None,
+                "filing_date":      filed_at,
+                "filed_at":         filed_at,
+                "report_date":      report_date,
+                "period_end":       report_date,
+                "filing_type":      form,
                 "primary_document": primary_docs[i] if i < len(primary_docs) else None,
                 "document_url":     document_url,
+                "dataset_version":  context.dataset_version,
+                "evidence_id": deterministic_financial_reference(
+                    provider="sec_submissions", ticker=t,
+                    accession_number=accession, period_end=report_date,
+                    filed_at=filed_at, dataset_version=context.dataset_version,
+                ),
             })
 
-            if len(filings) >= limit:
-                break
+        # A future amendment is invisible. For duplicate reports/forms select
+        # the newest version actually filed by the cutoff.
+        selected: dict[tuple[str | None, str], dict[str, Any]] = {}
+        for filing in filings:
+            base_form = str(filing.get("filing_type") or "").removesuffix("/A")
+            key = (filing.get("period_end"), base_form)
+            current = selected.get(key)
+            if current is None or (
+                str(filing.get("filed_at") or ""), str(filing.get("accession_number") or "")
+            ) > (
+                str(current.get("filed_at") or ""), str(current.get("accession_number") or "")
+            ):
+                selected[key] = filing
+        filings = sorted(
+            selected.values(),
+            key=lambda item: (str(item.get("filed_at") or ""), str(item.get("accession_number") or "")),
+            reverse=True,
+        )[:max(0, int(limit))]
 
-        return {
+        result = {
             "ticker":    t,
             "cik":       cik,
             "form_type": form_type,
             "filings":   filings,
+            "dataset_version": context.dataset_version, "run_id": identity,
             "error":     None,
         }
+        financial_lifecycle_event(
+            context=context, run_id=identity, boundary="sec_submissions",
+            started_at=started_at, outcome="success",
+            counts={
+                "candidate_count": len(forms), "eligible_count": len(filings),
+                "result_count": len(filings),
+                "rejected_count": max(0, len(forms) - len(filings)),
+            },
+        )
+        return result
 
-    except Exception as exc:
+    except Exception:
+        financial_lifecycle_event(
+            context=context, run_id=identity, boundary="sec_submissions",
+            started_at=started_at, outcome="fail_closed",
+            counts={"result_count": 0, "missing_count": 1},
+            missing=True, degraded=True, error_code="SEC_SUBMISSIONS_UNAVAILABLE",
+        )
         return {"ticker": t, "cik": cik, "form_type": form_type,
-                "filings": [], "error": str(exc)}
+                "filings": [], "error_code": "SEC_SUBMISSIONS_UNAVAILABLE", "error": "SEC submissions are unavailable."}
 
 
 _FILING_MIN_WORDS = {
@@ -419,6 +497,9 @@ def get_filing_text(
     cik: str,
     primary_document: str | None = None,
     form_type: str | None = None,
+    filed_at: str | None = None,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
 ) -> dict:
     """
     Download and extract the plain-text content of a specific SEC filing.
@@ -444,6 +525,9 @@ def get_filing_text(
         - "error"            (str | None)
     """
     acc = (accession_number or "").strip()
+    context, identity = require_financial_context(forecast_context, run_id)
+    started_at = time.perf_counter()
+    eligible_filed_at = require_eligible_filed_at(filed_at, context)
     try:
         cik_int = str(int(cik))           # un-padded for Archives path
         cik_padded = _pad_cik(cik)
@@ -475,7 +559,7 @@ def get_filing_text(
                 })
                 if not valid:
                     continue
-                return {
+                result = {
                     "accession_number": acc,
                     "cik": cik_padded,
                     "text": text,
@@ -483,16 +567,36 @@ def get_filing_text(
                     "selected_document": candidate,
                     "validation_status": "VALID",
                     "attempted_documents": attempts,
+                    "filed_at": eligible_filed_at,
+                    "dataset_version": context.dataset_version,
+                    "run_id": identity,
+                    "evidence_id": deterministic_financial_reference(
+                        provider="sec_filing", ticker=context.ticker,
+                        accession_number=acc, filed_at=eligible_filed_at,
+                        dataset_version=context.dataset_version,
+                    ),
                     "error": None,
                 }
-            except Exception as candidate_exc:
+                financial_lifecycle_event(
+                    context=context, run_id=identity,
+                    boundary="sec_filing_selection_and_text",
+                    started_at=started_at, outcome="success",
+                    counts={
+                        "candidate_count": len(candidates),
+                        "result_count": 1, "eligible_count": 1,
+                        "rejected_count": max(0, len(attempts) - 1),
+                        "accession_count": 1,
+                    },
+                )
+                return result
+            except Exception:
                 attempts.append({
                     "document": candidate,
                     "valid": False,
-                    "reasons": [f"fetch_failed: {candidate_exc}"],
+                    "reasons": ["FETCH_FAILED"],
                 })
 
-        return {
+        result = {
             "accession_number": acc,
             "cik": cik_padded,
             "text": None,
@@ -502,11 +606,30 @@ def get_filing_text(
             "attempted_documents": attempts,
             "error": "No candidate document passed filing validation.",
         }
+        financial_lifecycle_event(
+            context=context, run_id=identity,
+            boundary="sec_filing_selection_and_text",
+            started_at=started_at, outcome="rejected",
+            counts={
+                "candidate_count": len(candidates), "result_count": 0,
+                "eligible_count": 0, "rejected_count": len(attempts),
+                "missing_count": 1,
+            },
+            missing=True, degraded=True,
+        )
+        return result
 
-    except Exception as exc:
+    except Exception:
+        financial_lifecycle_event(
+            context=context, run_id=identity,
+            boundary="sec_filing_selection_and_text",
+            started_at=started_at, outcome="fail_closed",
+            counts={"result_count": 0, "missing_count": 1},
+            missing=True, degraded=True, error_code="SEC_FILING_UNAVAILABLE",
+        )
         return {"accession_number": acc, "cik": str(cik),
                 "text": None, "word_count": 0,
-                "validation_status": "INVALID", "error": str(exc)}
+                "validation_status": "INVALID", "error_code": "SEC_FILING_UNAVAILABLE", "error": "SEC filing is unavailable."}
 
 
 # Candidate XBRL concept tags, in priority order, per metric. Companies
@@ -634,6 +757,8 @@ def _extract_annual(
     facts: dict,
     tags: list[str],
     metric_scope: str = "duration",
+    *,
+    context: ForecastContext,
 ) -> list[dict]:
     """Select the strongest annual facts after evaluating every candidate concept."""
     us_gaap = facts.get("facts", {}).get("us-gaap", {})
@@ -650,6 +775,10 @@ def _extract_annual(
                 start = row.get("start")
                 val = row.get("val")
                 if form not in {"10-K", "10-K/A"} or end is None or val is None:
+                    continue
+                try:
+                    filed_at = require_eligible_filed_at(row.get("filed"), context)
+                except Exception:
                     continue
                 if row.get("segment") or row.get("dimensions"):
                     continue
@@ -684,7 +813,7 @@ def _extract_annual(
                     "fiscal_quarter": row.get("fp"),
                     "filing_type": form,
                     "accession_number": row.get("accn"),
-                    "filed_at": row.get("filed"),
+                    "filed_at": filed_at,
                     "metric_scope": metric_scope,
                     "gaap_status": "GAAP",
                     "xbrl_concept": tag,
@@ -732,11 +861,90 @@ def _extract_annual(
         )
         row["confidence"] = "high" if concept_priority == 0 else "medium"
         row["is_approximation"] = False
+        row["eligible_as_of"] = context.to_dict()["as_of"]
+        row["dataset_version"] = context.dataset_version
+        row["evidence_id"] = deterministic_financial_reference(
+            provider="sec_companyfacts", ticker=context.ticker,
+            accession_number=row.get("accession_number"),
+            metric=row.get("xbrl_concept"), period_end=row.get("period_end"),
+            filed_at=row.get("filed_at"), dataset_version=context.dataset_version,
+        )
         row.pop("_concept_priority", None)
     return ordered[:10]
 
 
-def get_xbrl_financials(ticker: str) -> dict:
+def _extract_quarterly(
+    facts: dict, tags: list[str], metric_scope: str = "duration", *,
+    context: ForecastContext,
+) -> list[dict]:
+    """Select eligible 10-Q facts, newest eligible amendment per exact period."""
+    us_gaap = facts.get("facts", {}).get("us-gaap", {})
+    candidates: list[dict[str, Any]] = []
+    for concept_priority, tag in enumerate(tags):
+        concept = us_gaap.get(tag) or {}
+        for unit_key, rows in concept.get("units", {}).items():
+            for source_row in rows:
+                row = dict(source_row)
+                form = str(row.get("form") or "").upper()
+                if form not in {"10-Q", "10-Q/A"} or row.get("end") is None or row.get("val") is None:
+                    continue
+                if row.get("segment") or row.get("dimensions"):
+                    continue
+                try:
+                    filed_at = require_eligible_filed_at(row.get("filed"), context)
+                    end = date.fromisoformat(str(row["end"]))
+                    start = date.fromisoformat(str(row["start"])) if row.get("start") else None
+                except Exception:
+                    continue
+                duration_days = (end - start).days if start else None
+                if metric_scope == "duration" and (duration_days is None or not 70 <= duration_days <= 120):
+                    continue
+                if metric_scope == "instant" and start is not None:
+                    continue
+                candidates.append({
+                    "period_end": end.isoformat(),
+                    "period_start": start.isoformat() if start else None,
+                    "duration_months": round(duration_days / 30.4375) if duration_days is not None else None,
+                    "value": float(row["val"]), "unit": unit_key,
+                    "fiscal_year": row.get("fy"), "fiscal_quarter": row.get("fp"),
+                    "filing_type": form, "accession_number": row.get("accn"),
+                    "filed_at": filed_at, "metric_scope": metric_scope,
+                    "gaap_status": "GAAP", "xbrl_concept": tag,
+                    "_concept_priority": concept_priority,
+                })
+    by_period: dict[tuple[str | None, str], dict[str, Any]] = {}
+    for row in candidates:
+        key = (row.get("period_start"), row["period_end"])
+        current = by_period.get(key)
+        rank = (str(row["filed_at"]), int(row["filing_type"] == "10-Q/A"), -int(row["_concept_priority"]), str(row.get("accession_number") or ""))
+        current_rank = (str(current["filed_at"]), int(current["filing_type"] == "10-Q/A"), -int(current["_concept_priority"]), str(current.get("accession_number") or "")) if current else None
+        if current is None or rank > current_rank:
+            by_period[key] = row
+    ordered = sorted(by_period.values(), key=lambda row: (row["period_end"], row["filed_at"]), reverse=True)
+    for row in ordered:
+        row.update({
+            "validation_status": "VALID_PRIMARY" if row["_concept_priority"] == 0 else "FALLBACK",
+            "source": "sec_xbrl", "selected_source": f"sec_xbrl:{row['xbrl_concept']}",
+            "exact_period": {"basis": metric_scope, "period_start": row.get("period_start"), "period_end": row["period_end"]},
+            "confidence": "high" if row["_concept_priority"] == 0 else "medium",
+            "is_approximation": False, "eligible_as_of": context.to_dict()["as_of"],
+            "dataset_version": context.dataset_version,
+            "evidence_id": deterministic_financial_reference(
+                provider="sec_companyfacts", ticker=context.ticker,
+                accession_number=row.get("accession_number"), metric=row.get("xbrl_concept"),
+                period_end=row.get("period_end"), filed_at=row.get("filed_at"),
+                dataset_version=context.dataset_version,
+            ),
+        })
+        row.pop("_concept_priority", None)
+    return ordered[:20]
+
+
+def get_xbrl_financials(
+    ticker: str,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict:
     """
     Retrieve structured financial statement data from the SEC EDGAR XBRL API.
 
@@ -779,38 +987,107 @@ def get_xbrl_financials(ticker: str) -> dict:
         "total_assets": [], "total_liabilities": [],
         "operating_cash_flow_annual": [], "capex_annual": [],
         "dividends_paid_annual": [], "buybacks_annual": [],
+        "revenue_quarterly": [], "net_income_quarterly": [],
+        "operating_income_quarterly": [], "cost_of_revenue_quarterly": [],
+        "operating_cash_flow_quarterly": [], "capex_quarterly": [],
+        "total_assets_quarterly": [], "total_liabilities_quarterly": [],
     }
 
-    cik_info = get_cik(t)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=t)
+    started_at = time.perf_counter()
+
+    cik_info = get_cik(t, context, identity)
     if cik_info.get("error"):
+        for boundary in ("sec_companyfacts", "sec_restatement_gate"):
+            financial_lifecycle_event(
+                context=context, run_id=identity, boundary=boundary,
+                started_at=started_at, outcome="unavailable",
+                counts={"result_count": 0, "missing_count": 1},
+                missing=True, degraded=True, error_code="SEC_COMPANYFACTS_UNAVAILABLE",
+            )
         return {"ticker": t, "cik": None, **empty_series, "error": cik_info["error"]}
 
     cik = cik_info["cik"]
     try:
-        facts = _get(
-            f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
-            host="data.sec.gov",
-        )
+        facts = _companyfacts_cache.get(cik)
+        if facts is None:
+            facts = _get(
+                f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",
+                host="data.sec.gov",
+            )
+            _companyfacts_cache[cik] = facts
 
-        return {
+        audited_tags = set().union(
+            _REVENUE_TAGS, _NET_INCOME_TAGS, _OPERATING_INCOME_TAGS,
+            _COST_OF_REVENUE_TAGS, _PRETAX_INCOME_TAGS, _INCOME_TAX_TAGS,
+            _OTHER_INCOME_TAGS, _UNUSUAL_ITEMS_TAGS, _ASSETS_TAGS,
+            _LIABILITIES_TAGS, _OPERATING_CASH_FLOW_TAGS, _CAPEX_TAGS,
+            _DIVIDENDS_PAID_TAGS, _BUYBACKS_TAGS,
+        )
+        us_gaap = facts.get("facts", {}).get("us-gaap", {})
+        candidate_count = sum(
+            len(rows)
+            for tag in audited_tags
+            for rows in (
+                us_gaap.get(tag, {}).get("units", {}).values()
+                if isinstance(us_gaap.get(tag), dict) else []
+            )
+            if isinstance(rows, list)
+        )
+        result = {
             "ticker":                     t,
             "cik":                        cik,
-            "revenue_annual":             _extract_annual(facts, _REVENUE_TAGS),
-            "net_income_annual":          _extract_annual(facts, _NET_INCOME_TAGS),
-            "operating_income_annual":    _extract_annual(facts, _OPERATING_INCOME_TAGS),
-            "cost_of_revenue_annual":     _extract_annual(facts, _COST_OF_REVENUE_TAGS),
-            "pretax_income_annual":       _extract_annual(facts, _PRETAX_INCOME_TAGS),
-            "income_tax_annual":          _extract_annual(facts, _INCOME_TAX_TAGS),
-            "other_income_annual":        _extract_annual(facts, _OTHER_INCOME_TAGS),
-            "unusual_items_annual":       _extract_annual(facts, _UNUSUAL_ITEMS_TAGS),
-            "total_assets":               _extract_annual(facts, _ASSETS_TAGS, "instant"),
-            "total_liabilities":          _extract_annual(facts, _LIABILITIES_TAGS, "instant"),
-            "operating_cash_flow_annual": _extract_annual(facts, _OPERATING_CASH_FLOW_TAGS),
-            "capex_annual":               _extract_annual(facts, _CAPEX_TAGS),
-            "dividends_paid_annual":      _extract_annual(facts, _DIVIDENDS_PAID_TAGS),
-            "buybacks_annual":            _extract_annual(facts, _BUYBACKS_TAGS),
+            "revenue_annual":             _extract_annual(facts, _REVENUE_TAGS, context=context),
+            "net_income_annual":          _extract_annual(facts, _NET_INCOME_TAGS, context=context),
+            "operating_income_annual":    _extract_annual(facts, _OPERATING_INCOME_TAGS, context=context),
+            "cost_of_revenue_annual":     _extract_annual(facts, _COST_OF_REVENUE_TAGS, context=context),
+            "pretax_income_annual":       _extract_annual(facts, _PRETAX_INCOME_TAGS, context=context),
+            "income_tax_annual":          _extract_annual(facts, _INCOME_TAX_TAGS, context=context),
+            "other_income_annual":        _extract_annual(facts, _OTHER_INCOME_TAGS, context=context),
+            "unusual_items_annual":       _extract_annual(facts, _UNUSUAL_ITEMS_TAGS, context=context),
+            "total_assets":               _extract_annual(facts, _ASSETS_TAGS, "instant", context=context),
+            "total_liabilities":          _extract_annual(facts, _LIABILITIES_TAGS, "instant", context=context),
+            "operating_cash_flow_annual": _extract_annual(facts, _OPERATING_CASH_FLOW_TAGS, context=context),
+            "capex_annual":               _extract_annual(facts, _CAPEX_TAGS, context=context),
+            "dividends_paid_annual":      _extract_annual(facts, _DIVIDENDS_PAID_TAGS, context=context),
+            "buybacks_annual":            _extract_annual(facts, _BUYBACKS_TAGS, context=context),
+            "revenue_quarterly":          _extract_quarterly(facts, _REVENUE_TAGS, context=context),
+            "net_income_quarterly":       _extract_quarterly(facts, _NET_INCOME_TAGS, context=context),
+            "operating_income_quarterly": _extract_quarterly(facts, _OPERATING_INCOME_TAGS, context=context),
+            "cost_of_revenue_quarterly":  _extract_quarterly(facts, _COST_OF_REVENUE_TAGS, context=context),
+            "operating_cash_flow_quarterly": _extract_quarterly(facts, _OPERATING_CASH_FLOW_TAGS, context=context),
+            "capex_quarterly":            _extract_quarterly(facts, _CAPEX_TAGS, context=context),
+            "total_assets_quarterly":     _extract_quarterly(facts, _ASSETS_TAGS, "instant", context=context),
+            "total_liabilities_quarterly": _extract_quarterly(facts, _LIABILITIES_TAGS, "instant", context=context),
+            "as_of": context.to_dict()["as_of"], "dataset_version": context.dataset_version,
+            "run_id": identity, "provider": "sec_companyfacts",
             "error":                      None,
         }
+        selected_count = sum(
+            len(value) for value in result.values() if isinstance(value, list)
+        )
+        financial_lifecycle_event(
+            context=context, run_id=identity, boundary="sec_companyfacts",
+            started_at=started_at, outcome="success",
+            counts={"candidate_count": candidate_count, "result_count": selected_count},
+        )
+        financial_lifecycle_event(
+            context=context, run_id=identity, boundary="sec_restatement_gate",
+            started_at=started_at, outcome="success",
+            counts={
+                "candidate_count": candidate_count, "eligible_count": selected_count,
+                "rejected_count": max(0, candidate_count - selected_count),
+                "result_count": selected_count,
+            },
+        )
+        return result
 
-    except Exception as exc:
-        return {"ticker": t, "cik": cik, **empty_series, "error": str(exc)}
+    except Exception:
+        for boundary in ("sec_companyfacts", "sec_restatement_gate"):
+            financial_lifecycle_event(
+                context=context, run_id=identity, boundary=boundary,
+                started_at=started_at, outcome="fail_closed",
+                counts={"result_count": 0, "missing_count": 1},
+                missing=True, degraded=True, error_code="SEC_COMPANYFACTS_UNAVAILABLE",
+            )
+        return {"ticker": t, "cik": cik, **empty_series, "error_code": "SEC_COMPANYFACTS_UNAVAILABLE", "error": "SEC CompanyFacts are unavailable."}

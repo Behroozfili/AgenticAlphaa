@@ -1,0 +1,222 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [
+    ".codex/handoffs/stage-04A-rev-1-attempt-2-observability.json"
+  ],
+  "requested_primary_changes": [
+    {
+      "id": "OBS-04A-004",
+      "blocking": true,
+      "owner": "data_rag",
+      "requested_paths": [
+        "rag/hybrid_rag.py",
+        "tests/unit_tests/test_rag/test_hybried.py"
+      ],
+      "reason": "The active Stage 04A execution is revision 1 Attempt 2, but rag/hybrid_rag.py still hard-codes _TRACE_IDENTITY attempt=1. That stale value is emitted by all three LangSmith decorators, compact input/output processors, branch lifecycle metadata and Hybrid lifecycle metadata, so Attempt 2 retrieval telemetry is misattributed to Attempt 1 even though the Graph write lifecycle correctly reports Attempt 2.",
+      "requested_change": "Set the Stage 04A Hybrid trace identity to attempt=2 and add an offline assertion that the Vector, Graph and Hybrid processed metadata/lifecycle outputs report stage=04A, stage_revision=1, attempt=2 and agent=data_rag without widening the allowlist. Preserve the existing redaction, latency/count, stable-code and degradation behavior.",
+      "source_lock_required": true
+    }
+  ],
+  "review_fix_audit": [
+    {
+      "id": "STAGE04A-NEO4J-TEMPORAL-PROPERTY-TYPE-001",
+      "status": "PASS",
+      "evidence": "All six temporal fields are normalized to timezone-aware UTC ISO-8601 before write. EvidenceObservationV2 ON CREATE uses exact null-safe CASE WHEN parameter IS NULL THEN null ELSE datetime(parameter) END conversion for published_at, retrieved_at, filed_at, effective_from, effective_to and materialized_at. Invalid required time fails closed and no current-time substitution exists."
+    },
+    {
+      "id": "STAGE04A-INCOMPLETE-V2-WRITE-FAIL-CLOSED-002",
+      "status": "PASS",
+      "evidence": "Legacy aggregate MERGE is reachable only for write_mode=legacy plus provenance=legacy_explicit. Temporal, V2-origin, unknown-provenance and quarantined inputs are prepared before any entity/relation write; incomplete or invalid records are skipped with a compact rejected count and stable allowlisted rejection code. Focused counterexamples assert zero write calls."
+    },
+    {
+      "id": "STAGE04A-EVIDENCE-MATERIALIZED-AT-003",
+      "status": "PASS",
+      "evidence": "The canonical Stage 03 materialized_at/ingested_at provenance is carried into GraphDocument without a now fallback, required for temporal V2, normalized once and persisted as a Neo4j DateTime on EvidenceObservationV2 ON CREATE only. Deterministic retry tests prove the same evidence identity retains the same materialized_at and no ON MATCH overwrite exists."
+    }
+  ],
+  "preserved_observability_findings": [
+    {
+      "id": "OBS-04A-001",
+      "status": "PASS_WITH_ATTEMPT_ATTRIBUTION_BLOCKER_OBS-04A-004",
+      "evidence": "All three retriever decorators still use compact process_inputs/process_outputs. Sentinel tests prove query text, raw evidence/chunk payloads, URLs, titles, secrets and raw error text are absent. The allowlist remains bounded, but its attempt field is stale."
+    },
+    {
+      "id": "OBS-04A-002",
+      "status": "PASS_WITH_ATTEMPT_ATTRIBUTION_BLOCKER_OBS-04A-004",
+      "evidence": "Vector, Graph, RRF/fusion and Hybrid boundaries expose non-negative measured latency, compact result/evidence/citation counts, branch availability, deterministic degradation mode/flags and stateless resume. Graph extraction/upsert exposes compact latency, document/entity/relation/skipped/rejected/failure counts and caller-retry recovery. Attempt attribution is stale only in Hybrid retrieval telemetry."
+    },
+    {
+      "id": "OBS-04A-003",
+      "status": "PASS",
+      "evidence": "Retrieval, Graph extraction and Graph upsert failures return/log/capture only stable sanitized codes. No original exception object/message, raw evidence, private source URL, provider payload, prompt, token or credential reaches result, log, trace processor or Sentry capture."
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "LangSmith inputs and outputs remain compact and allowlisted.",
+      "status": "PASS",
+      "evidence": "Trace processors emit operation, bounded ForecastContext/version identity, counts, non-negative latency, branch availability, deterministic degradation and stable error codes only. Sentinel privacy tests passed."
+    },
+    {
+      "check": "Incomplete/quarantined/V2-origin rejection telemetry contains no raw evidence.",
+      "status": "PASS",
+      "evidence": "Lifecycle output contains stable GRAPH_V2_* codes plus compact counts/degraded status only; rejected records make zero entity/relation writes."
+    },
+    {
+      "check": "Canonical materialized_at lifecycle and idempotency are represented without raw evidence.",
+      "status": "PASS",
+      "evidence": "The write contract carries the normalized timestamp as storage provenance, while observability surfaces only operation/count/status/recovery metadata and no document content or evidence body."
+    },
+    {
+      "check": "Error, log and Sentry persistence is sanitized.",
+      "status": "PASS",
+      "evidence": "Focused sentinel tests passed and the scoped static scan found zero str(exc), capture_exception or logger calls carrying exception text."
+    },
+    {
+      "check": "Stage/revision/attempt/agent attribution matches the active execution.",
+      "status": "FAIL",
+      "evidence": "rag/graph_store.py reports stage=04A, revision=1, attempt=2 and agent=data_rag, but rag/hybrid_rag.py line 21 reports attempt=1 through all retriever trace and lifecycle metadata. OBS-04A-004 is blocking."
+    },
+    {
+      "check": "No external trace provider, Neo4j, migration, seed, deployment, commit or push was contacted by this audit.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "PASS_MEASURED_COMPACT_VECTOR_GRAPH_RRF_HYBRID_AND_GRAPH_WRITE_LATENCY_WITH_STALE_HYBRID_ATTEMPT_ATTRIBUTION",
+  "required_metadata_matrix": {
+    "present_and_safe": [
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "calendar_version",
+      "stage",
+      "stage_revision",
+      "agent",
+      "latency_ms",
+      "result_count",
+      "evidence_count",
+      "citation_count",
+      "degraded_flags"
+    ],
+    "incorrect": [
+      "Hybrid retrieval attempt=1 while active attempt=2"
+    ],
+    "not_available_at_stage04a_callsite": [
+      "run_id"
+    ]
+  },
+  "lifecycle_audit": {
+    "vector": "Redacted count/latency/degradation lifecycle is present; active-attempt attribution requires OBS-04A-004.",
+    "graph_retrieval": "Redacted count/latency/degradation lifecycle is present; active-attempt attribution requires OBS-04A-004.",
+    "rrf_hybrid": "Measured fusion/RRF and overall latency, result/evidence/citation counts and deterministic modes are present; active-attempt attribution requires OBS-04A-004.",
+    "graph_write": "Attempt 2 compact extraction/upsert completion, rejection and failure lifecycle is present with deterministic retry recovery and stable sanitized codes.",
+    "resume": "NOT_APPLICABLE_STATELESS_RETRIEVAL; GRAPH_UPSERT_CALLER_RETRY_ONLY"
+  },
+  "instrumentation_audit": {
+    "traceable_retriever_decorators": 3,
+    "trace_input_processors": 3,
+    "trace_output_processors": 3,
+    "measured_latency_boundaries": [
+      "vector",
+      "graph_retrieval",
+      "rrf_fusion",
+      "hybrid",
+      "graph_extract",
+      "graph_upsert"
+    ],
+    "raw_exception_persistence_sites": 0,
+    "stable_graph_rejection_codes": 7,
+    "observability_source_files_modified": false,
+    "feature_call_sites_modified_by_observability": false,
+    "primary_reactivation_required": true
+  },
+  "source_integrity": {
+    "draft_ready_artifact": ".codex/handoffs/stage-04A-rev-1-attempt-2-draft-ready.json",
+    "draft_ready_sha256": "27eeced34e07bd9417dd36a5278a34b790cbd0062e5a141e10c11ac271fbb7ff",
+    "draft_source_sha256": {
+      "rag/graph_store.py": "50b52061db0d0dbaa557baf3a3686b894b8740818128f687033b9aba2b649f5b",
+      "rag/hybrid_rag.py": "38e86c9239e3fc1404160a21ce7f63cc3e1ecbb6b460f55c5bf8460f77d7a070",
+      "rag/__init__.py": "8e626b80cd9fa25d9fcb4ebb05f9f5049b33384f2b7c1fd6ca6fecfa92a375c1",
+      "tests/unit_tests/test_rag/test_graph_store.py": "37d9bbe725a1763051536c0276deb7cffda7d46b092fb4fc45e9adafe34fc1f7",
+      "tests/unit_tests/test_rag/test_hybried.py": "11b2d3e388b9b1fb717acb1751453ed495442f673b694b356fb05d637b76dd12",
+      "tests/fixtures/stage4a_temporal_graph_hybrid.json": "8c5f352787640a457fb043e5634c66bab12b22d65a83e83194c26913a3c92413"
+    },
+    "draft_hash_match": "PASS_ALL_RECORDED_SOURCE_HASHES_MATCH",
+    "attempt1_artifacts_immutable": {
+      "status": "PASS",
+      "draft_ready_sha256": "5e287a091d583b62d667b599f74877d3ab4b43a7bc020383554c1706c9d982d3",
+      "observability_sha256": "c85cd69662e64ef429953f368c7227bcd47ff3f56e5737ce114c65fdb40a04c9",
+      "implementation_json_sha256": "fdc9713de674a9d3e0745730bdf95e8d7d4e97ecea4e9722bc101fb73672ed1f",
+      "implementation_md_sha256": "2156ab7d4f0d526c27166669ab5aae137846c55dbe4200609cbe124e8c86cff8",
+      "qa_sha256": "9824c2f8f95d54e772c601464022164417bdd3fbeaca9499a6ab9662a5148ec4",
+      "review_sha256": "6eecf4d7ad63ed67a2d1869af1ddc67bf0ce1c15d58055b54ae62e744be72954"
+    }
+  },
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact .codex/handoffs/stage-04A-rev-1-attempt-2-draft-ready.json --agent data_rag",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    },
+    {
+      "command": "python -m pytest -q TestAttempt2ReviewBlockers TestGraphLifecyclePrivacy TestForecastContextBoundRetrieval TestRedactedTracingAndLifecycle --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "42 passed in 56.26s"
+    },
+    {
+      "command": "scoped static raw-exception persistence scan",
+      "exit_code": 0,
+      "result": "PASS_ZERO_RAW_EXCEPTION_PERSISTENCE_MATCHES"
+    },
+    {
+      "command": "git diff --check on Stage 04A source/test/fixture scope",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only"
+    },
+    {
+      "command": "read-only Attempt 1 artifact SHA-256 verification and current draft source SHA-256 verification",
+      "exit_code": 0,
+      "result": "PASS_ALL_EXPECTED_HASHES_MATCH"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-04A-004: Hybrid retrieval traces and lifecycle events misattribute active Attempt 2 execution to Attempt 1."
+  ],
+  "stage04B_gate": {
+    "status_at_audit": "PENDING",
+    "phase_at_audit": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false,
+    "scope_audited": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "database_reads": false,
+    "database_writes": false,
+    "live_neo4j": "NOT_RUN_UNAUTHORIZED",
+    "migration_application": "NOT_RUN_UNAUTHORIZED",
+    "seed_execution": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "limitations": [
+    "No live Neo4j integration, external trace provider or production latency benchmark was authorized or performed.",
+    "Neo4j temporal property typing is established by normalized inputs and exact offline Cypher query-shape tests only.",
+    "Observability edited no feature, test, state, migration or shared instrumentation file."
+  ],
+  "created_at": "2026-08-31T19:00:07.1274403Z"
+}

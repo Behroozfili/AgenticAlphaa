@@ -1,0 +1,251 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 171,
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    "core/observability.py",
+    "langsmith_trace.py",
+    "tests/unit_tests/core_test/test_observability.py",
+    "tests/unit_tests/test_stage10a_observability.py",
+    ".codex/handoffs/stage-10A-rev-1-attempt-2-observability.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-10A-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "9c6cd944b8858297b79f914580abd52cb9840a79b118610a67958861c96300c5",
+  "trigger_review": {
+    "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-review.json",
+    "sha256": "d8f4a9bababc4232b41ad86173e27fafb51f9fffc739a8714018eb014529237c",
+    "hash_match": true
+  },
+  "finding_disposition": {
+    "REVIEW-10A-001": "PASS_RESOLVED_FAIL_CLOSED: external Sentry and LangSmith exporters cannot initialize or export even under fully enabled flags plus credentials while request-reachable legacy trace and exception-capture paths remain unaudited. Safe local injectable lifecycle telemetry remains available.",
+    "REVIEW-10A-002": "PASS_PRESERVED: the Attempt-2 Core analyze-route rollback remains byte-for-byte at its draft hash and its exact 22-test route suite passes."
+  },
+  "requested_primary_changes": [
+    {
+      "id": "OBS-10A-A2-001",
+      "blocking": true,
+      "owner": "core",
+      "requested_paths": [
+        "tests/unit_tests/api_test/test_api_main.py",
+        "tests/unit_tests/test_stage10a_runtime_foundation.py"
+      ],
+      "reason": "Update only the two direct runtime-identity assertions from Attempt 1 to the active Attempt-2 identity: attempt=2 and implementation_version=stage10a-r1-a2. Runtime emission is correctly advanced to 10A/r1/a2/core; the stale assertions are the only two focused-suite failures.",
+      "change_request_created": false,
+      "change_request_reason": "No Core source callsite remains blocking; the retry instructions allow a change-request artifact only for a blocking Core callsite."
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "Fully enabled external-export configuration stays fail closed.",
+      "status": "PASS",
+      "evidence": "With global and per-exporter flags true and PRIVATE_SENTINEL credentials supplied, both initializers returned false; Sentry init/capture, LangSmith Client construction and socket calls were all zero. LANGCHAIN_TRACING_V2 and LANGSMITH_TRACING remained false and LANGCHAIN_API_KEY was removed."
+    },
+    {
+      "check": "Legacy request-reachable trace and exception wrappers cannot export private payloads.",
+      "status": "PASS_FAIL_CLOSED",
+      "evidence": "PRIVATE_SENTINEL request scalar, query, preferences, Manager state, node input/output, exception text, brain_reasoning and raw evidence were rejected by the local event allowlist. The legacy wrappers observed sentry_enabled=false and made zero Sentry capture calls. get_langsmith_client raises a fixed payload-free error unless an explicit local fake client is injected."
+    },
+    {
+      "check": "Initializer and local telemetry sink failures are nonfatal and payload-free.",
+      "status": "PASS",
+      "evidence": "Initializer paths return false without emitting exception text, credentials, DSN, headers or raw objects. An injected local sink raising RuntimeError(PRIVATE_SENTINEL) was isolated; the safe event was returned and PRIVATE_SENTINEL was absent."
+    },
+    {
+      "check": "Request, Manager-factory and memory isolation remain intact without external systems.",
+      "status": "PASS",
+      "evidence": "Focused Stage10A regressions preserve one opaque run_id across request/dependency boundaries, per-invocation Manager creation, per-request memory creation and zero cross-talk. External clients are mocked or injected in the focused tests."
+    },
+    {
+      "check": "Startup, shutdown and explicit seed selection remain safe.",
+      "status": "PASS",
+      "evidence": "Local lifecycle events carry only allowlisted metadata; failing sinks do not break startup helpers. Normal startup does not seed, seed-rag remains explicit, and no seed/database command was executed during this audit."
+    }
+  ],
+  "runtime_identity_audit": {
+    "required": "10A/r1/a2/core",
+    "observed": "10A/r1/a2/core",
+    "implementation_version": "stage10a-r1-a2",
+    "stale_attempt_1_identity_in_observability_sources": false,
+    "identity_immutable": true,
+    "request_correlation": "ONE_OPAQUE_UUID4_HEX_PER_REQUEST",
+    "status": "PASS"
+  },
+  "latency_instrumentation_status": "PASS_FINITE_NONNEGATIVE_MONOTONIC_REQUEST_START_COMPLETION_AND_LIFECYCLE_BOUNDARIES",
+  "local_telemetry_audit": {
+    "sink": "LOCAL_INJECTABLE_IN_PROCESS_ONLY",
+    "closed_allowlist": true,
+    "required_identity_fields": [
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent",
+      "implementation_version"
+    ],
+    "request_fields_where_available": [
+      "run_id",
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode"
+    ],
+    "version_and_quality_fields_where_available": [
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "latency_ms",
+      "evidence_count",
+      "degraded"
+    ],
+    "raw_payload_fields_allowed": false,
+    "sink_failure_isolated": true,
+    "external_export": false,
+    "status": "PASS"
+  },
+  "optional_exporter_audit": {
+    "policy": "FAIL_CLOSED_UNTIL_ALL_REQUEST_REACHABLE_LEGACY_TRACE_AND_CAPTURE_PATHS_ARE_PAYLOAD_SAFE",
+    "settings_credentials_consumable_but_never_emitted": true,
+    "fully_enabled_sentry_initializer_result": false,
+    "fully_enabled_langsmith_initializer_result": false,
+    "sentry_init_calls": 0,
+    "sentry_capture_calls": 0,
+    "langsmith_client_constructions": 0,
+    "langsmith_trace_activation": false,
+    "socket_calls_in_enabled_configuration_countertest": 0,
+    "initializer_failure_nonfatal": true,
+    "initializer_failure_payload_safe": true,
+    "status": "PASS_FAIL_CLOSED"
+  },
+  "request_and_memory_isolation_audit": {
+    "stateless_factory_on_app_state": true,
+    "manager_created_per_invocation": true,
+    "memory_created_per_request_or_invocation": true,
+    "mutable_manager_or_memory_retained_by_factory": false,
+    "concurrent_invocation_cross_talk": false,
+    "external_clients_in_tests": "MOCKED_OR_INJECTED",
+    "status": "PASS"
+  },
+  "startup_shutdown_seed_audit": {
+    "startup_event_payload_safe": true,
+    "shutdown_event_payload_safe": true,
+    "factory_and_memory_events_payload_safe": true,
+    "failing_sink_nonfatal": true,
+    "normal_server_start_auto_seeds": false,
+    "explicit_seed_command": "python main.py seed-rag",
+    "seed_executed": false,
+    "external_system_contact_by_seed_tests": false,
+    "status": "PASS"
+  },
+  "source_integrity": {
+    "observability_sha256": {
+      "core/observability.py": "9f644852adeb896eee2423ee684f5431ff477c55460106e6734d6ae52b74977f",
+      "langsmith_trace.py": "f2ad8e7c83f27706861298b8a32619d6b774428b93517036afd4a24dc2dd607b",
+      "tests/unit_tests/core_test/test_observability.py": "0221279bbaa5c7c41c8bed847bd6614869584ca2c7c8f474be1a7b8dac520c31",
+      "tests/unit_tests/test_stage10a_observability.py": "7245cf2a213050bfc119667556a9d3da48930ecb7e3b9059221d2ee50ead8407"
+    },
+    "draft_recorded_current_hashes_checked": 3,
+    "draft_recorded_current_hash_mismatches": [],
+    "immutable_attempt_1_artifacts_checked": 8,
+    "immutable_attempt_1_artifact_mismatches": [],
+    "stage09_dependency_handoff_sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+    "stage09_dependency_hash_match": true,
+    "attempt_2_analyze_route_sha256": "32c755190b678b393e32ca3886e6153a111d1d35659046196c5153d3d4d48070",
+    "attempt_2_analyze_route_hash_match": true,
+    "prior_attempt_artifacts_unchanged": true,
+    "stage10b_status": "PENDING_NOT_STARTED_UNCHANGED"
+  },
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/core_test/test_observability.py tests/unit_tests/test_stage10a_observability.py -q",
+      "exit_code": 0,
+      "result": "32 passed in 1.97s on the final rerun; fully enabled PRIVATE_SENTINEL countertest recorded zero Sentry, LangSmith Client and socket calls",
+      "network_mode": "OFFLINE_FULLY_MOCKED_EXPORTERS_AND_SOCKET"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <ten exact Stage10A focused modules excluding two known stale Core identity assertions> -q",
+      "exit_code": 0,
+      "result": "212 passed, 2 deselected in 25.50s",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/api_test/test_api_main.py tests/unit_tests/test_stage10a_runtime_foundation.py -q",
+      "exit_code": 1,
+      "result": "16 passed, 2 failed in 2.38s; only stale assertions expect attempt=1 or stage10a-r1-a1 while runtime correctly emits Attempt 2",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/api_test/test_analyze_cor_api.py -q",
+      "exit_code": 0,
+      "result": "22 passed in 1.88s; REVIEW-10A-002 rollback preserved",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <seven exact Stage01/08/09 proportional regression modules> -q",
+      "exit_code": 0,
+      "result": "54 passed; process exit 0",
+      "network_mode": "LOCAL_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 .venv\\Scripts\\python.exe -B -m pytest --collect-only -q",
+      "exit_code": 0,
+      "result": "1446 tests collected in 26.32s; zero collection errors and no HF unauthenticated-request warning in the offline rerun",
+      "network_mode": "FORCED_OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile <four exact observability-owned source/test paths> and git diff --check on those paths",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent observability",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 171 immediately before artifact creation",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-10A-A2-001: two Core-owned tests still assert the obsolete Attempt-1 runtime identity and must be updated before the complete focused suite can pass."
+  ],
+  "stage_boundary": {
+    "feature_behavior_changed_by_observability": false,
+    "core_api_route_memory_main_or_agent_sources_changed": false,
+    "observability_source_and_tests_changed": true,
+    "change_request_created": false,
+    "core_source_callsite_blocking": false,
+    "primary_reactivation_required": true,
+    "state_or_qa_or_review_changed": false,
+    "attempt_1_artifacts_changed": false,
+    "stage10b_work_performed": false
+  },
+  "external_execution": {
+    "network_access_intentionally_used": false,
+    "dedicated_exporter_countertest_socket_calls": 0,
+    "initial_full_collection_observation": "An earlier non-offline collection emitted an HF Hub unauthenticated-request warning while cached weights loaded; actual external contact was not verified.",
+    "offline_collection_rerun": "PASS_WITHOUT_HF_REQUEST_WARNING",
+    "external_trace_provider": "NOT_CONTACTED_BY_DEDICATED_EXPORTER_TESTS",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "dependency_change": false,
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "External exporters intentionally remain disabled even under complete configuration until every request-reachable legacy trace and exception-capture path is separately proven payload-safe.",
+    "The initial full collection emitted an HF Hub unauthenticated-request warning; because actual contact was not verified, the audit relies on the clean forced-offline rerun plus the dedicated zero-socket exporter countertest rather than claiming global proof about that initial process.",
+    "The two stale Core test assertions are not in Observability-owned locks and were not edited. No Core source callsite is blocking, so no supplemental change-request artifact was created.",
+    "No Stage10B, external provider, database, migration, seed, dependency, deployment, commit or push operation was performed."
+  ],
+  "created_at": "2026-09-13T07:58:48.3687477Z"
+}

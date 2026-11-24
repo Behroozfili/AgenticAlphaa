@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
 import logging
 import os
 from pathlib import Path
@@ -48,9 +49,9 @@ def run_rag_seed() -> None:
     if not tickers:
         raise ValueError("RAG_SEED_TICKERS did not contain any valid ticker")
 
-    log.info("Starting RAG seed for: %s", ", ".join(tickers))
+    log.info("rag_seed_started")
     asyncio.run(seed_main(tickers))
-    log.info("RAG seed phase finished")
+    log.info("rag_seed_completed")
 
 
 def run_server() -> None:
@@ -76,15 +77,42 @@ def run_server() -> None:
     )
 
 
-def main() -> None:
+def _configure_process() -> None:
     os.chdir(PROJECT_ROOT)
     logging.basicConfig(
         level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO),
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
-    run_rag_seed()
+
+
+def main() -> None:
+    """Backward-compatible server entry point; seeding is never implicit."""
+    _configure_process()
     run_server()
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="agenticalpha")
+    parser.add_argument(
+        "command",
+        nargs="?",
+        default="serve",
+        choices=("serve", "seed-rag"),
+        help="start the API or explicitly seed RAG",
+    )
+    return parser
+
+
+def cli(argv: list[str] | None = None) -> int:
+    """Run an explicit process command; tests can pass argv without side effects."""
+    args = build_parser().parse_args(argv)
+    _configure_process()
+    if args.command == "seed-rag":
+        run_rag_seed()
+    else:
+        run_server()
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(cli())

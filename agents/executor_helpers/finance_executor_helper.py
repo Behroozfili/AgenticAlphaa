@@ -25,7 +25,16 @@ INDUSTRY_PEERS: dict[str, list[str]] = {
 
 def infer_peers(sector: str, industry: str, ticker: str) -> list[str]:
     """Look up static peers by industry, excluding the ticker itself."""
-    peers = INDUSTRY_PEERS.get(industry, [])
+    def normalized(value: str) -> str:
+        # Yahoo uses ASCII hyphens and Unicode dash variants interchangeably.
+        value = re.sub(r"[\u2010-\u2015]", "-", str(value or ""))
+        return re.sub(r"\s*-\s*", "-", value).strip().casefold()
+
+    target = normalized(industry)
+    peers = next(
+        (values for label, values in INDUSTRY_PEERS.items() if normalized(label) == target),
+        [],
+    )
     return [p for p in peers if p.upper() != ticker.upper()][:5]
 
 
@@ -54,10 +63,10 @@ def extract_ticker(
     candidates = re.findall(r"\b([A-Z]{1,5})\b", task_query)
     for candidate in candidates:
         if candidate not in _TICKER_STOP_WORDS:
-            logger.info("Inferred ticker from task_query: %s", candidate)
+            logger.info("FINANCIAL_TICKER_INFERRED")
             return candidate
 
-    logger.warning("Could not infer ticker from task_query: '%s'", task_query)
+    logger.warning("FINANCIAL_TICKER_NOT_INFERRED")
     return None
 
 
@@ -236,13 +245,13 @@ def build_data_quality_score(raw: dict[str, Any], calc: dict[str, Any]) -> dict[
 
 
 def sanitize_nans(value: Any) -> Any:
-   
+    """Make shared financial payload JSON-safe and omit internal tool inputs."""
     if isinstance(value, float) and math.isnan(value):
         return None
     if isinstance(value, float) and math.isinf(value):
         return None
     if isinstance(value, dict):
-        return {k: sanitize_nans(v) for k, v in value.items()}
+        return {k: sanitize_nans(v) for k, v in value.items() if k != "_inputs"}
     if isinstance(value, list):
         return [sanitize_nans(v) for v in value]
     return value

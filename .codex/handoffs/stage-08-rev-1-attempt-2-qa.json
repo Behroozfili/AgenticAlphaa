@@ -1,0 +1,219 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "execution_phase": "QA",
+  "control_revision": 149,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "qa_status": "PASS",
+  "implementation_artifact": ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.json",
+  "implementation_sha256": "577a24764ce9b70c5cb2a3e5e1ae340d1e1e2b4cc22e846028263349b5af8548",
+  "implementation_markdown": ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.md",
+  "implementation_markdown_sha256": "8c3e4486dbfd1eb17fe71f44ca61eac136f4d93b82712a6fe97c6d858374717d",
+  "validated_input_artifacts": [
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-2-draft-ready.json",
+      "sha256": "2d28091755041bf2be0d6aa58e1c704ef63fbf585e6600484b92a327e23726c5",
+      "identity_match": true
+    },
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-2-observability.json",
+      "sha256": "d61d18e15f6361c904fd1ffc8f356490cf9405acd135a93bcc10615fb0a1826d",
+      "identity_match": true
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-08-rev-1-attempt-2-1.json",
+      "sha256": "0f908a19e9e22d3c1ad302c6946e06e4733b6402677814f22f59a72d5f8c3617",
+      "identity_match": true
+    },
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.json",
+      "sha256": "577a24764ce9b70c5cb2a3e5e1ae340d1e1e2b4cc22e846028263349b5af8548",
+      "identity_match": true
+    }
+  ],
+  "control_and_lock_validation": {
+    "execution_enabled": true,
+    "active_tuple": "08/r1/a2/QA",
+    "allowed_support_agents": ["qa"],
+    "qa_artifact_lock_owner": "qa",
+    "stale_stages": [],
+    "dependencies_closed": ["01", "04B", "05", "06", "07"],
+    "stage09_status": "PENDING",
+    "stage09_phase": "NOT_STARTED",
+    "stage09_activated": false,
+    "result": "PASS"
+  },
+  "dependency_handoff_validation": {
+    "stages": ["01", "04B", "05", "06", "07"],
+    "closed_pass_approved": 5,
+    "sha256_matches": 5,
+    "mismatches": 0
+  },
+  "source_hash_validation": {
+    "recorded_paths_checked": 4,
+    "matches": 4,
+    "mismatches": 0,
+    "hashes": {
+      "agents/executor_helpers/monthly_forecast_helper.py": "c08ece4602b70100298db105d376579316e691c71e98c2f0a3d587461a40a2aa",
+      "agents/manager_agent.py": "e398db4d9f11b0b22402c5494afa323d537b2313e7ecfa6d307ab06dc9d1afe0",
+      "tests/unit_tests/test_stage8_manager_integration.py": "d43d00b2cd54bd7f3e8f97225df9378c4f17b354752fb973c830d6420e83f0da",
+      ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.md": "8c3e4486dbfd1eb17fe71f44ca61eac136f4d93b82712a6fe97c6d858374717d"
+    }
+  },
+  "prior_attempt_immutability": {
+    "attempt": 1,
+    "artifacts_checked": 6,
+    "sha256_matches": 6,
+    "mismatches": 0,
+    "status": "PASS"
+  },
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex\\scripts\\validate_refactor_control.py --check-control --check-locks --artifact .codex\\handoffs\\stage-08-rev-1-attempt-2-implementation.json --agent qa",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 149; exact active tuple, prerequisites and QA lock valid",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "passed": 188,
+      "failed": 0,
+      "duration_seconds": 22.29,
+      "result": "PASS",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/api_test/test_api_main.py tests/unit_tests/api_test/test_analyze_cor_api.py tests/unit_tests/test_root_main.py -q",
+      "exit_code": 0,
+      "passed": 47,
+      "failed": 0,
+      "duration_seconds": 25.27,
+      "result": "PASS",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_financial_agent_only.py tests/integration_test_2/test_research_agent_only.py tests/integration_test_2/test_sentiment_agent_only.py",
+      "exit_code": 0,
+      "collected": 1432,
+      "collection_errors": 0,
+      "duration_seconds": 8.02,
+      "result": "PASS",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile agents/executor_helpers/monthly_forecast_helper.py agents/manager_agent.py tests/unit_tests/test_stage8_manager_integration.py",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check -- agents/executor_helpers/monthly_forecast_helper.py agents/manager_agent.py tests/unit_tests/test_stage8_manager_integration.py",
+      "exit_code": 0,
+      "result": "PASS; non-blocking existing LF-to-CRLF notice for agents/manager_agent.py",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "independent Quant provenance preservation and rejection counterprobe",
+      "exit_code": 0,
+      "result": "PASS: three non-placeholder authoritative values survived exactly at top level and in versions; all three individually missing fields and one materialization mismatch failed closed with null confidence",
+      "network_mode": "OFFLINE_DIRECT_COUNTEREXAMPLE"
+    },
+    {
+      "command": "SHA-256 reconciliation of four current source/report paths, five dependency handoffs and six immutable Attempt 1 artifacts",
+      "exit_code": 0,
+      "result": "PASS: 4/4 current paths, 5/5 dependency handoffs and 6/6 prior-attempt artifacts match; zero mismatches",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "gate_results": {
+    "complete_state": "PASS",
+    "incomplete_state": "PASS_INSUFFICIENT_DATA_WITH_NULL_NUMERICS_AND_CONFIDENCE",
+    "explicit_degraded_state": "PASS",
+    "node_order_and_controlled_readiness_join": "PASS",
+    "output_schema": "PASS_EXACT_WITH_REQUIRED_REPRODUCIBILITY_PROVENANCE",
+    "authoritative_quant_provenance_top_level": "PASS_EXACT",
+    "authoritative_quant_provenance_versions": "PASS_EXACT",
+    "authoritative_quant_provenance_canonical_synthesis": "PASS_VIA_VERSIONS",
+    "missing_or_tampered_provenance": "PASS_FAIL_CLOSED",
+    "quant_numeric_and_action_immutable": "PASS",
+    "llm_numeric_override_ignored": "PASS",
+    "legacy_manager_constructor_run_compatibility": "PASS",
+    "api_compatibility": "PASS",
+    "same_instance_concurrent_manager_result_isolation": "PASS",
+    "concurrent_progress_queue_isolation": "PASS",
+    "prompt_rename_and_import": "PASS_ATOMIC",
+    "trace_input_output_allowlists": "PASS",
+    "private_payload_redaction": "PASS",
+    "success_error_lifecycle_identity": "PASS_CURRENT_ATTEMPT",
+    "measured_non_negative_latency": "PASS",
+    "future_evidence_rejection": "PASS_FAIL_CLOSED",
+    "prior_attempt_immutability": "PASS"
+  },
+  "resolved_findings": [
+    {
+      "id": "QA-08-001",
+      "status": "RESOLVED",
+      "evidence": "Authoritative universe_manifest_hash, model_variant and feature_materialized_at are validated and preserved exactly at canonical top level and in versions consumed by canonical_synthesis; missing or inconsistent values fail closed."
+    },
+    {
+      "id": "OBS-08-003",
+      "status": "RESOLVED",
+      "evidence": "Runtime output, trace and progress lifecycle identity is consistently 08/r1/a2/integration with implementation_version stage08-r1-a2."
+    }
+  ],
+  "leakage_report": {
+    "status": "PASS",
+    "future_evidence_counterexamples": 1,
+    "future_evidence_accepted": 0,
+    "notes": "Future evidence fails closed to INSUFFICIENT_DATA with null numeric confidence. No network, live provider or external data was used."
+  },
+  "privacy_report": {
+    "status": "PASS",
+    "trace_processors_allowlisted": true,
+    "private_sentinel_absent_recursively": true,
+    "lifecycle_payload_free": true,
+    "exception_text_absent_from_error_event": true,
+    "forbidden_payload_classes_absent": [
+      "task_query",
+      "manager_directives",
+      "full ForecastContext",
+      "full SharedManagerState",
+      "raw evidence",
+      "evidence_ids",
+      "narrative/report text",
+      "Quant numeric payloads",
+      "exception strings"
+    ]
+  },
+  "regression_report": {
+    "status": "PASS",
+    "contract_state_quant_manager": {"passed": 188, "failed": 0},
+    "api_import_constructor_run_compatibility": {"passed": 47, "failed": 0},
+    "broad_collection": {"collected": 1432, "errors": 0},
+    "compilation": "PASS",
+    "scoped_diff_check": "PASS"
+  },
+  "blocking_findings": [],
+  "blocking_issues": [],
+  "candidate_downstream_stages_affected": [],
+  "environment_blockers": [],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN_UNAUTHORIZED",
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-11T10:18:13.9479891Z"
+}

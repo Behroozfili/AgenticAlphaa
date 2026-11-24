@@ -17,6 +17,8 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from tools.sentiment_tools.finbert_analyzer import (
+    FINBERT_MODEL_REVISION,
+    FINBERT_MODEL_VERSION,
     FinBertSentimentAnalyzer,
     FinBertResult,
     reset_finbert,
@@ -69,13 +71,16 @@ class TestSelectDevice:
 # ---------------------------------------------------------------------------
 
 class TestAnalyzeEmptyHandling:
-    def test_all_empty_texts_returns_neutral_zero_result(self, mock_model_load):
+    def test_all_empty_texts_returns_explicit_no_data(self, mock_model_load):
         analyzer = FinBertSentimentAnalyzer()
         result = analyzer.analyze(["", "   ", ""])
 
         assert isinstance(result, FinBertResult)
-        assert result.label == "Neutral"
-        assert result.bullish_prob == 0.0
+        assert result.label is None
+        assert result.bullish_prob is None
+        assert result.bearish_prob is None
+        assert result.neutral_prob is None
+        assert result.status == "NO_DATA"
         assert result.total_chunks == 0
         assert result.skipped_chunks == 3
 
@@ -146,6 +151,13 @@ class TestAnalyzeAggregation:
 # ---------------------------------------------------------------------------
 
 class TestHelpers:
+    def test_model_provenance_uses_immutable_local_revision(self):
+        assert len(FINBERT_MODEL_REVISION) == 40
+        assert all(char in "0123456789abcdef" for char in FINBERT_MODEL_REVISION)
+        assert FINBERT_MODEL_REVISION in FINBERT_MODEL_VERSION
+        assert "@main" not in FINBERT_MODEL_VERSION
+        assert "@git-revision:" in FINBERT_MODEL_VERSION
+
     def test_argmax_label_bullish(self):
         assert FinBertSentimentAnalyzer._argmax_label(0.7, 0.2, 0.1) == "Bullish"
 
@@ -163,7 +175,9 @@ class TestHelpers:
 
     def test_empty_result_shape(self):
         result = FinBertSentimentAnalyzer._empty_result(skipped=3)
-        assert result.label == "Neutral"
+        assert result.label is None
+        assert result.bullish_prob is None
+        assert result.status == "NO_DATA"
         assert result.skipped_chunks == 3
         assert result.chunk_scores == []
 
@@ -173,6 +187,26 @@ class TestHelpers:
 # ---------------------------------------------------------------------------
 
 class TestLoadModelSingleton:
+    @patch("tools.sentiment_tools.finbert_analyzer.BertForSequenceClassification")
+    @patch("tools.sentiment_tools.finbert_analyzer.BertTokenizer")
+    @patch("tools.sentiment_tools.finbert_analyzer._select_device", return_value="cpu")
+    def test_load_is_pinned_and_local_only(
+        self, mock_select_device, mock_tokenizer_cls, mock_model_cls
+    ):
+        mock_tokenizer_cls.from_pretrained.return_value = MagicMock()
+        mock_model_cls.from_pretrained.return_value = MagicMock()
+        FinBertSentimentAnalyzer()
+        expected = {
+            "revision": FINBERT_MODEL_REVISION,
+            "local_files_only": True,
+        }
+        mock_tokenizer_cls.from_pretrained.assert_called_once_with(
+            "ProsusAI/finbert", **expected
+        )
+        mock_model_cls.from_pretrained.assert_called_once_with(
+            "ProsusAI/finbert", **expected
+        )
+
     @patch("tools.sentiment_tools.finbert_analyzer.BertForSequenceClassification")
     @patch("tools.sentiment_tools.finbert_analyzer.BertTokenizer")
     @patch("tools.sentiment_tools.finbert_analyzer._select_device", return_value="cpu")

@@ -1,0 +1,181 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "qa_status": "PASS",
+  "execution_phase": "QA",
+  "control_revision": 104,
+  "changed_files": [
+    ".codex/handoffs/stage-06-rev-1-attempt-1-qa.json"
+  ],
+  "implementation_artifact": ".codex/handoffs/stage-06-rev-1-attempt-1-implementation.json",
+  "implementation_sha256": "3c54d93dd66a6f0b2e4077f7b0865c893465177e492ea89d223c40d0a23cf1a1",
+  "input_artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-draft-ready.json",
+      "sha256": "291fd6a2ad5a23d787cc28ecad9e71c2cb9e91bbc516c6d232c8681867107329"
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-observability.json",
+      "sha256": "0cca8a2b60e647c6ef9c722a26e048f20c5851735c2861678409e934bb3f36f3"
+    },
+    "change_request": {
+      "path": ".codex/handoffs/change-request-stage-06-rev-1-attempt-1-1.json",
+      "sha256": "d42326c97203bd6f3952eec45fa5b2139fcb47e521034b8c7b9a69998d51c849"
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-implementation.md",
+      "sha256": "565d664a0bdc3ccb24c450ade0a2d69ba7ab7b2cbd89451b5b0b85ae2fd04bd5"
+    },
+    "status": "PASS_ALL_HASHES_IDENTITIES_AND_SCHEMAS"
+  },
+  "tests_run": [
+    {
+      "command": "python -m pytest tests/unit_tests/sentiment_test tests/unit_tests/test_sentiment_phase4.py tests/unit_tests/test_aspect_sentiment_phase6.py tests/unit_tests/test_agents/test_sentiments_agent.py tests/integration_test_2/test_sentiment_agent_only.py tests/integration_tests/test_integration_sentiment_agent.py -q -m \"not live and not slow and not db\"",
+      "exit_code": 0,
+      "result": "164 passed, 5 deselected, 1 deprecation warning in 6.48s",
+      "network_mode": "OFFLINE_MOCKS_FIXTURES_AND_LOCAL_MODELS"
+    },
+    {
+      "command": "six exact Stage06 private-payload, lifecycle, immutable-model-provenance and no-download sentinels",
+      "exit_code": 0,
+      "result": "6 passed in 14.62s",
+      "network_mode": "OFFLINE_MOCKS_AND_LOCAL_ARTIFACTS"
+    },
+    {
+      "command": "five exact fixed-window, future-isolation, dedupe, missing-data, compact-persistence and required-context sentinels",
+      "exit_code": 0,
+      "result": "5 passed in 11.82s",
+      "network_mode": "OFFLINE_FIXTURE"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests -q -m \"not live and not slow and not db\"",
+      "exit_code": 1,
+      "result": "1277 passed, 5 known baseline/out-of-scope failures in 65.03s: one Manager Stage08 failure and four absent legacy migration failures",
+      "classification": "NO_STAGE06_REGRESSION"
+    },
+    {
+      "command": "python -m pytest --collect-only -q",
+      "exit_code": 0,
+      "result": "1282 tests collected in 17.98s; zero collection errors"
+    },
+    {
+      "command": "SHA-256 verification of four input artifacts, implementation JSON and all 16 implementation-recorded source/test/fixture paths",
+      "exit_code": 0,
+      "result": "PASS; 0 mismatches"
+    },
+    {
+      "command": "prompt rename scan across agents, tools and tests",
+      "exit_code": 0,
+      "result": "agents/prompts/promt_sentinemt.py absent; zero promt_sentinemt references; canonical prompt present"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks and artifact validation for all Stage06 inputs",
+      "exit_code": 0,
+      "result": "CONTROL VALID; exact QA lock and same revision/attempt input chain verified"
+    }
+  ],
+  "contract_audit": {
+    "forecast_context_required_before_provider": "PASS",
+    "run_id_required_before_provider": "PASS",
+    "ticker_context_consistency": "PASS",
+    "fixed_calendar_windows_7_14_30": "PASS",
+    "evidence_after_as_of_rejected": "PASS_ZERO_FUTURE_EVIDENCE_EXPORTED",
+    "untimestamped_evidence_rejected": "PASS_MISSING_NOT_NEUTRAL",
+    "canonical_evidence_deduplication": "PASS",
+    "missing_window_behavior": "PASS_EXPLICIT_UNAVAILABLE",
+    "deterministic_finbert_identity": "PASS_IMMUTABLE_LOCAL_REVISION",
+    "deterministic_vader_identity": "PASS_EXACT_LOCAL_LEXICON_SHA256",
+    "automatic_model_or_lexicon_download": false,
+    "prompt_rename_atomic_and_collection_safe": "PASS"
+  },
+  "observability_audit": {
+    "OBS-06-001": "PASS_PRIVATE_QUERY_AND_FREE_FORM_ERROR_ABSENT_FROM_LOGS_PROGRESS_STATE_AND_SENTRY",
+    "OBS-06-002": "PASS_EIGHT_MEASURED_VERSIONED_PAYLOAD_FREE_LIFECYCLE_BOUNDARIES",
+    "OBS-06-003": "PASS_MCP_CHILD_FAILURE_SANITIZED_INSIDE_TRACE_BOUNDARY",
+    "OBS-06-004": "PASS_IMMUTABLE_FINBERT_AND_VADER_LOCAL_IDENTITIES",
+    "private_sentinel_persisted": false,
+    "measured_boundary_count": 8,
+    "semantic_counts_used": true,
+    "free_form_provider_error_exported": false
+  },
+  "leakage_report": {
+    "status": "PASS_ZERO_FUTURE_SENTIMENT_EVIDENCE_EXPORTED",
+    "boundary": "evidence_timestamp <= ForecastContext.as_of",
+    "future_evidence_visible": false,
+    "duplicate_evidence_counted_twice": false,
+    "untimestamped_evidence_scored": false,
+    "missing_evidence_converted_to_neutral": false,
+    "live_provider_evidence_used": false
+  },
+  "regression_report": {
+    "stage06_offline_suite": "PASS_164",
+    "observability_sentinels": "PASS_6",
+    "temporal_and_missing_sentinels": "PASS_5",
+    "collection": "PASS_1282_ZERO_ERRORS",
+    "full_offline_unit": "1277_PASS_5_KNOWN_NON_STAGE06_FAILURES",
+    "new_stage06_failures": 0
+  },
+  "known_out_of_scope_failures": [
+    {
+      "path": "tests/unit_tests/test_agents/test_manager_agent.py::TestRunFullPipeline::test_happy_path_runs_all_three_agents_and_finalises",
+      "count": 1,
+      "classification": "BASELINE_RESPONSIBLE_STAGE_08",
+      "evidence": "The Stage00 baseline manifest assigns this unchanged Manager expectation to Stage08 integration; neither agents/manager_agent.py nor its test is in the Stage06 implementation paths."
+    },
+    {
+      "path": "tests/unit_tests/test_supabase_phase5_migration.py",
+      "count": 4,
+      "classification": "BLOCKED_PRE_EXISTING_NO_VALID_RETARGET",
+      "evidence": "The Stage00 baseline manifest records the absent root supabase_phase5_provenance_migration.sql and preserves these four unchanged FileNotFoundError failures; Stage06 owns no migration path."
+    }
+  ],
+  "source_integrity": {
+    "recorded_source_test_fixture_paths": 16,
+    "matching_paths": 16,
+    "mismatches": 0,
+    "input_chain_hashes_matching": 5,
+    "old_prompt_exists": false,
+    "old_prompt_source_test_references": 0,
+    "scope_status": "PASS_LOCKED_STAGE06_SCOPE"
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_sentiment_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "qa_harness_notes": [
+    "One initial targeted pytest selection used three incorrect node IDs and collected no tests; the corrected five exact temporal/context node IDs then passed. This was a QA command-selection error, not a product failure, and no source, test or state file was edited."
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "08",
+      "issue": "One preserved Manager happy-path baseline expectation remains for Integration ownership."
+    },
+    {
+      "stage": "00_OR_EXPLICIT_USER_DECISION",
+      "issue": "Four legacy migration tests remain blocked by the deliberately unreconstructed root SQL file."
+    }
+  ],
+  "limitations": [
+    "All Stage06 acceptance evidence is offline; live sentiment providers and external trace services were intentionally not contacted.",
+    "Five known failures remain visible in unchanged non-Stage06 paths and are not counted as Stage06 regressions.",
+    "The transformers WordPiece deprecation warning is non-blocking and did not affect deterministic results."
+  ],
+  "created_at": "2026-09-03T20:08:44.6655841Z"
+}

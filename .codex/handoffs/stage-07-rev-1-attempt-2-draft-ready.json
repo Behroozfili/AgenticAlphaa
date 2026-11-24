@@ -1,0 +1,117 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "quant",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 127,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "retry_scope": "QA-07-001 milestone semantic-reproduction repair only; no product, test, shared, state or Attempt 1 artifact changed.",
+  "supersedes_failed_attempt_qa": {
+    "path": ".codex/handoffs/stage-07-rev-1-attempt-1-qa.json",
+    "sha256": "4aba365346b22ec8e88a1f28844bd1783b7142f4d81bbc7d91b2ab76a1162034",
+    "blocking_issue": "QA-07-001",
+    "disposition": "RESOLVED_IN_CURRENT_DRAFT_EVIDENCE"
+  },
+  "dependency_handoffs": [
+    {
+      "stage": "04B",
+      "path": ".codex/handoffs/stage-04B-rev-1-handoff.json",
+      "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049",
+      "state_status": "CLOSED"
+    },
+    {
+      "stage": "05",
+      "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+      "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+      "state_status": "CLOSED"
+    },
+    {
+      "stage": "06",
+      "path": ".codex/handoffs/stage-06-rev-1-handoff.json",
+      "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-DATA_READINESS.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-MODEL_READY.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-2-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "milestones": {
+    "DATA_READINESS": {
+      "status": "PASS",
+      "artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-DATA_READINESS.json",
+      "artifact_sha256": "cd406506c1b9c001ea4f62861796aadf9243e7d9c049b705cb93611b692b8b6e",
+      "manifest_hash": "ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6",
+      "eligible_rows_sha256": "1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4"
+    },
+    "MODEL_READY": {
+      "status": "PASS",
+      "artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-MODEL_READY.json",
+      "artifact_sha256": "3c52a74ebc9c3f74ae5db54bff131696e6362997d4edd8af860121813d27f6b1",
+      "readiness_manifest_hash": "ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6",
+      "eligible_rows_sha256": "1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4",
+      "model_version": "logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126"
+    }
+  },
+  "draft_self_tests": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 127 before artifact creation; execution enabled, Stage 07 revision 1 attempt 2 ACTIVE in PRIMARY_DRAFT, primary quant, prerequisites 04B/05/06 CLOSED, exact Attempt 2 artifact locks owned by quant.",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "64 passed in 3.45s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Current-runtime normal/reversed-order readiness, fit and prediction reproduction probe",
+      "exit_code": 0,
+      "result": "PASS; both runs reproduced readiness ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6, eligible rows 1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4 and model logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126; model artifacts and predictions were identical.",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    }
+  ],
+  "runtime_input_sha256": {
+    "tools/market_tools/__init__.py": "151c5a32ef2af46ad2c5cdb1e4b5bdd1fec842f7a232330007129c0d4142f1b8",
+    "tools/market_tools/market_data.py": "b0e360a9b6bc97427c8e74647fd69ff065a5635aca8a935ce3e3c8673a860630",
+    "tools/market_tools/feature_builder.py": "c95e6d569591606b1c3ff36afd8414b20c6a61e7f89a9ef40987f61310025d1f",
+    "tools/market_tools/historical_dataset_builder.py": "c094e50c0aaa9973b8dffadace8e14c45269212b66138ad63733ae1c7f6917be",
+    "tools/market_tools/forecast_model.py": "200231a42c985b812af12f5f4565171be7ed72a9728d3494ace67d939a62c84a",
+    "tools/market_tools/market_server.py": "7249ec02b782de2380b2c28bae82fcfd91c17fb84080d43941c3286f62d35d56",
+    "tests/fixtures/monthly_point_in_time_fixture.json": "deb996a86cb98d1e13d5a6cc3483d9521bee3a4ad347dd2870905c106dfae483"
+  },
+  "qa_07_001_resolution": {
+    "eligible_rows_sha256_present": true,
+    "readiness_reproduced_from_current_runtime": true,
+    "model_reproduced_from_current_runtime": true,
+    "model_bound_to_current_readiness_hash": true,
+    "attempt_1_overwritten": false,
+    "product_or_test_files_changed": false
+  },
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deploy_commit_or_push": false,
+    "llm_generated_or_altered_forecast_numbers": false
+  },
+  "limitations": [
+    "The locked fixture is synthetic, single-ticker and 40-cutoff; it proves engineering correctness only and remains PRELIMINARY.",
+    "Research/news, SEC filing and temporal Graph coverage are reference-only in this fixture and remain explicitly UNVERIFIED_REFERENCE_ONLY.",
+    "No live provider, network, database, migration, seed, deletion, deploy, commit or push operation was performed.",
+    "Because observability_required is true, final Attempt 2 implementation MD/JSON are intentionally not written in PRIMARY_DRAFT."
+  ],
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-07T13:51:44.9828945Z"
+}

@@ -1,0 +1,205 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "quant",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "execution_phase": "PRIMARY_FINAL",
+  "control_revision": 155,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "implementation_identity": {
+    "single_source": "evaluation/point_in_time_dataset.py::STAGE09_RUNTIME_IDENTITY",
+    "stage": "09",
+    "stage_revision": 1,
+    "attempt": 1,
+    "agent": "quant",
+    "implementation_version": "stage09-r1-a1",
+    "backtest_version": "stage09-expanding-walk-forward-v1"
+  },
+  "draft_ready_artifact": ".codex/handoffs/stage-09-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "de058ebaeeb139a2eb07913fdf7e4b201a68d605e2c5ecf11bce605a2fbe11f5",
+  "observability_artifact": ".codex/handoffs/stage-09-rev-1-attempt-1-observability.json",
+  "observability_sha256": "ce2c10d05263288c233dfe5d8b1de604c954f1230d8b037030fda6600a7e8580",
+  "change_request": ".codex/handoffs/change-request-stage-09-rev-1-attempt-1-1.json",
+  "change_request_sha256": "685004de49a8792449ef0b0ee46a3ff7dd7f8c848acf81211f402f9b69c9dada",
+  "observability_status": "CHANGES_REQUESTED_AND_RESOLVED",
+  "implementation_md": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.md",
+  "implementation_md_sha256": "8e03d32c4f6e257506a1466fe39bc1d63a96572abd76e75c23b0d391e1d43e3f",
+  "dependency_handoffs": [
+    {
+      "stage": "08",
+      "path": ".codex/handoffs/stage-08-rev-1-handoff.json",
+      "sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    "evaluation/point_in_time_dataset.py",
+    "evaluation/monthly_backtest.py",
+    "evaluation/forecast_metrics.py",
+    "evaluation/temporal_leakage.py",
+    "evaluation/backtest_cli.py",
+    "evaluation/stage3_compare_cli.py",
+    "tests/fixtures/stage9_walk_forward.json",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py",
+    "tests/unit_tests/test_monthly_backtest_stage9.py",
+    "tests/unit_tests/test_forecast_metrics_stage9.py",
+    "tests/unit_tests/test_temporal_leakage_stage9.py",
+    "tests/unit_tests/test_backtest_cli_stage9.py",
+    ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "OBS-09-001",
+      "status": "RESOLVED",
+      "resolution": "Added immutable 09/r1/a1/quant identity and local injectable payload-safe measured events for fixture materialization, fold model fit, fold prediction, metric aggregation, leakage audit, run start/progress/completion and fail-closed errors, without changing scientific output."
+    }
+  ],
+  "telemetry_contract": {
+    "sink": "LOCAL_INJECTABLE_IN_PROCESS_ONLY",
+    "required_boundaries": [
+      "fixture_materialization",
+      "fold_model_fit",
+      "fold_prediction",
+      "metric_aggregation",
+      "leakage_audit",
+      "run",
+      "run_progress"
+    ],
+    "successful_probe_event_count": 231,
+    "run_events": {"started": 1, "degraded_completion": 1},
+    "progress_events": 11,
+    "success_events": 218,
+    "latency": "PASS_FINITE_NONNEGATIVE_MONOTONIC_PERF_COUNTER",
+    "sink_failure_isolation": "PASS",
+    "fail_closed_before_reraise": "PASS",
+    "stable_error_codes": "PASS",
+    "external_export": false
+  },
+  "privacy_checks": [
+    "Telemetry uses a closed field allowlist and bounded compact identities, counts, outcomes, error codes and degraded flags.",
+    "BacktestReport, raw vectors, labels, predictions, coefficients, evidence IDs/content, prompts, chain-of-thought, private payloads and exception text are excluded.",
+    "PRIVATE_SENTINEL success/failure counterprobes are absent from emitted event serialization.",
+    "Sink exceptions are suppressed and cannot alter the deterministic scientific result.",
+    "No external trace provider was contacted."
+  ],
+  "latency_instrumentation_status": "PASS_MEASURED_FINITE_NONNEGATIVE_PAYLOAD_SAFE_CURRENT_ATTEMPT_IDENTITY",
+  "scientific_contract": {
+    "report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779",
+    "telemetry_enabled_disabled_exact_equality": true,
+    "scientific_report_level": "PRELIMINARY",
+    "fixture_tickers": 2,
+    "fixture_monthly_cutoffs": 48,
+    "fold_count": 11,
+    "forecast_count_per_variant": 22,
+    "total_forecast_records": 154,
+    "future_record_count": 0,
+    "identical_fold_and_row_identity_all_variants": "PASS",
+    "transaction_cost_bps_one_way": 10.0,
+    "gross_and_net_results_reported": true,
+    "ragas_used_for_forecast_accuracy": false,
+    "llm_generated_or_altered_forecast_numbers": false,
+    "honest_full_model_result": "Full Model trails no-Financial on MAE and trails market-only/no-Graph/no-Sentiment on mean net excess return in the synthetic fixture; engineering correctness remains separate from performance."
+  },
+  "source_sha256": {
+    "evaluation/point_in_time_dataset.py": "f3798eb140c08a5ca59e93663c1b7ad60327956d1c0fda016dacf204c2784390",
+    "evaluation/monthly_backtest.py": "0923a33217da17581b4b642d8a5cf741c25bc9a2327d13474fb8ee6ffd404b17",
+    "evaluation/forecast_metrics.py": "9930bc15574e2e8a7d5aaf65fe3f7af6102060b5c4be948dc37c06cb73efe7a8",
+    "evaluation/temporal_leakage.py": "c6971cbe9b51cd9e142f0f1805617767132f571d35f76e962c03b76c0a56bf7d",
+    "evaluation/backtest_cli.py": "7291084fa56a4194549de25adeea87ec5bebc98b8041534282dd843c80ad10df",
+    "evaluation/stage3_compare_cli.py": "7c7e8bfcd80c39d81b19421157dbe23ca4c1e45346e666723f35875591e3a39e",
+    "tests/fixtures/stage9_walk_forward.json": "697d84c0c2822764c24171a8d4167709dd80110e9548056520634c3108957a54",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py": "315caf0e78bb2340a0da7fe58b90d88c475183f0457adedcd2a2cb0db161f15c",
+    "tests/unit_tests/test_monthly_backtest_stage9.py": "1907d456966805f1f13aff5bf2cc79f6e15940596e4f0a9a8f61df53e65697b0",
+    "tests/unit_tests/test_forecast_metrics_stage9.py": "39c96555916d3cd8986ce923b1b6fcdb1f4ed99ae4f2467f70fd7fce504d95f8",
+    "tests/unit_tests/test_temporal_leakage_stage9.py": "02180d9e2379108e8542ffeb6adff3323468437fe9d505c1809fb4de33073e42",
+    "tests/unit_tests/test_backtest_cli_stage9.py": "c9f3e75352d9e26f63ca78be534306d95c41ad4ab3ed7ca5242c0a858bf53d7c",
+    ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.md": "8e03d32c4f6e257506a1466fe39bc1d63a96572abd76e75c23b0d391e1d43e3f"
+  },
+  "self_tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <five exact Stage09 test modules> -q",
+      "exit_code": 0,
+      "result": "21 passed in 28.69s",
+      "coverage": "scientific determinism, exact report hash, zero-future audit, immutable identity, all measured boundaries, bounded progress, degraded/fail-closed signals, PRIVATE_SENTINEL redaction and telemetry enabled/disabled equality",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py tests/unit_tests/test_stage3_narrative_stability.py tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py -q",
+      "exit_code": 0,
+      "result": "137 passed in 32.12s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURES_ONLY"
+    },
+    {
+      "command": "Deterministic enabled-versus-disabled report and telemetry privacy probe",
+      "exit_code": 0,
+      "result": "PASS: exact report equality; report_hash=213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779; PRELIMINARY; future_record_count=0; 231 events; seven required boundary names; finite nonnegative latency; forbidden fields absent",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile <five modified evaluation modules> <five exact Stage09 test modules>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check -- <exact OBS-09-001 source/test paths>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent quant",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 155 before final artifact creation",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "contract_diff": [
+    "Added only accepted OBS-09-001 local telemetry and exact tests after the draft.",
+    "Preserved the complete point-in-time dataset, folds, variants, metrics, report content/hash, PRELIMINARY result and zero-future audit.",
+    "Preserved legacy Stage 3 comparison behavior and kept RAGAS outside forecast accuracy.",
+    "Did not modify Stage 07, Stage 08, state, dependencies, database, migrations, API/runtime or Stage 10A."
+  ],
+  "blocking_issues": [],
+  "known_limitations": [
+    "The deterministic two-ticker fixture is synthetic and valid only for engineering regression.",
+    "The report remains below every scientific minimum in the monthly backtest contract.",
+    "Live providers, network acquisition, databases and external trace export were intentionally not exercised."
+  ],
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "observability_only": "Restore the five modified evaluation modules and five exact tests to the SHA-256 versions recorded in immutable draft-ready artifact de058ebaeeb139a2eb07913fdf7e4b201a68d605e2c5ecf11bce605a2fbe11f5.",
+    "full_stage": "Archive current Stage 09 paths/artifacts, remove only Stage 09-new paths, and restore evaluation/stage3_compare_cli.py from the pre-stage repository baseline while retaining all workflow evidence.",
+    "rollback_executed": false,
+    "data_loss_risk": "NONE_WHEN_ARCHIVE_IS_RETAINED"
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage10a_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "supersedes": null,
+  "implementation_ready": true,
+  "created_at": "2026-09-11T16:27:30.9923323Z"
+}

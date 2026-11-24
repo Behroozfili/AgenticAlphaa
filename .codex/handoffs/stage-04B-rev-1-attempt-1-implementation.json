@@ -1,0 +1,175 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "04B",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "research",
+  "status": "IMPLEMENTED",
+  "execution_phase": "PRIMARY_FINAL",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-04A-rev-1-handoff.json",
+  "dependency_handoff_sha256": "c8e2bd6da7095e5d23447bfb8c3900402a34b11fea19c4ae40714dd48ed4e3",
+  "draft_ready_artifact": ".codex/handoffs/stage-04B-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "1a1c585620b89810533c8e89520001a5e3fb58a0a83bcf8927651634998f45f9",
+  "observability_artifact": ".codex/handoffs/stage-04B-rev-1-attempt-1-observability.json",
+  "observability_sha256": "0014612f1a1bf736a0b9b42e09a7573e0dc20c2445e8c3e4a05cba58d72f48d8",
+  "observability_status": "AUDITED_WITH_PRIMARY_CHANGES_APPLIED",
+  "changed_files": [
+    "tools/research_tools/__init__.py",
+    "tools/research_tools/research_server.py",
+    "tools/research_tools/news_search.py",
+    "tools/research_tools/sec_edgar.py",
+    "tools/research_tools/tavily_search.py",
+    "tools/research_tools/comprehensive_analysis.py",
+    "tools/research_tools/context_synthesizer.py",
+    "agents/research_agent.py",
+    "agents/executor_helpers/search_executor_helpers.py",
+    "agents/prompts/propt_search_agent.py",
+    "agents/prompts/prompt_research_agent.py",
+    "agents/prompts/__init__.py",
+    "tests/unit_tests/test_agents/test_search_executor_helpers.py",
+    "tests/unit_tests/test_agents/test_research_agent.py",
+    "tests/unit_tests/search_test/test_tavily_search.py",
+    "tests/unit_tests/search_test/test_search_sec_edgar.py",
+    "tests/unit_tests/search_test/test_news_search.py",
+    "tests/integration_test_2/test_research_agent_only.py",
+    "tests/integration_tests/test_integration_search_agent.py",
+    "tests/fixtures/stage4b_research_point_in_time.json",
+    ".codex/handoffs/stage-04B-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-04B-rev-1-attempt-1-implementation.json"
+  ],
+  "resolved_observability_findings": [
+    {
+      "id": "OBS-04B-001",
+      "status": "RESOLVED",
+      "resolution": "All Stage04B LangSmith decorators use compact allowlisted input/output processors; raw MCP tracing was removed and sentinel tests exclude query, plan, messages, evidence, citations, URLs, secrets and generated summaries."
+    },
+    {
+      "id": "OBS-04B-002",
+      "status": "RESOLVED",
+      "resolution": "Logs, progress, Sentry and tool errors use stable codes and allowlisted identity/count metadata only; original exceptions and private argument values are never persisted or returned."
+    },
+    {
+      "id": "OBS-04B-003",
+      "status": "RESOLVED",
+      "resolution": "Measured compact lifecycle metadata covers provider/search, SEC, Vector, Graph, Hybrid, comprehensive analysis, synthesis and pre-State leakage gates with exact counts, degradation and rejection codes."
+    },
+    {
+      "id": "OBS-04B-004",
+      "status": "RESOLVED",
+      "resolution": "Shared State retains ResearchFeatures plus deterministic evidence/citation reference IDs only; citation dictionaries, synthesis text, raw rejection records, exception text and evidence payloads are excluded."
+    }
+  ],
+  "implementation_contract": {
+    "identity": "ForecastContext and run_id are mandatory and manager-authorized ticker/as_of/lookback/dataset/run identity overrides model arguments.",
+    "historical_boundary": "Historical execution admits only retained allowlisted archives; unavailable archives return DATA_UNAVAILABLE and never fall back to today's web.",
+    "temporal_safety": "SEC filed_at and every evidence timestamp must be on/before as_of; evidence is rejected before synthesis and again before State materialization.",
+    "features": "Typed ResearchFeatures carry catalysts, risks, timestamps, deterministic evidence and citation-reference IDs, source diversity, Vector/Graph coverage, missing/degraded flags, dataset version and run identity.",
+    "privacy": "Trace, logs, progress, Sentry, MCP failures and State expose stable codes, identities, latency and counts only.",
+    "prompt_rename": "propt_search_agent.py was atomically replaced by prompt_research_agent.py with direct imports/exports and collection-safe tests."
+  },
+  "final_self_tests": [
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_search_executor_helpers.py tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/search_test/test_tavily_search.py tests/unit_tests/search_test/test_news_search.py tests/unit_tests/search_test/test_search_sec_edgar.py -q",
+      "exit_code": 0,
+      "result": "104 passed in 33.05s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_rag -q",
+      "exit_code": 0,
+      "result": "333 passed in 54.19s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_research_agent_only.py",
+      "exit_code": 0,
+      "result": "1308 tests collected in 30.77s; zero collection errors"
+    },
+    {
+      "command": "scoped py_compile; git diff --check; static privacy scan; control/lock validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; no capture_exception, logger.exception or str(exc); line-ending notices only"
+    }
+  ],
+  "self_tests_run": [
+    {
+      "command": "Stage04B focused unit and privacy/lifecycle sentinels",
+      "exit_code": 0,
+      "result": "104 passed",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "Graph/RAG regression",
+      "exit_code": 0,
+      "result": "333 passed",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "Full collection, compile, diff, privacy and control gates",
+      "exit_code": 0,
+      "result": "1308 collected; zero errors; CONTROL VALID"
+    }
+  ],
+  "source_sha256": {
+    "tools/research_tools/__init__.py": "62e9569d612ae95f05e9f4ccffb33584faa7b7224948ec557ea1e25ae702e22d",
+    "tools/research_tools/research_server.py": "5aced92c330415ca2d658ec82aa5c1e2f9c258b16d753f1874df344892908579",
+    "tools/research_tools/news_search.py": "109aa3dfb278604f30042d9cfe2d2ff019596befde96191d92a41e026a5c9877",
+    "tools/research_tools/sec_edgar.py": "1f704ce85b02f9974cfe2f6d5858735e82f7b815130786da27ae4d9c8452ff59",
+    "tools/research_tools/tavily_search.py": "3c40e9638aa23d420f2b77384212de7b37e485f61520e7ed475ec9c06836bcd",
+    "tools/research_tools/comprehensive_analysis.py": "292cf821290032f8f54fcfa0c148eb8070e6abf7f0797009a4e2189cc38b8046",
+    "tools/research_tools/context_synthesizer.py": "7635d5b3e77da076ef62688c6f25b96257d301b2abb927086ff0802bd1123a5e",
+    "agents/research_agent.py": "fb53d188161b81781599bbd3dde9006b93b25be18f32ba5b49d98488794f87b1",
+    "agents/executor_helpers/search_executor_helpers.py": "9ae3b32f7ea7913bc597d32ea20c30a2cf6ade30ea1bafb5ddd1da51cea9b17d",
+    "agents/prompts/prompt_research_agent.py": "ce7e2b03d38e80a93d1da8e4e33245bae3418aba7b6308f11a5a63c056acada7",
+    "agents/prompts/__init__.py": "0f5b66c87c4e60dec7c67267e12a13b983cea56b3cb1007e2484d2bbf38944a2",
+    "tests/unit_tests/test_agents/test_search_executor_helpers.py": "956f2fd202f60b478d7a631e56c808d02d62c0a7c7c2cdf9247e0423923e28b3",
+    "tests/unit_tests/test_agents/test_research_agent.py": "d6a4e9154b576647f76d7bf58e772e5e79e2f3fc10e769b25c90c3c8b081d9e7",
+    "tests/unit_tests/search_test/test_tavily_search.py": "83251090d48a23d420f2b77384212de7b37e485f61520e7ed475ec9c06836bcd",
+    "tests/unit_tests/search_test/test_search_sec_edgar.py": "fd9bf2fba97102de7b5b1e70524914c45076dcc219db3135398ddcf2bf7d7b78",
+    "tests/unit_tests/search_test/test_news_search.py": "b6a24b0d43f9707ad7723cbef197b2f3f1f2aab245132fb73bb38368febefd7a",
+    "tests/integration_test_2/test_research_agent_only.py": "9c9ffe9ebb6a3622bc957c1dc77ee009ad99761b949a10f233b6ba26b71aa506",
+    "tests/integration_tests/test_integration_search_agent.py": "f311591429b546d21e4f938a0014a3f7adda76f862bc3452a5bb6156613bb256",
+    "tests/fixtures/stage4b_research_point_in_time.json": "eb6e64300e625d6c7f640ce02c49013b2b3ab022b0521e0dbc862b0f7a609f17"
+  },
+  "leakage_and_privacy_result": {
+    "status": "PASS",
+    "temporal": "Future, outside-lookback, wrong-ticker, wrong-version and forbidden historical-provider evidence is quarantined before synthesis and State.",
+    "trace_and_persistence": "Sentinel tests prove raw query, planner/checker text, evidence/citation payload, URL, secret and exception text do not reach processed traces, logs, progress, Sentry, tool errors or compact State slots.",
+    "lifecycle": "All ten Stage04B boundaries report non-negative measured latency and deterministic counts/codes without payload content."
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "database_writes": false,
+    "legacy_data_deleted": false,
+    "route_switched": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_DATABASE_WRITE",
+    "runtime": "Restore prior Research source/test bytes and reverse the prompt rename.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_access": "ACCIDENTAL_READ_ONLY_LEGACY_LIVE_TEST_PROBE",
+    "detail": "A legacy live integration command contacted configured News/SEC providers for two passing reads and one SEC preview assertion before being stopped. It was not used as a gate and was not rerun.",
+    "database_reads": "NOT_RUN",
+    "database_writes": "NOT_RUN",
+    "archive_download": "NOT_RUN",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "blocking_issues": [],
+  "limitations": [
+    "Historical providers are proven with deterministic local fixtures; no external archive was acquired.",
+    "The legacy live integration suite requires separate explicit provider authorization and was not a completion gate.",
+    "Stage05 remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "implementation_ready": true,
+  "created_at": "2026-09-01T13:30:02.4668826Z"
+}

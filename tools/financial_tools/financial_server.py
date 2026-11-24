@@ -55,9 +55,11 @@ Dependencies
 import sys
 import os
 import logging
+from typing import Any
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.observability import init_sentry, sentry_enabled
+from tools.financial_tools import require_financial_context
 
 # ---------------------------------------------------------------------------
 # FastMCP import — the modern MCP server API (no FastAPI, no HTTP)
@@ -136,6 +138,47 @@ logging.basicConfig(
 )
 log = logging.getLogger("financial-mcp-server")
 
+_FINANCIAL_SERVER_TOOLS = frozenset({
+    "tool_get_price_history", "tool_get_financial_ratios",
+    "tool_get_revenue_growth", "tool_get_peer_comparison",
+    "tool_get_balance_sheet_snapshot", "tool_get_cik", "tool_list_filings",
+    "tool_get_filing_text", "tool_get_xbrl_financials", "tool_calc_pe",
+    "tool_calc_pb", "tool_calc_ev_ebitda", "tool_calc_peg",
+    "tool_calc_gross_margin", "tool_calc_operating_margin",
+    "tool_calc_net_margin", "tool_calc_roe", "tool_calc_roa",
+    "tool_calc_current_ratio", "tool_calc_quick_ratio",
+    "tool_calc_debt_to_equity", "tool_calc_dcf_scenarios",
+    "tool_build_forecast",
+    "tool_calc_dcf_monte_carlo", "tool_calc_dcf_multi_factor_monte_carlo",
+    "tool_calc_interest_coverage", "tool_calc_cagr",
+    "tool_calc_revenue_cagr_from_growth", "tool_calc_composite_score",
+    "tool_calc_net_debt_to_ebitda", "tool_calc_fcf_margin",
+    "tool_calc_fcf_yield", "tool_calc_ocf_ratio", "tool_calc_reverse_dcf",
+    "tool_calc_roic", "tool_calc_roce", "tool_calc_debt_ratio",
+    "tool_calc_equity_ratio", "tool_calc_altman_z_score",
+})
+
+
+def _safe_server_tool(tool_name: Any) -> str:
+    candidate = str(tool_name or "").strip()
+    return candidate if candidate in _FINANCIAL_SERVER_TOOLS else "financial_tool_unknown"
+
+
+def _bounded_count(value: Any) -> int:
+    if isinstance(value, bool):
+        return 0
+    try:
+        return max(0, min(int(value), 1_000_000))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def _log_tool_start(tool_name: str, *, input_count: int = 0) -> None:
+    log.info(
+        "FINANCIAL_TOOL_START tool=%s input_count=%d",
+        _safe_server_tool(tool_name), _bounded_count(input_count),
+    )
+
 # ---------------------------------------------------------------------------
 # FastMCP server instance
 # ---------------------------------------------------------------------------
@@ -162,26 +205,26 @@ def tool_calc_dcf_multi_factor_monte_carlo(
 
 
 def _sentry_capture(tool_name: str, exc: Exception) -> None:
-    """Capture an exception to Sentry tagged with the tool name."""
+    """Capture only a stable code; never send provider exceptions or payloads."""
     if sentry_enabled():
         import sentry_sdk
         with sentry_sdk.push_scope() as scope:
-            scope.set_tag("tool", tool_name)
+            scope.set_tag("tool", _safe_server_tool(tool_name))
             scope.set_tag("server", "financial-agent-mcp")
-            sentry_sdk.capture_exception(exc)
+            sentry_sdk.capture_message("FINANCIAL_TOOL_FAIL_CLOSED", level="error")
 
 
 def _sentry_tool(tool_name: str, fn, *args, **kwargs):
     """
-    Call a tool function and capture any exception to Sentry before re-raising.
-    Returns {"error": str(exc)} on failure so FastMCP can serialize it.
+    Call a tool function and return a stable, privacy-safe failure payload.
     """
+    safe_tool = _safe_server_tool(tool_name)
     try:
         return fn(*args, **kwargs)
     except Exception as exc:
-        log.exception("Tool %s failed: %s", tool_name, exc)
-        _sentry_capture(tool_name, exc)
-        return {"error": str(exc), "tool": tool_name}
+        log.error("FINANCIAL_TOOL_FAIL_CLOSED tool=%s", safe_tool)
+        _sentry_capture(safe_tool, exc)
+        return {"error_code": "FINANCIAL_TOOL_FAIL_CLOSED", "error": "Financial tool failed closed.", "tool": safe_tool}
 
 
 # ===========================================================================
@@ -189,13 +232,21 @@ def _sentry_tool(tool_name: str, fn, *args, **kwargs):
 # ===========================================================================
 
 @mcp.tool()
-def tool_get_price_history(ticker: str, period: str = "1y") -> dict:
+def tool_get_price_history(
+    ticker: str, forecast_context: dict[str, Any], run_id: str,
+    period: str = "1y", start: str | None = None, end: str | None = None,
+    as_of: str | None = None,
+) -> dict:
     """Retrieve historical OHLCV records for the requested Yahoo period."""
-    log.info("tool_get_price_history called: ticker=%s period=%s", ticker, period)
-    return _sentry_tool("tool_get_price_history", get_price_history, ticker, period)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    _log_tool_start("tool_get_price_history", input_count=4)
+    return _sentry_tool(
+        "tool_get_price_history", get_price_history, ticker, period,
+        start=start, end=end, as_of=as_of, forecast_context=context, run_id=identity,
+    )
 
 @mcp.tool()
-def tool_get_financial_ratios(ticker: str) -> dict:
+def tool_get_financial_ratios(ticker: str, forecast_context: dict[str, Any], run_id: str) -> dict:
     """
     Retrieve key financial ratios and valuation metrics for a stock ticker.
 
@@ -215,12 +266,12 @@ def tool_get_financial_ratios(ticker: str) -> dict:
           - 52w_high, 52w_low, current_price
           - error (str | None)
     """
-    log.info("tool_get_financial_ratios called: ticker=%s", ticker)
-    return _sentry_tool("tool_get_financial_ratios", get_financial_ratios, ticker)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    return _sentry_tool("tool_get_financial_ratios", get_financial_ratios, ticker, context, identity)
 
 
 @mcp.tool()
-def tool_get_revenue_growth(ticker: str) -> dict:
+def tool_get_revenue_growth(ticker: str, forecast_context: dict[str, Any], run_id: str) -> dict:
     """
     Retrieve annual and quarterly revenue and net income growth metrics.
 
@@ -251,12 +302,15 @@ def tool_get_revenue_growth(ticker: str) -> dict:
 
         Growth values are decimals (e.g. 1.22 = +122% growth).
     """
-    log.info("tool_get_revenue_growth called: ticker=%s", ticker)
-    return _sentry_tool("tool_get_revenue_growth", get_revenue_growth, ticker)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    return _sentry_tool("tool_get_revenue_growth", get_revenue_growth, ticker, context, identity)
 
 
 @mcp.tool()
-def tool_get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
+def tool_get_peer_comparison(
+    ticker: str, forecast_context: dict[str, Any], run_id: str,
+    peers: list[str] | None = None,
+) -> dict:
     """
     Compare a stock's financial ratios against a list of peer companies.
 
@@ -275,12 +329,13 @@ def tool_get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dic
           - summary  (dict)        Peer-average values per ratio field.
           - error    (str | None)
     """
-    log.info("tool_get_peer_comparison called: ticker=%s peers=%s", ticker, peers)
-    return get_peer_comparison(ticker, peers)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    _log_tool_start("tool_get_peer_comparison", input_count=len(peers or []))
+    return get_peer_comparison(ticker, peers, context, identity)
 
 
 @mcp.tool()
-def tool_get_balance_sheet_snapshot(ticker: str) -> dict:
+def tool_get_balance_sheet_snapshot(ticker: str, forecast_context: dict[str, Any], run_id: str) -> dict:
     """
     Retrieve a most-recent-period balance-sheet + EBIT snapshot for a
     ticker: total_assets, total_liabilities, total_equity, current_assets,
@@ -303,8 +358,8 @@ def tool_get_balance_sheet_snapshot(ticker: str) -> dict:
             retained_earnings, ebit  (float | None each)
           - error (str | None)
     """
-    log.info("tool_get_balance_sheet_snapshot called: ticker=%s", ticker)
-    return _sentry_tool("tool_get_balance_sheet_snapshot", get_balance_sheet_snapshot, ticker)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    return _sentry_tool("tool_get_balance_sheet_snapshot", get_balance_sheet_snapshot, ticker, context, identity)
 
 
 # ===========================================================================
@@ -312,7 +367,7 @@ def tool_get_balance_sheet_snapshot(ticker: str) -> dict:
 # ===========================================================================
 
 @mcp.tool()
-def tool_get_cik(ticker: str) -> dict:
+def tool_get_cik(ticker: str, forecast_context: dict[str, Any], run_id: str) -> dict:
     """
     Resolve a stock ticker symbol to its SEC Central Index Key (CIK).
 
@@ -332,12 +387,15 @@ def tool_get_cik(ticker: str) -> dict:
     Example:
         tool_get_cik('NVDA') → {'cik': '0001045810', 'company_name': 'NVIDIA CORP', ...}
     """
-    log.info("tool_get_cik called: ticker=%s", ticker)
-    return get_cik(ticker)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    return get_cik(ticker, context, identity)
 
 
 @mcp.tool()
-def tool_list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> dict:
+def tool_list_filings(
+    ticker: str, forecast_context: dict[str, Any], run_id: str,
+    form_type: str = "10-K", limit: int = 5,
+) -> dict:
     """
     List the most recent SEC EDGAR filings of a given form type for a ticker.
 
@@ -364,16 +422,20 @@ def tool_list_filings(ticker: str, form_type: str = "10-K", limit: int = 5) -> d
               - document_url     (str) URL to the filing index page.
           - error     (str | None)
     """
-    log.info("tool_list_filings called: ticker=%s form_type=%s limit=%d", ticker, form_type, limit)
-    return list_filings(ticker, form_type, limit)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    _log_tool_start("tool_list_filings", input_count=3)
+    return list_filings(ticker, form_type, limit, context, identity)
 
 
 @mcp.tool()
 def tool_get_filing_text(
     accession_number: str,
     cik: str,
+    forecast_context: dict[str, Any],
+    run_id: str,
     primary_document: str | None = None,
     form_type: str | None = None,
+    filed_at: str | None = None,
 ) -> dict:
     """
     Download and extract the plain-text content of a specific SEC filing.
@@ -405,16 +467,18 @@ def tool_get_filing_text(
         returned text before passing it to an embedding model.
         Parsing fails for ~8% of non-standard PDF-based filings.
     """
-    log.info("tool_get_filing_text called: accession=%s cik=%s", accession_number, cik)
+    context, identity = require_financial_context(forecast_context, run_id)
+    _log_tool_start("tool_get_filing_text", input_count=5)
     return get_filing_text(
         accession_number, cik,
         primary_document=primary_document,
         form_type=form_type,
+        filed_at=filed_at, forecast_context=context, run_id=identity,
     )
 
 
 @mcp.tool()
-def tool_get_xbrl_financials(ticker: str) -> dict:
+def tool_get_xbrl_financials(ticker: str, forecast_context: dict[str, Any], run_id: str) -> dict:
     """
     Retrieve structured financial statement data from the SEC EDGAR XBRL API.
 
@@ -438,8 +502,8 @@ def tool_get_xbrl_financials(ticker: str) -> dict:
         Values are in USD. Only the 10 most recent annual data points
         are returned per metric.
     """
-    log.info("tool_get_xbrl_financials called: ticker=%s", ticker)
-    return _sentry_tool("tool_get_xbrl_financials", get_xbrl_financials, ticker)
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    return _sentry_tool("tool_get_xbrl_financials", get_xbrl_financials, ticker, context, identity)
 
 
 # ===========================================================================
@@ -462,7 +526,7 @@ def tool_calc_pe(price: float, eps: float) -> dict:
                                  | 'negative_earnings'
           - formula        (str) Human-readable formula.
     """
-    log.info("tool_calc_pe called: price=%s eps=%s", price, eps)
+    _log_tool_start("tool_calc_pe", input_count=2)
     return price_to_earnings(price, eps)
 
 
@@ -483,7 +547,7 @@ def tool_calc_pb(price: float, book_value_per_share: float) -> dict:
                                  | 'premium_to_book'
           - formula        (str)
     """
-    log.info("tool_calc_pb called: price=%s bvps=%s", price, book_value_per_share)
+    _log_tool_start("tool_calc_pb", input_count=2)
     return price_to_book(price, book_value_per_share)
 
 
@@ -503,7 +567,7 @@ def tool_calc_ev_ebitda(enterprise_value: float, ebitda: float) -> dict:
           - interpretation (str) 'undervalued' | 'fairly_valued' | 'expensive'
           - formula        (str)
     """
-    log.info("tool_calc_ev_ebitda called: ev=%s ebitda=%s", enterprise_value, ebitda)
+    _log_tool_start("tool_calc_ev_ebitda", input_count=2)
     return ev_to_ebitda(enterprise_value, ebitda)
 
 
@@ -523,7 +587,7 @@ def tool_calc_peg(pe: float, earnings_growth_rate_pct: float) -> dict:
           - interpretation (str) 'undervalued' | 'fairly_valued' | 'overvalued'
           - formula        (str)
     """
-    log.info("tool_calc_peg called: pe=%s growth=%s", pe, earnings_growth_rate_pct)
+    _log_tool_start("tool_calc_peg", input_count=2)
     return peg_ratio(pe, earnings_growth_rate_pct)
 
 
@@ -542,7 +606,7 @@ def tool_calc_gross_margin(revenue: float, cogs: float) -> dict:
           - interpretation   (str) 'excellent' | 'good' | 'moderate' | 'low'
           - formula          (str)
     """
-    log.info("tool_calc_gross_margin called: revenue=%s cogs=%s", revenue, cogs)
+    _log_tool_start("tool_calc_gross_margin", input_count=2)
     return gross_margin(revenue, cogs)
 
 
@@ -561,7 +625,7 @@ def tool_calc_operating_margin(operating_income: float, revenue: float) -> dict:
           - interpretation       (str)
           - formula              (str)
     """
-    log.info("tool_calc_operating_margin called: ebit=%s revenue=%s", operating_income, revenue)
+    _log_tool_start("tool_calc_operating_margin", input_count=2)
     return operating_margin(operating_income, revenue)
 
 
@@ -580,7 +644,7 @@ def tool_calc_net_margin(net_income: float, revenue: float) -> dict:
           - interpretation (str)
           - formula        (str)
     """
-    log.info("tool_calc_net_margin called: net_income=%s revenue=%s", net_income, revenue)
+    _log_tool_start("tool_calc_net_margin", input_count=2)
     return net_margin(net_income, revenue)
 
 
@@ -599,7 +663,7 @@ def tool_calc_roe(net_income: float, shareholders_equity: float) -> dict:
           - interpretation (str) 'excellent' | 'good' | 'moderate' | 'low'
           - formula        (str)
     """
-    log.info("tool_calc_roe called: net_income=%s equity=%s", net_income, shareholders_equity)
+    _log_tool_start("tool_calc_roe", input_count=2)
     return return_on_equity(net_income, shareholders_equity)
 
 
@@ -618,7 +682,7 @@ def tool_calc_roa(net_income: float, total_assets: float) -> dict:
           - interpretation (str)
           - formula        (str)
     """
-    log.info("tool_calc_roa called: net_income=%s assets=%s", net_income, total_assets)
+    _log_tool_start("tool_calc_roa", input_count=2)
     return return_on_assets(net_income, total_assets)
 
 
@@ -637,8 +701,7 @@ def tool_calc_current_ratio(current_assets: float, current_liabilities: float) -
           - interpretation (str) 'strong' (>=2) | 'adequate' (1-2) | 'weak' (<1)
           - formula        (str)
     """
-    log.info("tool_calc_current_ratio called: assets=%s liabilities=%s",
-             current_assets, current_liabilities)
+    _log_tool_start("tool_calc_current_ratio", input_count=2)
     return current_ratio(current_assets, current_liabilities)
 
 
@@ -664,7 +727,7 @@ def tool_calc_quick_ratio(
           - interpretation (str) 'strong' | 'moderate' | 'weak'
           - formula        (str)
     """
-    log.info("tool_calc_quick_ratio called")
+    _log_tool_start("tool_calc_quick_ratio", input_count=4)
     return quick_ratio(cash, short_term_investments, receivables, current_liabilities)
 
 
@@ -684,7 +747,7 @@ def tool_calc_debt_to_equity(total_debt: float, shareholders_equity: float) -> d
                                  | 'high_leverage'
           - formula        (str)
     """
-    log.info("tool_calc_debt_to_equity called: debt=%s equity=%s", total_debt, shareholders_equity)
+    _log_tool_start("tool_calc_debt_to_equity", input_count=2)
     return debt_to_equity(total_debt, shareholders_equity)
 
 
@@ -760,10 +823,17 @@ def tool_calc_dcf_scenarios(
         dict with keys "bear", "base", "bull" (each a full DCF result
         dict) and "note" explaining how to read the range.
     """
-    log.info(
-        "tool_calc_dcf_scenarios called: fcf_base=%s beta=%s base_growth=%s",
-        fcf_base, beta, base_growth_rate_pct,
-    )
+    _log_tool_start("tool_calc_dcf_scenarios", input_count=sum(
+        value is not None for value in (
+            fcf_base, beta, base_growth_rate_pct, shares_outstanding,
+            bear_growth_rate_pct, bull_growth_rate_pct, terminal_growth_rate_pct,
+            risk_free_rate_pct, market_risk_premium_pct, projection_years,
+            forecast_scenarios, market_cap, total_debt, cash,
+            marketable_securities, lease_liabilities, minority_interest,
+            diluted_shares, pre_tax_cost_of_debt_pct, effective_tax_rate_pct,
+            input_assessments,
+        )
+    ))
     return dcf_scenario_range(
         fcf_base=fcf_base,
         beta=beta,
@@ -827,10 +897,13 @@ def tool_calc_dcf_monte_carlo(
         given), growth_rate_mean_pct/std_pct, discount_rate_pct, note,
         and error.
     """
-    log.info(
-        "tool_calc_dcf_monte_carlo called: fcf_base=%s beta=%s base_growth=%s n_sim=%s",
-        fcf_base, beta, base_growth_rate_pct, n_simulations,
-    )
+    _log_tool_start("tool_calc_dcf_monte_carlo", input_count=sum(
+        value is not None for value in (
+            fcf_base, beta, base_growth_rate_pct, shares_outstanding,
+            growth_std_pct, terminal_growth_rate_pct, risk_free_rate_pct,
+            market_risk_premium_pct, projection_years, n_simulations,
+        )
+    ))
     return dcf_monte_carlo(
         fcf_base=fcf_base,
         beta=beta,
@@ -860,7 +933,7 @@ def tool_calc_interest_coverage(ebit: float, interest_expense: float) -> dict:
           - interpretation    (str) 'strong' | 'adequate' | 'at_risk'
           - formula           (str)
     """
-    log.info("tool_calc_interest_coverage called: ebit=%s interest=%s", ebit, interest_expense)
+    _log_tool_start("tool_calc_interest_coverage", input_count=2)
     return interest_coverage(ebit, interest_expense)
 
 
@@ -880,7 +953,7 @@ def tool_calc_cagr(start_value: float, end_value: float, years: float) -> dict:
           - interpretation (str) 'hypergrowth' | 'strong' | 'moderate' | 'slow'
           - formula        (str)
     """
-    log.info("tool_calc_cagr called: start=%s end=%s years=%s", start_value, end_value, years)
+    _log_tool_start("tool_calc_cagr", input_count=3)
     return cagr(start_value, end_value, years)
 
 
@@ -906,7 +979,7 @@ def tool_calc_revenue_cagr_from_growth(annual_revenue: list[dict]) -> dict:
           - years_used     (int | None)
           - error          (str | None) Set when fewer than 2 valid years were supplied.
     """
-    log.info("tool_calc_revenue_cagr_from_growth called: %d entries", len(annual_revenue or []))
+    _log_tool_start("tool_calc_revenue_cagr_from_growth", input_count=len(annual_revenue or []))
     return compute_revenue_cagr_from_growth(annual_revenue)
 
 
@@ -951,7 +1024,7 @@ def tool_calc_composite_score(
           - sub_scores     (dict)         Normalised 0-10 score per metric.
           - missing_inputs (list[str])    Metrics absent from the calculation.
     """
-    log.info("tool_calc_composite_score called")
+    _log_tool_start("tool_calc_composite_score", input_count=6)
     return composite_financial_score(
         pe=pe,
         pb=pb,
@@ -988,7 +1061,7 @@ def tool_calc_net_debt_to_ebitda(total_debt: float, total_cash: float, ebitda: f
             'moderate_leverage' | 'high_leverage'
           - formula (str)
     """
-    log.info("tool_calc_net_debt_to_ebitda called: debt=%s cash=%s ebitda=%s", total_debt, total_cash, ebitda)
+    _log_tool_start("tool_calc_net_debt_to_ebitda", input_count=3)
     return net_debt_to_ebitda(total_debt, total_cash, ebitda)
 
 
@@ -1011,7 +1084,7 @@ def tool_calc_fcf_margin(free_cash_flow: float, revenue: float) -> dict:
           - interpretation (str) 'excellent' | 'strong' | 'modest' | 'cash_burning'
           - formula (str)
     """
-    log.info("tool_calc_fcf_margin called: fcf=%s revenue=%s", free_cash_flow, revenue)
+    _log_tool_start("tool_calc_fcf_margin", input_count=2)
     return fcf_margin(free_cash_flow, revenue)
 
 
@@ -1034,7 +1107,7 @@ def tool_calc_fcf_yield(free_cash_flow: float, market_cap: float) -> dict:
           - interpretation (str) 'cheap' | 'fair' | 'expensive' | 'cash_burning'
           - formula (str)
     """
-    log.info("tool_calc_fcf_yield called: fcf=%s market_cap=%s", free_cash_flow, market_cap)
+    _log_tool_start("tool_calc_fcf_yield", input_count=2)
     return fcf_yield(free_cash_flow, market_cap)
 
 
@@ -1057,7 +1130,7 @@ def tool_calc_ocf_ratio(operating_cash_flow: float, current_liabilities: float) 
           - interpretation (str) 'strong' | 'adequate' | 'weak'
           - formula (str)
     """
-    log.info("tool_calc_ocf_ratio called: ocf=%s current_liab=%s", operating_cash_flow, current_liabilities)
+    _log_tool_start("tool_calc_ocf_ratio", input_count=2)
     return operating_cash_flow_ratio(operating_cash_flow, current_liabilities)
 
 
@@ -1109,10 +1182,14 @@ def tool_calc_reverse_dcf(
             iterations_used (int), discount_rate_pct (float | None),
             assumptions (dict), interpretation (str), error (str | None)
     """
-    log.info(
-        "tool_calc_reverse_dcf called: fcf_base=%s beta=%s target_ev=%s",
-        fcf_base, beta, target_enterprise_value,
-    )
+    _log_tool_start("tool_calc_reverse_dcf", input_count=sum(
+        value is not None for value in (
+            fcf_base, beta, target_enterprise_value, terminal_growth_rate_pct,
+            risk_free_rate_pct, market_risk_premium_pct, projection_years,
+            growth_rate_search_bounds, market_cap, total_debt,
+            pre_tax_cost_of_debt_pct, effective_tax_rate_pct,
+        )
+    ))
     return reverse_dcf(
         fcf_base=fcf_base,
         beta=beta,
@@ -1165,7 +1242,7 @@ def tool_calc_roic(
           - interpretation (str) 'excellent' | 'strong' | 'moderate' | 'weak'
           - formula (str)
     """
-    log.info("tool_calc_roic called: ebit=%s tax_rate=%s", ebit, tax_rate_pct)
+    _log_tool_start("tool_calc_roic", input_count=5)
     return return_on_invested_capital(ebit, tax_rate_pct, total_debt, total_equity, cash)
 
 
@@ -1190,7 +1267,7 @@ def tool_calc_roce(ebit: float, total_assets: float, current_liabilities: float)
           - interpretation (str) 'excellent' | 'strong' | 'moderate' | 'weak'
           - formula (str)
     """
-    log.info("tool_calc_roce called: ebit=%s total_assets=%s", ebit, total_assets)
+    _log_tool_start("tool_calc_roce", input_count=3)
     return return_on_capital_employed(ebit, total_assets, current_liabilities)
 
 
@@ -1212,7 +1289,7 @@ def tool_calc_debt_ratio(total_liabilities: float, total_assets: float) -> dict:
           - interpretation (str) 'low_leverage' | 'moderate_leverage' | 'high_leverage'
           - formula (str)
     """
-    log.info("tool_calc_debt_ratio called: total_liab=%s total_assets=%s", total_liabilities, total_assets)
+    _log_tool_start("tool_calc_debt_ratio", input_count=2)
     return debt_ratio(total_liabilities, total_assets)
 
 
@@ -1234,7 +1311,7 @@ def tool_calc_equity_ratio(total_equity: float, total_assets: float) -> dict:
           - interpretation (str) 'well_capitalized' | 'moderate' | 'thin_equity_base'
           - formula (str)
     """
-    log.info("tool_calc_equity_ratio called: total_equity=%s total_assets=%s", total_equity, total_assets)
+    _log_tool_start("tool_calc_equity_ratio", input_count=2)
     return equity_ratio(total_equity, total_assets)
 
 
@@ -1278,7 +1355,7 @@ def tool_calc_altman_z_score(
           - zone (str) 'safe' (>2.99) | 'grey' (1.81–2.99) | 'distress' (<1.81)
           - interpretation (str), formula (str), caveat (str)
     """
-    log.info("tool_calc_altman_z_score called: total_assets=%s", total_assets)
+    _log_tool_start("tool_calc_altman_z_score", input_count=7)
     return altman_z_score(
         working_capital, retained_earnings, ebit,
         total_assets, market_cap, total_liabilities, revenue,
@@ -1293,6 +1370,7 @@ if __name__ == "__main__":
     # mcp.run(transport="stdio") starts the MCP JSON-RPC loop over
     # stdin/stdout. All logging is directed to stderr so it does NOT
     # interfere with the MCP protocol byte stream on stdout.
-    init_sentry()
+    from core.observability import configure_process_observability
+    configure_process_observability()
     log.info("Financial Analyst MCP server starting (stdio transport)")
     mcp.run(transport="stdio")

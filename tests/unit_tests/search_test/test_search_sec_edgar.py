@@ -24,8 +24,8 @@ import httpx
 import pytest
 
 from tools.research_tools.sec_edgar import (
-    sec_edgar_search,
-    sec_edgar_filing,
+    sec_edgar_search as _sec_edgar_search,
+    sec_edgar_filing as _sec_edgar_filing,
     _resolve_cik,
     _find_latest,
     _html_to_text,
@@ -33,7 +33,29 @@ from tools.research_tools.sec_edgar import (
     _sanitize_query,
     _CIK_CACHE,
 )
+from core.forecast_contract import ForecastContext
 import tools.research_tools.sec_edgar as sec_edgar_module
+
+
+def sec_context(ticker="AAPL"):
+    return ForecastContext(
+        ticker=ticker, as_of="2026-05-29T20:00:00Z", lookback_days=3650,
+        schema_version="v1", dataset_version="dataset-v1",
+        feature_version="feature-v1", model_version="model-v1",
+    )
+
+
+async def sec_edgar_search(query, *args, **kwargs):
+    ticker = kwargs.get("ticker") or "AAPL"
+    kwargs.setdefault("forecast_context", sec_context(ticker))
+    kwargs.setdefault("run_id", "run-sec-test")
+    return await _sec_edgar_search(query, *args, **kwargs)
+
+
+async def sec_edgar_filing(ticker, *args, **kwargs):
+    kwargs.setdefault("forecast_context", sec_context(ticker))
+    kwargs.setdefault("run_id", "run-sec-test")
+    return await _sec_edgar_filing(ticker, *args, **kwargs)
 
 
 def make_response(json_data=None, text_data=None, status_code=200, raise_exc=None):
@@ -100,6 +122,9 @@ class TestSanitizeQuery:
     def test_short_query_unchanged(self):
         assert _sanitize_query("Apple earnings") == "Apple earnings"
 
+    def test_strips_month_and_year_but_keeps_ticker_anchor(self):
+        assert _sanitize_query("MSFT August 2026") == "MSFT"
+
 
 # ---------------------------------------------------------------------------
 # _resolve_cik
@@ -160,6 +185,23 @@ class TestResolveCik:
 
 class TestSecEdgarSearch:
     @pytest.mark.asyncio
+    async def test_historical_sec_rejects_filing_after_as_of_without_network(self):
+        context = ForecastContext.from_dict(
+            {**sec_context("AAPL").to_dict(), "analysis_mode": "HISTORICAL_BACKTEST"}
+        )
+        result = await _sec_edgar_search(
+            "risk", ticker="AAPL", forecast_context=context, run_id="run-historical-sec",
+            archived_records=[{
+                "provider": "sec_archive", "ticker": "AAPL",
+                "dataset_version": "dataset-v1", "filed_at": "2026-06-01",
+                "accession_number": "0000320193-26-000099", "title": "future filing",
+            }],
+        )
+        assert result["status"] == "DATA_UNAVAILABLE"
+        assert result["filings"] == []
+        assert len(result["quarantined"]) == 1
+
+    @pytest.mark.asyncio
     async def test_happy_path_maps_real_field_names(self):
         """Regression: efts.sec.gov's real response uses display_names/
         root_forms/adsh/period_ending/file_date — NOT entity_name/form_type/
@@ -177,7 +219,8 @@ class TestSecEdgarSearch:
                 }
             }]}
         })
-        with patch.object(sec_edgar_module.httpx, "AsyncClient",
+        with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
+             patch.object(sec_edgar_module.httpx, "AsyncClient",
                           return_value=make_async_client_mock(search_response)):
             result = await sec_edgar_search(query="revenue guidance", ticker=None)
 
@@ -194,14 +237,15 @@ class TestSecEdgarSearch:
             result = await sec_edgar_search(query="q", ticker="ZZZNOTAREAL")
 
         assert result["filings"] == []
-        assert "CIK not found" in result["error"]
+        assert result["error_code"] == "SEC_CIK_NOT_FOUND"
+        assert "error" not in result
 
     @pytest.mark.asyncio
     async def test_cik_resolution_exception_returns_error_dict_not_raise(self):
         with patch.object(sec_edgar_module, "_resolve_cik", side_effect=RuntimeError("boom")):
             result = await sec_edgar_search(query="q", ticker="AAPL")
         assert result["filings"] == []
-        assert "CIK resolution failed" in result["error"]
+        assert result["error_code"] == "SEC_CIK_RESOLUTION_FAILED"
 
     @pytest.mark.asyncio
     async def test_http_status_error_returns_error_dict(self):
@@ -214,7 +258,7 @@ class TestSecEdgarSearch:
             result = await sec_edgar_search(query="q")
 
         assert result["filings"] == []
-        assert result["error"] is not None
+        assert result["error_code"] in {"SEC_HTTP_STATUS_FAILED", "SEC_CIK_RESOLUTION_FAILED"}
 
     @pytest.mark.asyncio
     async def test_max_results_truncates_hits(self):
@@ -223,7 +267,8 @@ class TestSecEdgarSearch:
                         "adsh": f"acc-{i}", "period_ending": "2026-01-01", "file_date": "2026-01-01"}}
             for i in range(10)
         ]}}
-        with patch.object(sec_edgar_module.httpx, "AsyncClient",
+        with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
+             patch.object(sec_edgar_module.httpx, "AsyncClient",
                           return_value=make_async_client_mock(make_response(json_data=many_hits))):
             result = await sec_edgar_search(query="q", max_results=3)
         assert len(result["filings"]) == 3
@@ -238,14 +283,14 @@ class TestSecEdgarFiling:
     async def test_cik_not_found_returns_error(self):
         with patch.object(sec_edgar_module, "_resolve_cik", return_value=None):
             result = await sec_edgar_filing("ZZZZ", sections=["mda"])
-        assert "CIK not found" in result["error"]
+        assert result["error_code"] == "SEC_CIK_NOT_FOUND"
 
     @pytest.mark.asyncio
     async def test_submissions_fetch_failure_returns_error(self):
         with patch.object(sec_edgar_module, "_resolve_cik", return_value="320193"), \
              patch.object(sec_edgar_module, "_get_submissions", return_value=None):
             result = await sec_edgar_filing("AAPL", sections=["mda"])
-        assert "Failed to fetch EDGAR submissions" in result["error"]
+        assert result["error_code"] == "SEC_SUBMISSIONS_FETCH_FAILED"
 
     @pytest.mark.asyncio
     async def test_no_matching_form_type_returns_error(self):
@@ -255,7 +300,7 @@ class TestSecEdgarFiling:
                               "form": ["8-K"], "accessionNumber": ["x"], "filingDate": ["2026-01-01"],
                           }}}):
             result = await sec_edgar_filing("AAPL", form_type="10-K", sections=["mda"])
-        assert "No 10-K found" in result["error"]
+        assert result["error_code"] == "SEC_FILING_NOT_FOUND"
 
     @pytest.mark.asyncio
     async def test_happy_path_returns_parsed_sections(self):
@@ -388,7 +433,7 @@ class TestSecEdgarFiling:
                 sections=["mda"],
             )
 
-        assert "does not belong" in result["error"]
+        assert result["error_code"] == "SEC_ACCESSION_TICKER_MISMATCH"
         get_submissions.assert_not_called()
         find_latest.assert_not_called()
         fetch_text.assert_not_called()
@@ -413,7 +458,7 @@ class TestSecEdgarFiling:
                 sections=["mda"],
             )
 
-        assert "was not found" in result["error"]
+        assert result["error_code"] == "SEC_ACCESSION_NOT_FOUND"
         find_latest.assert_not_called()
         fetch_text.assert_not_called()
 
@@ -437,7 +482,7 @@ class TestSecEdgarFiling:
                 sections=["mda"],
             )
 
-        assert "conflicts" in result["error"]
+        assert result["error_code"] == "SEC_FORM_TYPE_CONFLICT"
         fetch_text.assert_not_called()
 
     @pytest.mark.asyncio

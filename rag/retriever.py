@@ -1,8 +1,4 @@
-"""
-rag/retriever.py — AlphaRetriever
-Two-stage retrieval: Hybrid Search → Freshness Reranking → Source Diversity Filter.
-Exponential decay freshness scoring, context token budgeting, and citation formatting.
-"""
+"""Point-in-time retrieval with pre-ranking temporal eligibility checks."""
 
 from __future__ import annotations
 
@@ -15,34 +11,25 @@ from rag.embedding_manager import AlphaEmbedder, get_embedder
 from rag.vector_store import AlphaVectorStore
 
 logger = logging.getLogger(__name__)
+DECAY_HALF_LIFE_HOURS = 72
+STAGE1_TOP_K = 50
+STAGE2_TOP_K = 10
+STAGE3_TOP_K = 5
+TOKEN_BUDGET = 2_000
+CHARS_PER_TOKEN = 4
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
 
-DECAY_HALF_LIFE_HOURS = 72      # exp(-hours_old / 72) → 50% weight at 3 days
-STAGE1_TOP_K          = 50      # candidates from hybrid search
-STAGE2_TOP_K          = 10      # after freshness reranking
-STAGE3_TOP_K          = 5       # after diversity filtering
-TOKEN_BUDGET          = 2_000   # approximate token limit for final context
-CHARS_PER_TOKEN       = 4       # rough chars-to-tokens estimate
+def _utc(value: object) -> datetime:
+    if isinstance(value, datetime):
+        dt = value
+    elif isinstance(value, str):
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    else:
+        raise ValueError("timestamp is required")
+    return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
 
-# ---------------------------------------------------------------------------
-# AlphaRetriever
-# ---------------------------------------------------------------------------
 
 class AlphaRetriever:
-    """
-    Orchestrates multi-stage retrieval for financial RAG queries.
-
-    Pipeline:
-        1. Hybrid Search  (vector + FTS via RRF) → Top 50
-        2. Freshness Reranking (exponential decay) → Top 10
-        3. Source Diversity Filter                 → Top 5
-        4. Context Budgeting (token cap)
-        5. Citation-formatted string output
-    """
-
     def __init__(
         self,
         vector_store: AlphaVectorStore,
@@ -56,39 +43,19 @@ class AlphaRetriever:
         apply_diversity_filter: bool = True,
         apply_token_budget: bool = True,
     ) -> None:
-        
-        self.store    = vector_store
+        self.store = vector_store
         self.embedder = embedder or get_embedder()
+        if not math.isfinite(decay_half_life_hours) or decay_half_life_hours <= 0:
+            raise ValueError("decay_half_life_hours must be finite and positive")
         self.decay_half_life_hours = decay_half_life_hours
-        self.stage1_k              = stage1_k
-        self.stage2_k              = stage2_k
-        self.stage3_k              = stage3_k
-        self.token_budget          = token_budget
+        self.stage1_k, self.stage2_k, self.stage3_k = stage1_k, stage2_k, stage3_k
+        self.token_budget = token_budget
         self.apply_freshness_rerank = apply_freshness_rerank
         self.apply_diversity_filter = apply_diversity_filter
-        self.apply_token_budget     = apply_token_budget
+        self.apply_token_budget = apply_token_budget
 
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
-
-    def retrieve(
-        self,
-        query: str,
-        ticker: Optional[str] = None,
-        days_back: Optional[int] = None,
-        score_threshold: float = 0.01,
-    ) -> str:
-        """
-        Full retrieval pipeline.
-
-        Returns a citation-formatted context string ready to be injected
-        into an LLM prompt.
-        """
-        budgeted = self._run_pipeline(query, ticker, days_back, score_threshold)
-
-        
-        return self._format_context(budgeted)
+    def retrieve(self, query: str, ticker: Optional[str] = None, days_back: Optional[int] = None, score_threshold: float = 0.01, *, as_of: object | None = None, dataset_version: str | None = None, historical: bool | None = None) -> str:
+        return self._format_context(self._run_pipeline(query, ticker, days_back, score_threshold, as_of=as_of, dataset_version=dataset_version, historical=historical))
 
     def retrieve_raw(
         self,
@@ -100,17 +67,17 @@ class AlphaRetriever:
         fiscal_quarter: Optional[str] = None,
         period_end: Optional[str] = None,
         metric_scope: Optional[str] = None,
+        *,
+        as_of: object | None = None,
+        dataset_version: str | None = None,
+        historical: bool | None = None,
     ) -> list[dict[str, Any]]:
-        """Same pipeline but returns the raw chunk dicts (useful for evaluation)."""
         return self._run_pipeline(
             query, ticker, days_back, score_threshold,
-            fiscal_year=fiscal_year, fiscal_quarter=fiscal_quarter,
-            period_end=period_end, metric_scope=metric_scope,
+            fiscal_year=fiscal_year, fiscal_quarter=fiscal_quarter, period_end=period_end,
+            metric_scope=metric_scope, as_of=as_of, dataset_version=dataset_version,
+            historical=historical,
         )
-
-    # ------------------------------------------------------------------
-    # Shared pipeline (Stages 1-4), honouring the apply_* bypass flags
-    # ------------------------------------------------------------------
 
     def _run_pipeline(
         self,
@@ -118,192 +85,113 @@ class AlphaRetriever:
         ticker: Optional[str],
         days_back: Optional[int],
         score_threshold: float,
-        *, fiscal_year: Optional[int] = None,
+        *,
+        fiscal_year: Optional[int] = None,
         fiscal_quarter: Optional[str] = None,
         period_end: Optional[str] = None,
         metric_scope: Optional[str] = None,
+        as_of: object | None = None,
+        dataset_version: str | None = None,
+        historical: bool | None = None,
     ) -> list[dict[str, Any]]:
+        historical = historical if historical is not None else as_of is not None
+        temporal = as_of is not None
+        if temporal and (not ticker or not dataset_version):
+            raise ValueError("temporal retrieval requires ticker, as_of, and dataset_version")
         query_vec = self.embedder.embed_query(query)
-        candidates = self.store.hybrid_search(
-            query_embedding=query_vec,
-            query_text=query,
-            ticker=ticker,
-            days_back=days_back,
-            top_k=self.stage1_k,
-            score_threshold=score_threshold,
-            limit=self.stage1_k,
-            fiscal_year=fiscal_year,
-            fiscal_quarter=fiscal_quarter,
-            period_end=period_end,
-            metric_scope=metric_scope,
-        )
-        logger.info("Stage 1 candidates: %d", len(candidates))
+        search_kwargs: dict[str, Any] = {
+            "query_embedding": query_vec, "query_text": query, "ticker": ticker,
+            "days_back": days_back, "top_k": self.stage1_k,
+            "score_threshold": score_threshold, "limit": self.stage1_k,
+            "fiscal_year": fiscal_year, "fiscal_quarter": fiscal_quarter,
+            "period_end": period_end, "metric_scope": metric_scope,
+        }
+        if temporal:
+            search_kwargs.update(as_of=as_of, dataset_version=dataset_version, historical=historical)
+        candidates = self.store.hybrid_search(**search_kwargs)
+        if temporal:
+            candidates = self._filter_temporal_candidates(candidates, ticker=ticker or "", as_of=as_of, dataset_version=dataset_version or "")
+        reference = _utc(as_of) if temporal else None
+        reranked = self._rerank_by_freshness(candidates, reference_time=reference)[: self.stage2_k] if self.apply_freshness_rerank else candidates
+        diverse = self._diversity_filter(reranked) if self.apply_diversity_filter else reranked
+        return self._apply_token_budget(diverse) if self.apply_token_budget else diverse
 
-        if self.apply_freshness_rerank:
-            reranked = self._rerank_by_freshness(candidates)[: self.stage2_k]
-            logger.info("Stage 2 after reranking: %d", len(reranked))
-        else:
-            reranked = candidates
-            logger.info("Stage 2 skipped (apply_freshness_rerank=False): %d", len(reranked))
-
-        if self.apply_diversity_filter:
-            diverse = self._diversity_filter(reranked)
-            logger.info("Stage 3 after diversity filter: %d", len(diverse))
-        else:
-            
-            diverse = reranked
-            logger.info("Stage 3 skipped (apply_diversity_filter=False): %d", len(diverse))
-
-        if self.apply_token_budget:
-            budgeted = self._apply_token_budget(diverse)
-            logger.info("Stage 4 after token budget: %d chunks", len(budgeted))
-        else:
-            budgeted = diverse
-            logger.info("Stage 4 skipped (apply_token_budget=False): %d chunks", len(budgeted))
-
-        return budgeted
-
-    # ------------------------------------------------------------------
-    # Stage 2 — Freshness Reranking
-    # ------------------------------------------------------------------
-
-    def _rerank_by_freshness(self, chunks: list[dict]) -> list[dict]:
-        """
-        Adjust each chunk's score with an exponential decay:
-
-            freshness_score = rrf_score * exp(−hours_old / half_life)
-
-        Older documents decay exponentially; recent ones are favoured.
-        """
-        now = datetime.now(timezone.utc)
-        scored: list[tuple[float, dict]] = []
-
+    @staticmethod
+    def _filter_temporal_candidates(chunks: list[dict[str, Any]], *, ticker: str, as_of: object, dataset_version: str) -> list[dict[str, Any]]:
+        boundary = _utc(as_of)
+        eligible: list[dict[str, Any]] = []
         for chunk in chunks:
-            rrf_score    = chunk.get("rrf_score", 0.0)
-            pub_at_raw   = chunk.get("published_at", "")
-            hours_old    = self._hours_since(pub_at_raw, now)
-            decay        = math.exp(-hours_old / self.decay_half_life_hours)
-            fresh_score  = rrf_score * decay
-            chunk        = {**chunk, "freshness_score": fresh_score, "hours_old": hours_old}
-            scored.append((fresh_score, chunk))
+            if str(chunk.get("ticker", "")).upper() != ticker.upper() or chunk.get("dataset_version") != dataset_version:
+                continue
+            available = chunk.get("filed_at") or chunk.get("published_at") or chunk.get("effective_from")
+            try:
+                effective_from = _utc(chunk["effective_from"]) if chunk.get("effective_from") else None
+                effective_to = _utc(chunk["effective_to"]) if chunk.get("effective_to") else None
+                if _utc(available) > boundary or (effective_from and effective_from > boundary) or (effective_to and effective_to <= boundary):
+                    continue
+            except (TypeError, ValueError):
+                continue
+            eligible.append(chunk)
+        return eligible
 
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return [c for _, c in scored]
+    def _rerank_by_freshness(self, chunks: list[dict], reference_time: datetime | None = None) -> list[dict]:
+        reference = reference_time or datetime.now(timezone.utc)
+        scored: list[tuple[float, dict]] = []
+        for chunk in chunks:
+            hours_old = self._hours_since(chunk.get("published_at", ""), reference)
+            score = chunk.get("rrf_score", chunk.get("similarity", 0.0)) * math.exp(-math.log(2.0) * hours_old / self.decay_half_life_hours)
+            scored.append((score, {**chunk, "freshness_score": score, "hours_old": hours_old}))
+        scored.sort(key=lambda item: (item[0], item[1].get("chunk_id", "")), reverse=True)
+        return [chunk for _, chunk in scored]
 
     @staticmethod
     def _hours_since(pub_at: Any, now: datetime) -> float:
-        """Return hours between published_at and now. Returns 720 on parse failure."""
         try:
-            if isinstance(pub_at, str):
-                dt = datetime.fromisoformat(pub_at)
-            elif isinstance(pub_at, datetime):
-                dt = pub_at
-            else:
-                return 720.0
-
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            delta = now - dt
-            return max(delta.total_seconds() / 3600, 0.0)
-        except Exception:
+            return max((_utc(now) - _utc(pub_at)).total_seconds() / 3600, 0.0)
+        except (TypeError, ValueError):
             return 720.0
 
-    # ------------------------------------------------------------------
-    # Stage 3 — Source Diversity
-    # ------------------------------------------------------------------
-
     def _diversity_filter(self, chunks: list[dict]) -> list[dict]:
-        """
-        Ensure the top results aren't all from the same URL or source_type.
-
-        Strategy:
-        - At most 2 chunks per URL
-        - At most 3 chunks per source_type
-        - Stop when stage3_k chunks are collected
-        """
-        url_count:    dict[str, int] = {}
+        url_count: dict[str, int] = {}
         source_count: dict[str, int] = {}
-        selected:     list[dict]     = []
-
+        selected: list[dict] = []
         for chunk in chunks:
-            url         = chunk.get("url", "")
-            source_type = chunk.get("source_type", "")
-
-            if url_count.get(url, 0) >= 2:
+            url, source = chunk.get("url", ""), chunk.get("source_type", "")
+            if url_count.get(url, 0) >= 2 or source_count.get(source, 0) >= 3:
                 continue
-            if source_count.get(source_type, 0) >= 3:
-                continue
-
-            url_count[url]         = url_count.get(url, 0) + 1
-            source_count[source_type] = source_count.get(source_type, 0) + 1
+            url_count[url] = url_count.get(url, 0) + 1
+            source_count[source] = source_count.get(source, 0) + 1
             selected.append(chunk)
-
             if len(selected) >= self.stage3_k:
                 break
-
         return selected
 
-    # ------------------------------------------------------------------
-    # Stage 4 — Token Budget
-    # ------------------------------------------------------------------
-
     def _apply_token_budget(self, chunks: list[dict]) -> list[dict]:
-        """
-        Greedily include chunks until the character budget is exhausted.
-        char_budget = token_budget * CHARS_PER_TOKEN
-        """
-        char_budget  = self.token_budget * CHARS_PER_TOKEN
-        used_chars   = 0
-        kept: list[dict] = []
-
+        char_budget, used, kept = self.token_budget * CHARS_PER_TOKEN, 0, []
         for chunk in chunks:
-            text_len = len(chunk.get("text", ""))
-            if used_chars + text_len > char_budget and kept:
+            size = len(chunk.get("text", ""))
+            if used + size > char_budget and kept:
                 break
-            used_chars += text_len
+            used += size
             kept.append(chunk)
-
         return kept
-
-    # ------------------------------------------------------------------
-    # Stage 5 — Citation Formatting
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _format_context(chunks: list[dict]) -> str:
-        """
-        Build a clearly sourced context string for LLM injection.
-
-        Format per chunk:
-        ─────────────────────────────────────────
-        [1] SOURCE: news | TICKER: AAPL | DATE: 2024-03-15T14:32:00+00:00
-        URL: https://...
-        CONTENT:
-        <chunk text>
-        ─────────────────────────────────────────
-        """
         if not chunks:
             return "No relevant context found."
-
+        separator = "-" * 60
         lines: list[str] = []
-        separator = "─" * 60
-
-        for i, chunk in enumerate(chunks, start=1):
-            pub_at      = chunk.get("published_at", "N/A")
-            source_type = chunk.get("source_type", "N/A")
-            ticker      = chunk.get("ticker", "N/A")
-            url         = chunk.get("url", "N/A")
-            text        = chunk.get("text", "").strip()
-            fresh_score = chunk.get("freshness_score", chunk.get("rrf_score", 0))
-
-            lines.append(separator)
-            lines.append(
-                f"[{i}] SOURCE: {source_type} | TICKER: {ticker} | "
-                f"DATE: {pub_at} | SCORE: {fresh_score:.4f}"
-            )
-            lines.append(f"URL: {url}")
-            lines.append("CONTENT:")
-            lines.append(text)
-
+        for index, chunk in enumerate(chunks, 1):
+            score = chunk.get("freshness_score", chunk.get("rrf_score", chunk.get("similarity", 0)))
+            lines.extend([
+                separator,
+                f"[{index}] SOURCE: {chunk.get('source_type', 'N/A')} | TICKER: {chunk.get('ticker', 'N/A')} | DATE: {chunk.get('published_at', 'N/A')} | SCORE: {score:.4f}",
+                f"DOCUMENT_ID: {chunk.get('document_id', 'N/A')} | CHUNK_ID: {chunk.get('chunk_id', 'N/A')}",
+                f"URL: {chunk.get('url', 'N/A')}", "CONTENT:", chunk.get("text", "").strip(),
+            ])
         lines.append(separator)
         return "\n".join(lines)
+
+
+__all__ = ["AlphaRetriever"]

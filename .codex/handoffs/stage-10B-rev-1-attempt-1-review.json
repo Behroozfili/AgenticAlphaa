@@ -1,0 +1,204 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "10B",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "reviewer",
+  "status": "REVIEW_REJECTED",
+  "review_status": "REJECTED",
+  "execution_phase": "REVIEW",
+  "control_revision": 187,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-10B-rev-1-attempt-1-review.json"
+  ],
+  "artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-draft-ready.json",
+      "sha256": "2b607d13576f2943c18aa0317f0ab8fab018da0ec3dd77576d899bbb6081f4ac",
+      "identity_valid": true,
+      "schema_valid": true,
+      "ready_for_observability": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-observability.json",
+      "sha256": "b338b677fd555010fda445431e5c62d38892f9a8e2dc4c59878a1b534e9622e9",
+      "identity_valid": true,
+      "schema_valid": true,
+      "status": "CHANGES_REQUESTED",
+      "disposition": "RESOLVED_IN_PRIMARY_FINAL"
+    },
+    "change_request": {
+      "path": ".codex/handoffs/change-request-stage-10B-rev-1-attempt-1-1.json",
+      "sha256": "967eb092d32ee1d445bbf26a0e5b66b06f54df6ed54b02d007241133abcbd01e",
+      "identity_valid": true,
+      "schema_valid": true
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.md",
+      "sha256": "9db7ef6a75f355987b80866f94f8755952df7b4e470d34ea7192ae279fc8332f"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.json",
+      "sha256": "48bba32d7d2caa09e4f231450847d4e84beeb4f1bb772d142bf8f1a11faa06c7",
+      "identity_valid": true,
+      "schema_valid": true,
+      "implementation_ready": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-10B-rev-1-attempt-1-qa.json",
+      "sha256": "261a2e7511f9f8334c1745f9a898d4f798a7eec86e7c58ca6305632d3d5180dc",
+      "identity_valid": true,
+      "schema_valid": true,
+      "qa_status": "PASS"
+    },
+    "dependency_handoffs": [
+      {
+        "stage": "10A",
+        "path": ".codex/handoffs/stage-10A-rev-1-handoff.json",
+        "sha256": "5d4e36d9f1db1c2dec6c5909d4bbf11d6f572edc569604396fadffc221670625",
+        "state_status": "CLOSED"
+      }
+    ]
+  },
+  "blocking_findings": [
+    {
+      "id": "REVIEW-10B-001",
+      "severity": "BLOCKING",
+      "summary": "Persisted monthly forecast records omit two required reproducibility fields.",
+      "evidence": [
+        "The monthly-backtest contract requires every forecast record to include universe manifest hash and materialization timestamps.",
+        "api/routes/analyze.py::_compact_monthly_forecast retains universe_manifest_hash and feature_materialized_at in the API object.",
+        "api/routes/analyze.py::_forecast_row does not place either field at row level or inside forecast_payload, and feature_snapshot_id is always null.",
+        "An independent offline counterprobe supplied both fields to _forecast_row and observed universe_manifest_hash_persisted=False and feature_materialized_at_persisted=False.",
+        "The QA persistence test verifies returns and narrative exclusion but does not assert preservation of these required provenance values."
+      ],
+      "contract_violation": "The required reproducibility fields in .codex/contracts/monthly-backtest-contract.md are not preserved in the monthly_forecasts storage record."
+    },
+    {
+      "id": "REVIEW-10B-002",
+      "severity": "BLOCKING",
+      "summary": "backtest_runs.reproducibility_hash is not the canonical hash over the declared immutable reproduction inputs.",
+      "evidence": [
+        "The data-schema contract requires a unique reproducibility hash over universe, cutoff schedule, folds, costs, dataset, feature, model, action-policy, and code/config versions.",
+        "api/routes/backtest.py::_reproducibility_hash returns the Stage 09 manifest report_hash whenever it is a valid 64-character hex value.",
+        "Stage 09 computes report_hash over manifest, folds, records, metrics and leakage output; its manifest contains run_id but does not contain the Stage 10B persisted model_version, code_version or config_version.",
+        "An independent offline counterprobe ran identical fixture/configuration with two run IDs and observed same_inputs_different_run_report_hash_equal=False, proving the reused hash is coupled to run identity.",
+        "The same probe changed model_version and config_version while retaining report_hash and observed identity_version_mutation_changes_persisted_hash=False.",
+        "The existing backtest persistence test checks only shape/status and does not verify canonical hash sensitivity or exclusion of run_id/output values."
+      ],
+      "contract_violation": "The persisted unique value is an output/report identity, not the required versioned reproduction-input identity defined by .codex/contracts/data-schema-contract.md."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-10B-NB-001",
+      "severity": "NON_BLOCKING",
+      "summary": "Backtest jobs are process-local and frontend validation is static.",
+      "assessment": "Both limitations are explicitly disclosed, deterministic behavior is tested, and neither contradicts the current Stage 10B contract."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    {
+      "finding": "REVIEW-10B-001",
+      "required": "In the existing schema, preserve universe_manifest_hash and feature_materialized_at inside the compact monthly_forecasts.forecast_payload, or use already-authorized dedicated columns if they exist. Add exact persistence tests asserting both values survive and remain compact. Do not apply or change migrations."
+    },
+    {
+      "finding": "REVIEW-10B-002",
+      "required": "Build reproducibility_hash from one canonical input-only object containing universe version/hash, cutoff schedule, fold definitions, transaction-cost policy, dataset/feature/model/action-policy versions, model variants, and code/config versions. Exclude run_id, metrics, predictions and other outputs. Add tests proving identical inputs with different run IDs produce the same hash and that changing each version/config identity changes it. Preserve report_hash separately as artifact identity."
+    }
+  ],
+  "review_blockers": [],
+  "resolved_findings": [
+    {
+      "id": "OBS-10B-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "Monthly analyze lifecycle is current-attempt, compact, measured and locally injected."
+    },
+    {
+      "id": "OBS-10B-002",
+      "status": "PASS_RESOLVED",
+      "evidence": "Persistence success/failure disposition is nonfatal and emits stable codes only."
+    },
+    {
+      "id": "OBS-10B-003",
+      "status": "PASS_RESOLVED",
+      "evidence": "Backtest local lifecycle has current identity, measured latency and stable failure code."
+    },
+    {
+      "id": "OBS-10B-004",
+      "status": "PASS_RESOLVED",
+      "evidence": "Privacy, raising-sink and concurrent API telemetry isolation tests pass."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_ownership": "PASS: official state/lock validation is valid at control_revision 187; Stage 10B paths and artifacts follow exact owner locks, no downstream Stage 11 path was activated, and no test was deleted or weakened.",
+    "artifact_integrity": "PASS: matching draft-ready, observability, change-request, implementation MD/JSON and QA PASS artifacts exist with exact 10B/r1/a1 identity and matching SHA-256 values.",
+    "dependency_and_downstream": "PASS: Stage 10A is CLOSED with matching handoff hash; Stage 11 remains PENDING/NOT_STARTED.",
+    "temporal_safety": "PASS: canonical month-end UTC as_of, exact 21-session target, historical mode separation, fail-closed unobservable outcomes and Stage 09 zero-future leakage are preserved.",
+    "versioning_and_reproducibility": "FAIL_BLOCKING: API context and row keys are versioned, but stored forecast provenance is incomplete and backtest reproducibility_hash does not hash the declared reproduction inputs.",
+    "financial_and_numeric_integrity": "PASS: no DCF/WACC, nine-intent mapper, Quant formula or action-policy source changed; DCF is visibly identified as long-term and deterministic Stage 08/09 regressions pass.",
+    "data_hygiene": "PASS: query, user preferences, Manager state, raw evidence, narrative, reasoning and exception payloads are excluded from persistence telemetry; stable failure codes are used.",
+    "request_and_job_isolation": "PASS: two concurrent HTTP requests preserve distinct ticker/as_of/run/evidence/telemetry identity; backtest jobs are app-scoped and nonblocking.",
+    "scientific_honesty": "PASS: the closed Stage 09 walk-forward engine, baselines/ablations, 10-bps one-way cost and PRELIMINARY classification are preserved; QA does not claim investment outperformance.",
+    "regression": "PASS_WITH_CONTRACT_GAPS: independent QA reports 330 passed and 1503 collected with no errors, but its assertions do not cover the two persisted reproducibility violations.",
+    "operational_safety": "PASS: rollback is documented; no network provider/exporter/database operation, migration, seed, dependency change, deletion, deployment, commit or push occurred.",
+    "contract_integrity": "FAIL_BLOCKING: storage and reproducibility hash semantics deviate from the frozen contracts without a new version."
+  },
+  "tests_and_checks": [
+    {
+      "command": "Official control/lock and QA artifact validation in REVIEW",
+      "result": "PASS: CONTROL VALID twice at control_revision 187."
+    },
+    {
+      "command": "Matching independent QA matrix and collection",
+      "result": "PASS evidence: 330 tests passed; 1503 tests collected with zero errors."
+    },
+    {
+      "command": "Offline reproducibility-hash counterprobe using the fixed Stage 09 fixture",
+      "result": "FAIL_CONTRACT: identical inputs with different run IDs produced different reused report hashes; changing model/config identity while retaining report_hash did not change the persisted hash."
+    },
+    {
+      "command": "Offline monthly forecast row provenance counterprobe",
+      "result": "FAIL_CONTRACT: supplied universe_manifest_hash and feature_materialized_at were absent from both row and forecast_payload."
+    },
+    {
+      "command": "Source/schema/contract audit",
+      "result": "PASS for natural keys and temporal rules; FAIL for the two required reproducibility guarantees recorded above."
+    }
+  ],
+  "source_integrity": {
+    "implementation_recorded_hashes_checked": 13,
+    "current_source_hash_mismatches": 0,
+    "current_chain_hash_mismatches": 0,
+    "dependency_handoff_hash_mismatches": 0,
+    "all_changed_paths_locked_to_correct_owner": true,
+    "runtime_identity": "10B/r1/a1/integration",
+    "implementation_version": "stage10b-r1-a1"
+  },
+  "external_execution": {
+    "network_access_by_review": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "dependency_changes": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "downstream_gate": {
+    "stage10b_closure": "NOT_ELIGIBLE_RETRY_REQUIRED",
+    "recommended_next_action": "Orchestrator should keep Stage 10B active and start revision 1 attempt 2 limited to REVIEW-10B-001 and REVIEW-10B-002.",
+    "stage11_status": "PENDING",
+    "stage11_phase": "NOT_STARTED",
+    "stage11_activation": "FORBIDDEN_UNTIL_STAGE10B_APPROVED_AND_CLOSED"
+  },
+  "supersedes": null,
+  "created_at": "2026-09-14T14:15:15.9838402Z"
+}

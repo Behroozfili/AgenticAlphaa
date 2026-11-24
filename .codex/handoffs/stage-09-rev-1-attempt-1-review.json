@@ -1,0 +1,181 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "reviewer",
+  "status": "REVIEW_REJECTED",
+  "review_status": "REJECTED",
+  "execution_phase": "REVIEW",
+  "control_revision": 157,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-09-rev-1-attempt-1-review.json"
+  ],
+  "artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-1-draft-ready.json",
+      "sha256": "de058ebaeeb139a2eb07913fdf7e4b201a68d605e2c5ecf11bce605a2fbe11f5",
+      "identity_valid": true,
+      "ready_for_observability": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-1-observability.json",
+      "sha256": "ce2c10d05263288c233dfe5d8b1de604c954f1230d8b037030fda6600a7e8580",
+      "identity_valid": true,
+      "status": "CHANGES_REQUESTED",
+      "requested_primary_changes": [
+        "OBS-09-001"
+      ]
+    },
+    "change_request": {
+      "path": ".codex/handoffs/change-request-stage-09-rev-1-attempt-1-1.json",
+      "sha256": "685004de49a8792449ef0b0ee46a3ff7dd7f8c848acf81211f402f9b69c9dada",
+      "identity_valid": true,
+      "blocking": true,
+      "finding": "OBS-09-001",
+      "disposition": "RESOLVED_IN_FINAL_IMPLEMENTATION"
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.md",
+      "sha256": "8e03d32c4f6e257506a1466fe39bc1d63a96572abd76e75c23b0d391e1d43e3f"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.json",
+      "sha256": "bddd6c7e363322059927f73f9de6cbe241aea83c8cc6ae5827f1892ca8c18232",
+      "identity_valid": true,
+      "implementation_status": "IMPLEMENTED",
+      "implementation_ready": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-1-qa.json",
+      "sha256": "8300ab8489e5805193302f791f45c12c0e3194259129060bfbeedd6dbe6cbfa3",
+      "identity_valid": true,
+      "qa_status": "PASS"
+    },
+    "dependency_handoffs": [
+      {
+        "stage": "08",
+        "path": ".codex/handoffs/stage-08-rev-1-handoff.json",
+        "sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+        "state_status": "CLOSED"
+      }
+    ]
+  },
+  "blocking_findings": [
+    {
+      "id": "REVIEW-09-001",
+      "severity": "BLOCKING",
+      "category": "CONTRACT_INTEGRITY_SCIENTIFIC_HONESTY",
+      "summary": "SCIENTIFIC/PRELIMINARY classification counts all source rows instead of eligible out-of-sample walk-forward forecasts.",
+      "contract": ".codex/contracts/monthly-backtest-contract.md:28 requires PRELIMINARY unless the report has at least 10 tickers, 60 monthly cutoffs, and 500 eligible out-of-sample forecasts after coverage rules.",
+      "evidence": "evaluation/point_in_time_dataset.py:214-220 determines report_level before folds exist and uses len(ordered) >= 500. evaluation/monthly_backtest.py:344 correctly computes forecast_count_per_variant after observable-outcome fold construction, but line 358 copies the earlier dataset classification unchanged. An independent in-memory counterexample with 10 tickers and 60 cutoffs produced dataset_rows=600, dataset_level=SCIENTIFIC, fold_count=23, and only 230 eligible out-of-sample forecasts per variant.",
+      "impact": "A report below the frozen 500-out-of-sample threshold can be labeled SCIENTIFIC. This is an unversioned deviation from the monthly-backtest contract and can overstate scientific readiness even though the locked two-ticker fixture is correctly labeled PRELIMINARY.",
+      "responsible_paths": [
+        "evaluation/point_in_time_dataset.py",
+        "evaluation/monthly_backtest.py",
+        "tests/unit_tests/test_point_in_time_dataset_stage9.py",
+        "tests/unit_tests/test_monthly_backtest_stage9.py"
+      ]
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-09-NB-001",
+      "severity": "NON_BLOCKING",
+      "summary": "The locked regression fixture remains honestly PRELIMINARY and discloses Full Model underperformance.",
+      "assessment": "For the current 2-ticker, 48-cutoff fixture, all artifacts consistently report 11 expanding observable-outcome folds, 22 forecasts per variant, 154 variant records, zero future records, no investment interpretation, and Full Model underperformance versus no-Financial on MAE and versus market-only/no-Graph/no-Sentiment on mean net excess return. The blocker concerns the general threshold gate, not the current fixture's reported metrics."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    {
+      "finding": "REVIEW-09-001",
+      "owner": "quant",
+      "required_paths": [
+        "evaluation/point_in_time_dataset.py",
+        "evaluation/monthly_backtest.py",
+        "tests/unit_tests/test_point_in_time_dataset_stage9.py",
+        "tests/unit_tests/test_monthly_backtest_stage9.py"
+      ],
+      "requirement": "Derive scientific_report_level only after walk-forward eligibility and coverage are known. Require ticker_count >= 10, monthly_cutoff_count >= 60, and eligible out-of-sample forecast count per common variant row set >= 500; otherwise force PRELIMINARY. Record the actual OOS count and threshold inputs in the reproducibility manifest.",
+      "test_requirement": "Add a deterministic boundary/counterexample test proving that 10 tickers and 60 cutoffs with fewer than 500 eligible OOS forecasts remains PRELIMINARY, plus boundary tests for 499 versus 500 eligible OOS forecasts after coverage rules. Preserve identical eligible rows across all seven variants and the current fixture report hash unless a versioned scientific contract change explicitly requires otherwise."
+    }
+  ],
+  "review_blockers": [
+    "REVIEW-09-001 must be repaired by Quant in a new orchestrator-controlled attempt and must receive matching QA PASS before re-review."
+  ],
+  "resolved_findings": [
+    {
+      "id": "OBS-09-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "The final implementation provides immutable 09/r1/a1/quant identity, measured finite non-negative latency at the five scientific boundaries plus run/progress lifecycle, compact allowlisted events, stable fail-closed codes, sink-failure isolation, and exact telemetry-enabled/disabled scientific output equality. The canonical current-fixture report hash remains 213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_ownership": "PASS: official control/lock validation returned CONTROL VALID at control_revision 157. All 12 Stage 09 source/test/fixture paths and seven workflow/handoff paths have explicit correct owners; this reviewer writes only the exact reviewer lock. No Stage 10A+ or upstream product path was changed by Stage 09.",
+    "artifact_integrity": "PASS: state is ACTIVE REVIEW for Stage 09 revision 1 attempt 1 with observability_required=true. Exact draft-ready, Observability, accepted change request, final implementation MD/JSON and QA PASS identities and hashes match. Stage 08 handoff hash matches and Stage 08 is CLOSED; stale_stages is empty.",
+    "temporal_safety": "PASS: folds are expanding and include only rows with as_of strictly before the forecast cutoff and outcomes materialized no later than that cutoff. The audit enforces exact 21st regular-session targets, feature/finalization at or before as_of, forecast before outcome and observable training outcomes; current fixture future_record_count is zero and tamper cases fail closed.",
+    "versioning_and_reproducibility": "PASS_EXCEPT_BLOCKER: dataset, feature, model, action-policy, universe, run/fold/variant identities and canonical hashes are deterministic and consistent, and all 13 implementation-recorded path hashes match. REVIEW-09-001 makes scientific-level reproducibility semantically incorrect because the declared threshold input is total source rows rather than eligible OOS forecasts after folds/coverage.",
+    "financial_integrity": "PASS: Stage 09 does not modify Financial code, DCF/WACC semantics or the nine financial intents/mappers. DCF is not used as the 21-session label or predicted-price source.",
+    "numeric_integrity": "PASS: forecasts are produced only by deterministic Quant code, fixed action_policy_v1 thresholds are preserved, telemetry does not alter the report, and no LLM or RAGAS path generates or changes forecast numbers.",
+    "folds_variants_metrics_and_costs": "PASS: the current report uses 11 expanding observable-outcome folds and exactly the same 22 fold/ticker/as_of rows for class-prior/always-HOLD, momentum-21d, market-only, no-Graph, no-Sentiment, no-Financial and Full Model. Direction, Brier/ECE, MAE/RMSE/IC, gross/net investment, turnover, drawdown, Sharpe and coverage metrics are deterministic; the preregistered 10-bps one-way position-change cost is enforced.",
+    "data_hygiene_and_observability": "PASS: Stage 09 telemetry uses bounded allowlisted identities/counts/outcomes/error codes and excludes report records, raw feature vectors, labels, predictions, coefficients, evidence IDs/content, prompts, chain-of-thought, exception text, secrets, tokens and headers. No external trace sink was contacted.",
+    "regression": "PASS_EVIDENCE: matching QA reports 33 focused Stage 09/action-policy tests passed, 137 Stage 07/legacy regressions passed, and 1453 tests collected with zero collection errors. Reviewer did not rerun QA suites; the focused independent counterexample exposed REVIEW-09-001 outside existing fixture coverage.",
+    "operational_safety": "PASS: rollback is hash-addressed and no database read/write, migration, seed, network/provider acquisition, external trace export, deletion, deployment, commit or push occurred. Stage 10A remains PENDING/NOT_STARTED.",
+    "scientific_honesty": "REJECTED: current synthetic limitations and Full Model underperformance are disclosed honestly, but the general SCIENTIFIC gate can accept only 230 eligible OOS forecasts when the frozen threshold is 500. Methodological QA PASS cannot override this contract defect.",
+    "contract_integrity": "REJECTED: REVIEW-09-001 is an unversioned deviation from the frozen monthly backtest contract and blocks Stage 09 acceptance."
+  },
+  "tests_and_checks": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex\\scripts\\validate_refactor_control.py --check-control --check-locks --artifact .codex\\handoffs\\stage-09-rev-1-attempt-1-qa.json --agent reviewer",
+      "result": "PASS: CONTROL VALID at control_revision 157 before review artifact creation."
+    },
+    {
+      "command": "Independent SHA-256 reconciliation of current workflow chain, implementation Markdown, 13 implementation-recorded source/report paths and Stage 08 dependency handoff",
+      "result": "PASS: all chain and dependency hashes exact; 13/13 implementation-recorded paths match; zero mismatches."
+    },
+    {
+      "command": "Independent in-memory 10-ticker/60-cutoff scientific-threshold counterexample using the locked local deterministic generator and build_expanding_folds",
+      "result": "FAIL_EXPECTED_BLOCKER: dataset_rows=600 and dataset_level=SCIENTIFIC, while fold_count=23 and eligible OOS forecasts per variant=230, below the contractual minimum of 500."
+    },
+    {
+      "command": "Matching QA execution evidence (not rerun by Reviewer)",
+      "result": "PASS: QA reports 33 focused tests and 137 regressions passed, 1453 tests collected with zero errors, exact report_hash 213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779, zero future records and 231 payload-safe telemetry events."
+    }
+  ],
+  "source_integrity": {
+    "implementation_source_hashes_checked": 13,
+    "implementation_source_hash_mismatches": 0,
+    "active_chain_hash_mismatches": 0,
+    "dependency_handoff_hash_mismatches": 0,
+    "all_changed_paths_locked_to_correct_owner": true,
+    "runtime_identity": "09/r1/a1/quant",
+    "implementation_version": "stage09-r1-a1",
+    "report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779"
+  },
+  "external_execution": {
+    "network_access_by_review": false,
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "stage10a_work": "NOT_RUN"
+  },
+  "downstream_gate": {
+    "stage09_closure": "BLOCKED_BY_REVIEW_REJECTION",
+    "stage10a_status": "PENDING",
+    "stage10a_phase": "NOT_STARTED",
+    "stage10a_activation": "FORBIDDEN_UNTIL_STAGE09_ACCEPTED"
+  },
+  "supersedes": null,
+  "created_at": "2026-09-12T07:34:33.1267722Z"
+}

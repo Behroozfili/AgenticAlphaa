@@ -1,0 +1,205 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "reviewer",
+  "status": "REVIEW_APPROVED",
+  "review_status": "APPROVED",
+  "execution_phase": "REVIEW",
+  "control_revision": 162,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-09-rev-1-attempt-2-review.json"
+  ],
+  "artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-2-draft-ready.json",
+      "sha256": "67e4bb4c67d1d5d4fd3426850262e43e512324fcb13f33ed10cf21c001a22daf",
+      "identity_valid": true,
+      "schema_valid": true,
+      "ready_for_observability": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-2-observability.json",
+      "sha256": "2cb75f58f52a577ad49cece3847bf3d77d0a319d4ba1c1cbd611df3d8694b445",
+      "identity_valid": true,
+      "schema_valid": true,
+      "status": "AUDITED",
+      "supplemented_by_change_request": true
+    },
+    "change_request": {
+      "path": ".codex/handoffs/change-request-stage-09-rev-1-attempt-2-1.json",
+      "sha256": "cf9f70850cdafbdec6ad4a8c988d8cf1278620752c502063af71223e938335c2",
+      "identity_valid": true,
+      "schema_valid": true,
+      "blocking": true,
+      "finding": "OBS-09-A2-001",
+      "disposition": "RESOLVED_IN_FINAL_IMPLEMENTATION"
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.md",
+      "sha256": "1bbbde92cf740e52590567b312954040c4a263dd98606ff0ada811deb9a39265"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.json",
+      "sha256": "07d70cbe85442ac368706de09fff748771d9037ba37ce5010dd9d855be996fba",
+      "identity_valid": true,
+      "schema_valid": true,
+      "implementation_status": "IMPLEMENTED",
+      "implementation_ready": true,
+      "supersedes": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.json"
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-09-rev-1-attempt-2-qa.json",
+      "sha256": "b54e8e7e4cbf7cda1c669d8dd799f589a3501732cdff8faa4ef31b9575e98082",
+      "identity_valid": true,
+      "schema_valid": true,
+      "qa_status": "PASS"
+    },
+    "dependency_handoffs": [
+      {
+        "stage": "08",
+        "path": ".codex/handoffs/stage-08-rev-1-handoff.json",
+        "sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+        "state_status": "CLOSED"
+      }
+    ],
+    "immutable_attempt_1": [
+      {
+        "path": ".codex/handoffs/stage-09-rev-1-attempt-1-draft-ready.json",
+        "sha256": "de058ebaeeb139a2eb07913fdf7e4b201a68d605e2c5ecf11bce605a2fbe11f5"
+      },
+      {
+        "path": ".codex/handoffs/stage-09-rev-1-attempt-1-observability.json",
+        "sha256": "ce2c10d05263288c233dfe5d8b1de604c954f1230d8b037030fda6600a7e8580"
+      },
+      {
+        "path": ".codex/handoffs/change-request-stage-09-rev-1-attempt-1-1.json",
+        "sha256": "685004de49a8792449ef0b0ee46a3ff7dd7f8c848acf81211f402f9b69c9dada"
+      },
+      {
+        "path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.md",
+        "sha256": "8e03d32c4f6e257506a1466fe39bc1d63a96572abd76e75c23b0d391e1d43e3f"
+      },
+      {
+        "path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.json",
+        "sha256": "bddd6c7e363322059927f73f9de6cbe241aea83c8cc6ae5827f1892ca8c18232"
+      },
+      {
+        "path": ".codex/handoffs/stage-09-rev-1-attempt-1-qa.json",
+        "sha256": "8300ab8489e5805193302f791f45c12c0e3194259129060bfbeedd6dbe6cbfa3"
+      },
+      {
+        "path": ".codex/handoffs/stage-09-rev-1-attempt-1-review.json",
+        "sha256": "e75f3fee31d83fe0ae59b6977c3ce4555d15e26b54b706be2bdd28c3e3589f39"
+      }
+    ]
+  },
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-09-A2-NB-001",
+      "severity": "NON_BLOCKING",
+      "summary": "The accepted evidence is an offline synthetic engineering evaluation, not investment-performance evidence.",
+      "assessment": "The canonical fixture has 2 tickers, 48 source cutoffs, 11 folds and 22 common eligible OOS forecasts per variant, so it remains PRELIMINARY. Full Model underperformance remains disclosed, no investment-success claim is made, and live provider/external trace/database validation remains intentionally outside this local Stage 09 acceptance."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [],
+  "review_blockers": [],
+  "resolved_findings": [
+    {
+      "id": "REVIEW-09-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "evaluation/point_in_time_dataset.py now forces source-dataset classification through eligible_oos_forecasts=0, so source-row volume cannot claim SCIENTIFIC. evaluation/monthly_backtest.py classifies only after all seven variants have identical fold/ticker/as_of identity and equal coverage, using the common executed OOS count. Independent checks returned 600 source rows=PRELIMINARY, 499 OOS=PRELIMINARY, 500 OOS=SCIENTIFIC, 9 tickers at 500=PRELIMINARY and 59 cutoffs at 500=PRELIMINARY."
+    },
+    {
+      "id": "OBS-09-A2-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "STAGE09_RUNTIME_IDENTITY is 09/r1/a2/quant with implementation_version stage09-r1-a2, and every Stage 09 event derives from it. Independent canonical-run inspection found every emitted event had current identity, finite non-negative latency, bounded payload fields and ordered progress; a sink raising PRIVATE_SENTINEL did not change the scientific report."
+    },
+    {
+      "id": "OBS-09-001",
+      "status": "PASS_PRESERVED",
+      "evidence": "Measured local lifecycle/progress/error instrumentation remains present for fixture materialization, fold model fit, fold prediction, metric aggregation, leakage audit, run and run progress. Closed allowlists, stable fail-closed codes, privacy redaction and sink-failure isolation are preserved."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_ownership": "PASS: official control/lock validation is valid at control_revision 162. Retry edits are confined to the four Quant-owned REVIEW-09-001 paths plus the accepted identity-only update in two of those paths and exact current-attempt artifacts. Every changed path has an explicit correct owner; no test was removed or weakened and no upstream or Stage 10A+ work was performed.",
+    "artifact_integrity": "PASS: state is ACTIVE REVIEW for Stage 09 revision 1 attempt 2 with observability_required=true. The exact matching draft-ready, Observability, supplemental change request, final implementation MD/JSON and QA PASS artifacts exist, all five JSON artifact schemas and identities validate, all transition hashes match, all seven Attempt-1 artifacts retain their recorded hashes, Stage 08 is CLOSED with an exact handoff hash, and stale_stages is empty.",
+    "temporal_safety": "PASS: expanding folds use only strictly earlier as_of rows whose outcomes were observable by the forecast cutoff. Forecast timestamps equal as_of, features/finalization are no later than as_of, targets are exactly the 21st regular session after as_of, and the mechanical audit reports zero future records. No historical current-data fallback, timestamp-to-now behavior, provider acquisition or SEC filed-date behavior was introduced or changed.",
+    "versioning_and_reproducibility": "PASS: universe, dataset, feature, model, action-policy, run, fold and model-variant identities remain deterministic and manifest-bound. The report records the actual common OOS count as forecast_count_per_variant, frozen minimums as scientific_minimums, dataset manifest hash, eligible-row hash and per-variant row-identity hashes. The canonical report hash is unchanged at 213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779.",
+    "financial_integrity": "PASS: Attempt 2 does not touch Financial code, DCF/WACC semantics or the nine intents/mappers. DCF remains long-term valuation context and is not the source of the 21-session label or prediction.",
+    "numeric_integrity": "PASS: deterministic Quant remains the only forecast-number source. Retry code changes classification and current-attempt telemetry identity only; model fitting/prediction, numeric records, metrics and action_policy_v1 are unchanged, and neither an LLM nor RAGAS can alter forecast values.",
+    "folds_variants_metrics_and_costs": "PASS: the canonical report compares class-prior/always-HOLD, momentum-21d, market-only, no-Graph, no-Sentiment, no-Financial and Full Model on identical fold/ticker/as_of rows and equal common eligible coverage. It preserves the fixed BUY/AVOID/HOLD thresholds, 10-bps one-way position-change cost, gross results, and direction, probability/calibration, amount, investment and coverage metrics.",
+    "data_hygiene_and_observability": "PASS: events contain compact current identity, bounded context/counts, stable outcomes/error codes, finite latency and degraded flags only. Raw report/records, feature vectors, labels, predictions, coefficients, evidence IDs/content, prompts, chain-of-thought, brain_reasoning, private payloads, exception text, secrets, tokens and headers are excluded. Telemetry-enabled, disabled and failing-sink runs are scientifically identical.",
+    "regression": "PASS: matching independent QA reports 35 focused Stage 09/action-policy tests and 137 Stage 07/related legacy regressions passed, with 1455 tests collected and zero collection errors. Reviewer independently inspected the classification wiring and executed focused counterexamples and telemetry/scientific invariance probes without rerunning the broad QA suites.",
+    "operational_safety": "PASS: rollback is documented against immutable hashes and no database read/write, migration, dependency change, seed, network/provider acquisition, external trace export, deletion, deployment, commit or push occurred. Stage 10A remains PENDING/NOT_STARTED.",
+    "scientific_honesty": "PASS: SCIENTIFIC now requires all frozen thresholds after actual common executed OOS coverage is established. The current fixture remains explicitly PRELIMINARY, Full Model underperformance versus no-Financial on MAE and versus market-only/no-Graph/no-Sentiment on mean net excess return remains disclosed, and methodological PASS is not presented as investment success.",
+    "contract_integrity": "PASS: the monthly target, provider boundaries, versioned universe, expanding observable-outcome folds, identical-row baseline/ablation set, action_policy_v1, transaction costs and reproducibility fields match the frozen contracts. REVIEW-09-001 is resolved without an unversioned contract deviation."
+  },
+  "tests_and_checks": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex\\scripts\\validate_refactor_control.py --check-control --check-locks --artifact .codex\\handoffs\\stage-09-rev-1-attempt-2-qa.json --agent reviewer",
+      "result": "PASS: CONTROL VALID at control_revision 162 before review artifact creation."
+    },
+    {
+      "command": "Official artifact validation applied independently to Attempt-2 draft-ready, Observability, supplemental change request, final implementation and QA artifacts",
+      "result": "PASS: 5/5 artifacts satisfy artifact.schema.json and exact 09/r1/a2 identity requirements."
+    },
+    {
+      "command": "Independent SHA-256 reconciliation of four current chain JSON artifacts, implementation Markdown, seven immutable Attempt-1 artifacts, 13 implementation-recorded source/report paths and Stage-08 dependency handoff",
+      "result": "PASS: 26/26 checked hashes match; zero mismatches. QA artifact hash independently matches b54e8e7e4cbf7cda1c669d8dd799f589a3501732cdff8faa4ef31b9575e98082."
+    },
+    {
+      "command": "Independent local scientific-threshold and canonical-report probe",
+      "result": "PASS: 600 source rows remained PRELIMINARY; 499 OOS=PRELIMINARY; 500 OOS=SCIENTIFIC; 9 tickers or 59 cutoffs at 500 remained PRELIMINARY. Canonical report stayed PRELIMINARY with 11 folds, 22 OOS forecasts per variant, seven identical row identities, zero future records and hash 213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779."
+    },
+    {
+      "command": "Independent canonical runtime telemetry and failing-sink probe",
+      "result": "PASS: telemetry-enabled and disabled reports were exactly equal; 230 run events (fixture materialization excluded from this reviewer sink) all carried 09/r1/a2/quant and stage09-r1-a2, finite non-negative latency, payload-safe fields and ordered fold progress 1..11. An always-failing PRIVATE_SENTINEL sink was isolated and left report hash and zero-future audit unchanged. Matching QA's end-to-end fixture-plus-run probe records 231 events."
+    },
+    {
+      "command": "Matching QA execution evidence (not rerun by Reviewer)",
+      "result": "PASS: QA reports 35 focused tests passed, 137 related regressions passed and 1455 tests collected with zero errors, including real-engine 499/500 OOS boundary and exact action-policy counterprobes."
+    }
+  ],
+  "source_integrity": {
+    "implementation_source_hashes_checked": 13,
+    "implementation_source_hash_mismatches": 0,
+    "current_chain_hash_mismatches": 0,
+    "attempt_1_artifacts_checked": 7,
+    "attempt_1_artifact_hash_mismatches": 0,
+    "dependency_handoff_hash_mismatches": 0,
+    "all_changed_paths_locked_to_correct_owner": true,
+    "runtime_identity": "09/r1/a2/quant",
+    "implementation_version": "stage09-r1-a2",
+    "report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779"
+  },
+  "external_execution": {
+    "network_access_by_review": false,
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "dependency_changes": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "stage10a_work": "NOT_RUN"
+  },
+  "downstream_gate": {
+    "stage09_closure": "ELIGIBLE_FOR_ORCHESTRATOR_CLOSE",
+    "stage10a_status": "PENDING",
+    "stage10a_phase": "NOT_STARTED",
+    "stage10a_activation": "REMAINS_ORCHESTRATOR_ONLY_AND_WAS_NOT_PERFORMED"
+  },
+  "supersedes": ".codex/handoffs/stage-09-rev-1-attempt-1-review.json",
+  "created_at": "2026-09-12T08:16:49.3682780Z"
+}

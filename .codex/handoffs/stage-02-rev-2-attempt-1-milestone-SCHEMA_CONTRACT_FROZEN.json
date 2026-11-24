@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "milestone",
+  "stage": "02",
+  "stage_revision": 2,
+  "attempt": 1,
+  "agent": "data_rag",
+  "status": "PASS",
+  "milestone_name": "SCHEMA_CONTRACT_FROZEN",
+  "milestone_status": "PASS",
+  "changed_files": [
+    "database/supabase/004_alpha_documents_v2_evidence_identity.sql",
+    "tests/unit_tests/test_database_v2_migrations.py",
+    ".codex/handoffs/stage-02-rev-2-attempt-1-milestone-SCHEMA_CONTRACT_FROZEN.json"
+  ],
+  "evidence": [
+    {
+      "check": "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+      "status": "PASS",
+      "detail": "Migration 004 replaces the revision-1 document/evidence unique constraints with evidence-scoped chunk identities that include evidence and dataset identity. Offline Stage 03 processor/embedder/V2-row mapping produces four same-content dataset/retrieval/effective observations with distinct values for every forward primary/unique identity."
+    },
+    {
+      "check": "forward_migration_safety",
+      "status": "PASS",
+      "detail": "The forward migration is ordered after 001-003, idempotently checks exact existing/new constraint definitions, changes only the two over-restrictive unique constraints, writes no rows, broadens no grants, switches no route, and fails on schema drift."
+    },
+    {
+      "check": "rollback_contract",
+      "status": "PASS",
+      "detail": "Explicit separately executed rollback SQL checks for revision-1 identity collisions before restoring the old constraints. Rollback fails closed rather than deleting or rewriting coexistence rows."
+    },
+    {
+      "check": "temporal_security_reconciliation_preservation",
+      "status": "PASS",
+      "detail": "Temporal RPC/RLS/view behavior, ordered reconciliation, SELECT/EXECUTE least privilege, legacy-v1 route defaults, chunk primary key, source/document columns, and prior migrations remain unchanged."
+    },
+    {
+      "check": "focused_stage02_contract",
+      "status": "PASS",
+      "result": "17 passed in 12.67s"
+    },
+    {
+      "check": "focused_stage01_stage02_regression",
+      "status": "PASS",
+      "result": "112 passed in 15.77s"
+    },
+    {
+      "check": "full_collection",
+      "status": "PASS",
+      "result": "1234 tests collected in 14.73s; zero collection errors"
+    },
+    {
+      "check": "compile_control_and_diff",
+      "status": "PASS",
+      "result": "Python compile PASS; CONTROL VALID; scoped diff-check clean."
+    },
+    {
+      "check": "external_database_execution",
+      "status": "NOT_RUN_REQUIRES_SEPARATE_AUTHORIZATION",
+      "detail": "Migration 004 was written and statically validated only. No migration, seed, backfill, reconciliation, route switch, network call, or external database read/write occurred."
+    }
+  ],
+  "schema_identity_contract": {
+    "primary_key": ["chunk_id"],
+    "document_evidence_chunk_unique": [
+      "canonical_source_id",
+      "content_hash",
+      "document_version",
+      "document_id",
+      "evidence_id",
+      "dataset_version",
+      "chunk_index",
+      "chunk_hash",
+      "embedding_version"
+    ],
+    "evidence_chunk_unique": [
+      "evidence_id",
+      "dataset_version",
+      "chunk_index",
+      "chunk_hash",
+      "embedding_version"
+    ],
+    "coexistence": "Distinct dataset, retrieval, effective, or filing observations have distinct evidence-scoped chunk identities and may coexist without overwriting."
+  },
+  "blocking_issues": [],
+  "supersedes": ".codex/handoffs/stage-02-rev-1-attempt-3-milestone-SCHEMA_CONTRACT_FROZEN.json",
+  "supersedes_handoff": ".codex/handoffs/stage-02-rev-1-handoff.json",
+  "created_at": "2026-08-30T12:08:03.1040356Z"
+}

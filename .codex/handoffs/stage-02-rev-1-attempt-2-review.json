@@ -1,0 +1,68 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "02",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "reviewer",
+  "status": "REJECTED",
+  "review_status": "REJECTED",
+  "blocking_findings": [
+    {
+      "id": "STAGE02-RECONCILIATION-HASH-002",
+      "finding": "Supabase reconciliation exposes row/quarantine counts but no deterministic identity/content hash, despite the canonical count/hash reconciliation requirement. The consolidated view also omits backtest_runs and analyses_v2.",
+      "required_change": "Add deterministic SHA-256 reconciliation hashes based on ordered natural identities/content hashes, include backtest_runs and versioned analyses, and add exact offline tests."
+    },
+    {
+      "id": "STAGE02-NEO4J-RECONCILIATION-003",
+      "finding": "The Neo4j migration returns only the route pointer. It does not provide dataset-version row counts, quarantine/unknown-time counts, or a deterministic identity hash for temporal documents/chunks/evidence.",
+      "required_change": "Add an explicit read-only reconciliation query for document/chunk/evidence counts, quarantine and unknown-time counts, and an ordered deterministic identity digest input/output contract; add exact offline tests."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    "Complete count/hash reconciliation for every Supabase Stage 02 relation without applying migrations or switching routes.",
+    "Complete Neo4j temporal evidence reconciliation without deleting or mutating legacy data.",
+    "Preserve STAGE02-RLS-VIEW-001 resolution and all frozen natural-key/temporal safeguards."
+  ],
+  "review_blockers": [
+    "STAGE02-RECONCILIATION-HASH-002",
+    "STAGE02-NEO4J-RECONCILIATION-003"
+  ],
+  "evidence": [
+    {
+      "check": "artifact_identity_qa_and_milestone",
+      "status": "PASS",
+      "detail": "Attempt 2 milestone/implementation/QA artifacts match; QA is PASS, SCHEMA_CONTRACT_FROZEN is PASS, and CONTROL VALID."
+    },
+    {
+      "check": "natural_keys_temporal_safety_and_unknown_time",
+      "status": "PASS",
+      "detail": "Frozen keys, separate evidence times, quarantine behavior, pre-ranking temporal filters, immutable forecasts/outcomes, and version coexistence are correct."
+    },
+    {
+      "check": "rls_rpc_and_least_privilege",
+      "status": "PASS",
+      "detail": "Attempt 1 QA finding is resolved with security_invoker views, explicit SELECT-only grants, RLS, and no write/ALL grant."
+    },
+    {
+      "check": "supabase_count_hash_reconciliation",
+      "status": "FAIL",
+      "detail": "Count views exist, but no digest is computed and backtest_runs/analyses_v2 are absent from the consolidated reconciliation."
+    },
+    {
+      "check": "neo4j_count_hash_reconciliation",
+      "status": "FAIL",
+      "detail": "Only SchemaRoute values are returned; temporal graph counts/quarantine/unknown-time/hash reconciliation is absent."
+    },
+    {
+      "check": "operational_safety",
+      "status": "PASS",
+      "detail": "No migration application, external DB write, legacy deletion, route switch, seed/backfill, network acquisition, deploy, commit, push, or Stage 03 work occurred."
+    }
+  ],
+  "rollback_reviewed": true,
+  "supersedes": null,
+  "created_at": "2026-08-28T19:08:50.9462458Z"
+}

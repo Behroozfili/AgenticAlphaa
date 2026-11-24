@@ -2,7 +2,16 @@ import logging
 import re
 import html as _html
 import httpx
-from typing import Optional
+from typing import Any, Mapping, Optional
+
+from core.forecast_contract import AnalysisMode, ForecastContext
+from tools.research_tools import (
+    context_metadata,
+    eligible_evidence,
+    historical_unavailable,
+    observed_research_operation,
+    require_research_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +22,12 @@ HEADERS      = {"User-Agent": "AlphaAgentNode research@alpha-agent.ai"}
 
 _CIK_CACHE: dict[str, str] = {}
 _MAX_QUERY_TERMS = 6
+_DATE_QUERY_TERMS = {
+    "january", "february", "march", "april", "may", "june", "july",
+    "august", "september", "october", "november", "december",
+    "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept",
+    "oct", "nov", "dec", "q1", "q2", "q3", "q4",
+}
 
 
 def _sanitize_query(query: str) -> str:
@@ -27,12 +42,15 @@ def _sanitize_query(query: str) -> str:
     - Caps the remaining terms to _MAX_QUERY_TERMS, preserving order so the
       most important (usually earliest) words from the LLM's query survive.
     """
-    terms = [t for t in query.replace('"', '').split() if not re.fullmatch(r"(19|20)\d{2}", t)]
+    terms = [
+        t for t in query.replace('"', '').split()
+        if not re.fullmatch(r"(19|20)\d{2}", t)
+        and t.strip(".,;:()[]").lower() not in _DATE_QUERY_TERMS
+    ]
     if len(terms) > _MAX_QUERY_TERMS:
         logger.warning(
-            "sec_edgar_search: query had %d terms after cleanup; truncating to %d. "
-            "original=%r",
-            len(terms), _MAX_QUERY_TERMS, query,
+            "SEC_QUERY_TRUNCATED term_count=%d max_terms=%d",
+            len(terms), _MAX_QUERY_TERMS,
         )
         terms = terms[:_MAX_QUERY_TERMS]
     return " ".join(terms)
@@ -41,36 +59,64 @@ def _sanitize_query(query: str) -> str:
 # ─────────────────────────────────────────────
 # Tool 1: Search filings by keyword / ticker
 # ─────────────────────────────────────────────
+@observed_research_operation("sec_edgar_search")
 async def sec_edgar_search(
     query: str,
     ticker: Optional[str] = None,
     form_type: Optional[str] = None,   # "10-K" | "10-Q" | "8-K"
     max_results: int = 5,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+    archived_records: list[Mapping[str, Any]] | None = None,
 ) -> dict:
     """
     Full-text search across SEC EDGAR filings.
     Returns: list of filings with company, form_type, filed_at, accession_number, url.
 
     Gracefully degrades on upstream failure: returns
-    ``{"query": query, "filings": [], "error": "..."}`` instead of raising,
-    so a flaky/overloaded SEC endpoint never crashes the calling agent.
+    A failed provider call returns a stable ``error_code`` and no exception
+    text, so a flaky/overloaded SEC endpoint never crashes or leaks to callers.
     """
+    context, run_identity = require_research_context(forecast_context, run_id)
+    if ticker and ticker.strip().upper() != context.ticker:
+        raise ValueError("ticker must match ForecastContext.ticker")
+    ticker = context.ticker
+    if context.analysis_mode is AnalysisMode.HISTORICAL_BACKTEST:
+        if archived_records is None:
+            return historical_unavailable(
+                context, run_identity, source="sec_edgar_search",
+                reason="Historical SEC research requires retained versioned filing metadata; no local SEC archive was supplied.",
+            ) | {"query": query, "filings": []}
+        evidence, rejected = eligible_evidence(
+            archived_records, context=context, run_id=run_identity,
+            source="sec_edgar_search", historical=True,
+        )
+        return {
+            **context_metadata(context, run_identity), "query": query,
+            "filings": evidence, "evidence": evidence, "quarantined": rejected,
+            "status": "OK" if evidence else "DATA_UNAVAILABLE",
+            "missing": not evidence, "degraded": bool(rejected) or not evidence,
+        }
+
     clean_query = _sanitize_query(query)
-    params: dict = {"q": clean_query}
+    params: dict = {
+        "q": clean_query,
+        "startdt": (context.as_of.date() - __import__("datetime").timedelta(days=context.lookback_days)).isoformat(),
+        "enddt": context.as_of.date().isoformat(),
+    }
     if form_type:
         params["forms"] = form_type
     if ticker:
         try:
             cik = await _resolve_cik(ticker)
-        except Exception as exc:
+        except Exception:
          
             logger.warning(
-                "sec_edgar_search: CIK resolution failed for ticker=%r: %s",
-                ticker, exc,
+                "SEC_CIK_RESOLUTION_FAILED",
             )
             return {
-                "query": query, "filings": [],
-                "error": f"CIK resolution failed for {ticker!r}: {exc}",
+                "filings": [], "error_code": "SEC_CIK_RESOLUTION_FAILED",
+                "status": "FAIL_CLOSED", "missing": True, "degraded": True,
             }
         if cik is None:
             logger.warning(
@@ -78,9 +124,8 @@ async def sec_edgar_search(
                 "an unscoped full-text search.", ticker,
             )
             return {
-                "query": query, "filings": [],
-                "error": f"CIK not found for ticker {ticker!r}; search aborted "
-                         f"to avoid returning unrelated results from all filers.",
+                "filings": [], "error_code": "SEC_CIK_NOT_FOUND",
+                "status": "DATA_UNAVAILABLE", "missing": True, "degraded": True,
             }
         params["ciks"] = cik.zfill(10)
 
@@ -93,14 +138,11 @@ async def sec_edgar_search(
             resp.raise_for_status()
             data = resp.json()
     except httpx.HTTPStatusError as exc:
-        logger.warning(
-            "sec_edgar_search: SEC EDGAR returned %s for query=%r (sanitized=%r): %s",
-            exc.response.status_code, query, clean_query, exc,
-        )
-        return {"query": query, "filings": [], "error": f"SEC EDGAR {exc.response.status_code}: {exc}"}
-    except httpx.HTTPError as exc:
-        logger.warning("sec_edgar_search: network error for query=%r: %s", query, exc)
-        return {"query": query, "filings": [], "error": f"network error: {exc}"}
+        logger.warning("SEC_HTTP_STATUS_FAILED status_code=%s", exc.response.status_code)
+        return {"filings": [], "error_code": "SEC_HTTP_STATUS_FAILED", "status": "FAIL_CLOSED", "missing": True, "degraded": True}
+    except httpx.HTTPError:
+        logger.warning("SEC_NETWORK_FAILED")
+        return {"filings": [], "error_code": "SEC_NETWORK_FAILED", "status": "FAIL_CLOSED", "missing": True, "degraded": True}
 
     filings = []
     for hit in data.get("hits", {}).get("hits", [])[:max_results]:
@@ -115,9 +157,29 @@ async def sec_edgar_search(
             "filed_at":         src.get("file_date", ""),
             "accession_number": src.get("adsh", ""),
             "period":           src.get("period_ending", ""),
+            "ticker":           context.ticker,
+            "dataset_version":  context.dataset_version,
+            "provider":         "sec_live",
         })
 
-    return {"query": query, "filings": filings}
+    evidence, rejected = eligible_evidence(
+        filings, context=context, run_id=run_identity,
+        source="sec_edgar_search", historical=False,
+    )
+    eligible_accessions = {
+        str(item.get("citation", {}).get("accession_number")): item for item in evidence
+        if isinstance(item.get("citation"), dict)
+    }
+    filings = [
+        {**filing, **eligible_accessions[str(filing.get("accession_number"))]}
+        for filing in filings if str(filing.get("accession_number")) in eligible_accessions
+    ]
+    return {
+        **context_metadata(context, run_identity), "query": query,
+        "filings": filings, "evidence": evidence, "quarantined": rejected,
+        "status": "OK" if evidence else "DATA_UNAVAILABLE",
+        "missing": not evidence, "degraded": bool(rejected) or not evidence,
+    }
 
 _HEADING_PATTERN = re.compile(
     r"(?:(?<=[.?!]\s)|^)((?:[A-Z][A-Z&,'\u2019\-]{1,}\s+){1,7}[A-Z][A-Z&,'\u2019\-]{1,})(?=\s+[A-Z][a-z])"
@@ -222,6 +284,7 @@ def _extract_key_figures(body: str) -> dict:
 # ─────────────────────────────────────────────
 # Tool 2: Fetch and parse a specific filing
 # ─────────────────────────────────────────────
+@observed_research_operation("sec_edgar_filing")
 async def sec_edgar_filing(
     ticker: str,
     form_type: Optional[str] = None,
@@ -234,6 +297,9 @@ async def sec_edgar_filing(
     length: int = None,                # mode="full" only: chars to return (default: max_chars)
     max_chars: int = 25000,            # hard ceiling on how much of a section is ever parsed out
     accession_number: Optional[str] = None,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+    archived_filing: Mapping[str, Any] | None = None,
 ) -> dict:
     """
     Fetch an SEC filing (10-K / 10-Q) for a ticker and return one or more
@@ -277,21 +343,42 @@ async def sec_edgar_filing(
     it. This is the intended way to jump to a specific topic ("cash flow
     outlook", "cybersecurity", ...) instead of guessing a char offset.
     """
+    context, run_identity = require_research_context(forecast_context, run_id)
+    if ticker.strip().upper() != context.ticker:
+        raise ValueError("ticker must match ForecastContext.ticker")
+    ticker = context.ticker
+    if context.analysis_mode is AnalysisMode.HISTORICAL_BACKTEST:
+        if archived_filing is None:
+            return historical_unavailable(
+                context, run_identity, source="sec_edgar_filing",
+                reason="Historical filing text must come from a retained versioned SEC archive.",
+            ) | {"ticker": ticker, "sections": {}}
+        evidence, rejected = eligible_evidence(
+            [archived_filing], context=context, run_id=run_identity,
+            source="sec_edgar_filing", historical=True,
+        )
+        if not evidence:
+            return {
+                **historical_unavailable(
+                    context, run_identity, source="sec_edgar_filing",
+                    reason="Archived filing failed ticker/version/filed_at eligibility.",
+                ),
+                "ticker": ticker, "sections": {}, "quarantined": rejected,
+            }
+        return {
+            **dict(archived_filing), **context_metadata(context, run_identity),
+            "ticker": ticker, "evidence": evidence, "quarantined": rejected,
+            "status": "OK", "missing": False, "degraded": False,
+        }
+
     if not sections:
         return {
             "ticker": ticker,
-            "error": (
-                "`sections` is required -- name the specific section(s) you need "
-                "(e.g. ['risk_factors'] or ['mda','financial_statements']). "
-                "There's no default 'all' anymore: a single filing's sections "
-                "can run to tens of thousands of tokens each, so an unscoped "
-                "request isn't allowed. Valid names for a 10-K: business, "
-                "risk_factors, mda, financial_statements. A 10-Q has no "
-                "'business' section."
-            ),
+            "error_code": "SEC_SECTIONS_REQUIRED", "status": "FAIL_CLOSED",
+            "missing": True, "degraded": True,
         }
     if mode not in ("preview", "full"):
-        return {"ticker": ticker, "error": f"mode must be 'preview' or 'full', got {mode!r}"}
+        return {"ticker": ticker, "error_code": "SEC_MODE_INVALID", "status": "FAIL_CLOSED", "missing": True, "degraded": True}
 
     normalized_accession = None
     if accession_number is not None:
@@ -299,23 +386,19 @@ async def sec_edgar_filing(
         if normalized_accession is None:
             return {
                 "ticker": ticker,
-                "accession_number": accession_number,
-                "error": (
-                    f"Invalid SEC accession number {accession_number!r}; expected "
-                    "18 digits, with or without dashes (for example "
-                    "0001045810-25-000023)."
-                ),
+                "error_code": "SEC_ACCESSION_INVALID", "status": "FAIL_CLOSED",
+                "missing": True, "degraded": True,
             }
 
     try:
         cik = await _resolve_cik(ticker)
-    except Exception as exc:
-        result = {"ticker": ticker, "error": f"CIK resolution failed for {ticker}: {exc}"}
+    except Exception:
+        result = {"ticker": ticker, "error_code": "SEC_CIK_RESOLUTION_FAILED", "status": "FAIL_CLOSED", "missing": True, "degraded": True}
         if normalized_accession:
             result["accession_number"] = normalized_accession
         return result
     if not cik:
-        result = {"ticker": ticker, "error": f"CIK not found for {ticker}"}
+        result = {"ticker": ticker, "error_code": "SEC_CIK_NOT_FOUND", "status": "DATA_UNAVAILABLE", "missing": True, "degraded": True}
         if normalized_accession:
             result["accession_number"] = normalized_accession
         return result
@@ -323,22 +406,19 @@ async def sec_edgar_filing(
     if normalized_accession and normalized_accession[:10] != cik.zfill(10):
         return {
             "ticker": ticker,
-            "accession_number": normalized_accession,
-            "error": (
-                f"Accession number {normalized_accession} does not belong to "
-                f"ticker {ticker}."
-            ),
+            "error_code": "SEC_ACCESSION_TICKER_MISMATCH", "status": "FAIL_CLOSED",
+            "missing": True, "degraded": True,
         }
 
     try:
         submissions = await _get_submissions(cik)
-    except Exception as exc:
-        result = {"ticker": ticker, "error": f"Failed to fetch EDGAR submissions: {exc}"}
+    except Exception:
+        result = {"ticker": ticker, "error_code": "SEC_SUBMISSIONS_FETCH_FAILED", "status": "FAIL_CLOSED", "missing": True, "degraded": True}
         if normalized_accession:
             result["accession_number"] = normalized_accession
         return result
     if not submissions:
-        result = {"ticker": ticker, "error": "Failed to fetch EDGAR submissions"}
+        result = {"ticker": ticker, "error_code": "SEC_SUBMISSIONS_FETCH_FAILED", "status": "FAIL_CLOSED", "missing": True, "degraded": True}
         if normalized_accession:
             result["accession_number"] = normalized_accession
         return result
@@ -346,61 +426,64 @@ async def sec_edgar_filing(
     if normalized_accession:
         try:
             filing_meta = await _find_by_accession(submissions, normalized_accession)
-        except Exception as exc:
+        except Exception:
             return {
                 "ticker": ticker,
                 "accession_number": normalized_accession,
-                "error": f"Failed to resolve accession number from EDGAR submissions: {exc}",
+                "error_code": "SEC_ACCESSION_RESOLUTION_FAILED", "status": "FAIL_CLOSED",
+                "missing": True, "degraded": True,
             }
         if not filing_meta:
             return {
                 "ticker": ticker,
-                "accession_number": normalized_accession,
-                "error": (
-                    f"Accession number {normalized_accession} was not found in "
-                    f"EDGAR submissions for ticker {ticker}."
-                ),
+                "error_code": "SEC_ACCESSION_NOT_FOUND", "status": "DATA_UNAVAILABLE",
+                "missing": True, "degraded": True,
             }
         actual_form_type = filing_meta.get("form", "")
         if not actual_form_type:
             return {
                 "ticker": ticker,
-                "accession_number": normalized_accession,
-                "error": (
-                    f"EDGAR submissions metadata for accession {normalized_accession} "
-                    "does not include its form type."
-                ),
+                "error_code": "SEC_FORM_TYPE_MISSING", "status": "DATA_UNAVAILABLE",
+                "missing": True, "degraded": True,
             }
         if form_type and actual_form_type and form_type.upper() != actual_form_type.upper():
             return {
                 "ticker": ticker,
-                "accession_number": normalized_accession,
-                "error": (
-                    f"Requested form type {form_type} conflicts with accession "
-                    f"{normalized_accession}, which is a {actual_form_type} filing."
-                ),
+                "error_code": "SEC_FORM_TYPE_CONFLICT", "status": "FAIL_CLOSED",
+                "missing": True, "degraded": True,
+            }
+        if str(filing_meta.get("filingDate") or "") > context.as_of.date().isoformat():
+            return {
+                **context_metadata(context, run_identity),
+                "ticker": ticker, "accession_number": normalized_accession,
+                "sections": {}, "evidence": [],
+                "status": "DATA_UNAVAILABLE", "missing": True, "degraded": True,
+                "error_code": "FUTURE_EVIDENCE",
             }
     else:
         actual_form_type = form_type or "10-K"
-        filing_meta = _find_latest(submissions, actual_form_type)
+        filing_meta = _find_latest(
+            submissions, actual_form_type, as_of=context.as_of.date().isoformat()
+        )
         if not filing_meta:
-            return {"ticker": ticker, "error": f"No {actual_form_type} found"}
+            return {"ticker": ticker, "error_code": "SEC_FILING_NOT_FOUND", "status": "DATA_UNAVAILABLE", "missing": True, "degraded": True}
 
     acc_dash   = filing_meta["accessionNumber"]          # e.g. 0000320193-26-000013
     acc_nodash = acc_dash.replace("-", "")               # e.g. 000032019326000013
     try:
         raw_text = await _fetch_text(cik, acc_dash, acc_nodash)
-    except Exception as exc:
+    except Exception:
         return {
             "ticker": ticker,
             "accession_number": acc_dash,
-            "error": f"Failed to fetch filing text for accession {acc_dash}: {exc}",
+            "error_code": "SEC_FILING_FETCH_FAILED", "status": "FAIL_CLOSED",
+            "missing": True, "degraded": True,
         }
     if not raw_text:
         return {
             "ticker": ticker,
-            "accession_number": acc_dash,
-            "error": f"Failed to fetch filing text for accession {acc_dash}.",
+            "error_code": "SEC_FILING_FETCH_FAILED", "status": "FAIL_CLOSED",
+            "missing": True, "degraded": True,
         }
     
     _EXTRACTION_SAFETY_CAP = 750_000  # generous ceiling against pathological input, not a response cap
@@ -433,7 +516,8 @@ async def sec_edgar_filing(
 
         sections_out[name] = entry
 
-    return {
+    result = {
+        **context_metadata(context, run_identity),
         "ticker":           ticker,
         "company":          submissions.get("name", ""),
         "form_type":        actual_form_type,
@@ -441,6 +525,27 @@ async def sec_edgar_filing(
         "accession_number": filing_meta.get("accessionNumber", ""),
         "mode":             mode,
         "sections":         sections_out,
+    }
+    evidence, rejected = eligible_evidence(
+        [{**result, "provider": "sec_live", "title": f"{ticker} {actual_form_type}"}],
+        context=context, run_id=run_identity, source="sec_edgar_filing", historical=False,
+    )
+    if not evidence:
+        reason_codes = {
+            item.get("reason_code") for item in rejected if isinstance(item, Mapping)
+        }
+        return {
+            **context_metadata(context, run_identity), "ticker": ticker,
+            "sections": {}, "evidence": [], "quarantined": rejected,
+            "status": "DATA_UNAVAILABLE", "missing": True, "degraded": True,
+            "error_code": (
+                "FUTURE_EVIDENCE" if "FUTURE_EVIDENCE" in reason_codes
+                else "SEC_EVIDENCE_OUTSIDE_WINDOW"
+            ),
+        }
+    return {
+        **result, "evidence": evidence, "quarantined": rejected,
+        "status": "OK", "missing": False, "degraded": False,
     }
 
 
@@ -562,13 +667,15 @@ async def _find_by_accession(
     return None
 
 
-def _find_latest(submissions: dict, form_type: str) -> Optional[dict]:
+def _find_latest(
+    submissions: dict, form_type: str, *, as_of: str | None = None,
+) -> Optional[dict]:
     recent  = submissions.get("filings", {}).get("recent", {})
     forms   = recent.get("form", [])
     acc_nos = recent.get("accessionNumber", [])
     dates   = recent.get("filingDate", [])
     for i, f in enumerate(forms):
-        if f == form_type:
+        if f == form_type and (as_of is None or str(dates[i]) <= as_of):
             return {"accessionNumber": acc_nos[i], "filingDate": dates[i]}
     return None
 
@@ -581,8 +688,7 @@ async def _fetch_text(cik: str, acc_dash: str, acc_nodash: str) -> str:
         resp = await client.get(url)
         if resp.status_code == 200:
             return resp.text
-    logger.warning("sec_edgar_filing: filing text fetch returned %s for %s",
-                   resp.status_code, url)
+    logger.warning("SEC_FILING_FETCH_FAILED status_code=%s", resp.status_code)
     return ""
 
 

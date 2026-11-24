@@ -14,6 +14,8 @@ from unittest.mock import patch
 import pytest
 
 from tools.sentiment_tools.vader_scorer import (
+    VADER_LEXICON_SHA256,
+    VADER_MODEL_VERSION,
     VaderLexiconScorer,
     VaderResult,
     ChunkVaderScore,
@@ -48,13 +50,14 @@ def mock_lexicon_bootstrap():
 # ---------------------------------------------------------------------------
 
 class TestScoreEmptyHandling:
-    def test_all_empty_texts_returns_neutral_zero_result(self):
+    def test_all_empty_texts_returns_explicit_no_data(self):
         scorer = VaderLexiconScorer()
         result = scorer.score(["", "   ", ""])
 
         assert isinstance(result, VaderResult)
-        assert result.label == "Neutral"
-        assert result.compound == 0.0
+        assert result.label is None
+        assert result.compound is None
+        assert result.status == "NO_DATA"
         assert result.total_chunks == 0
         assert result.skipped_chunks == 3
 
@@ -170,6 +173,11 @@ class TestCompoundLabelThresholds:
 # ---------------------------------------------------------------------------
 
 class TestLexiconBootstrap:
+    def test_model_provenance_contains_exact_local_lexicon_digest(self):
+        assert len(VADER_LEXICON_SHA256) == 64
+        assert all(char in "0123456789abcdef" for char in VADER_LEXICON_SHA256)
+        assert f"sha256-{VADER_LEXICON_SHA256}" in VADER_MODEL_VERSION
+
     @pytest.fixture(autouse=True)
     def mock_lexicon_bootstrap(self):
         """
@@ -180,7 +188,7 @@ class TestLexiconBootstrap:
         """
         yield  # no-op: intentionally does NOT mock _ensure_vader_lexicon
 
-    def test_downloads_only_when_not_found_locally(self):
+    def test_missing_lexicon_fails_closed_without_download(self):
         """
         Calls _ensure_vader_lexicon() DIRECTLY rather than via
         VaderLexiconScorer() — constructing the full scorer here would make
@@ -193,8 +201,9 @@ class TestLexiconBootstrap:
                    side_effect=LookupError), \
              patch("tools.sentiment_tools.vader_scorer.nltk.download") as mock_download:
             reset_vader()
-            _ensure_vader_lexicon()
-            mock_download.assert_called_once_with("vader_lexicon", quiet=True)
+            with pytest.raises(LookupError, match="automatic network download is disabled"):
+                _ensure_vader_lexicon()
+            mock_download.assert_not_called()
 
     def test_skips_download_when_already_present(self):
         with patch("tools.sentiment_tools.vader_scorer.nltk.data.find") as mock_find, \

@@ -1,0 +1,234 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 4,
+  "agent": "quant",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "execution_phase": "PRIMARY_FINAL",
+  "control_revision": 138,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "retry_scope": "QA-07-A3-001 stale runtime/service/lifecycle attempt identity only; prior fixes preserved and OBS-07-A4-NB-001 documented without scope expansion.",
+  "runtime_implementation_identity": {
+    "single_source": "tools/market_tools/__init__.py::QUANT_IMPLEMENTATION_IDENTITY",
+    "stage": "07",
+    "stage_revision": 1,
+    "attempt": 4,
+    "agent": "quant",
+    "implementation_version": "stage07-r1-a4",
+    "service_output_exact": true,
+    "all_lifecycle_events_exact": true,
+    "stale_attempt_1_absent": true,
+    "stale_attempt_3_absent": true
+  },
+  "draft_ready_artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-draft-ready.json",
+  "draft_ready_sha256": "3af823794c1eed6fda318b88826e654c9d92ec6d4e21b4f838f6cf1556a4ee4b",
+  "observability_artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-observability.json",
+  "observability_sha256": "573edf099991ee51160d59e0e24a92d533b230405d54a6d56f4236400fd6eed0",
+  "observability_status": "AUDITED",
+  "implementation_md": ".codex/handoffs/stage-07-rev-1-attempt-4-implementation.md",
+  "implementation_md_sha256": "e2c42713c070ba4787d23d38e7bfe049bf5f44f35717bd07833cc5cedbbf51a0",
+  "dependency_handoffs": [
+    {
+      "stage": "04B",
+      "path": ".codex/handoffs/stage-04B-rev-1-handoff.json",
+      "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049",
+      "state_status": "CLOSED"
+    },
+    {
+      "stage": "05",
+      "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+      "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+      "state_status": "CLOSED"
+    },
+    {
+      "stage": "06",
+      "path": ".codex/handoffs/stage-06-rev-1-handoff.json",
+      "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    "tools/market_tools/__init__.py",
+    "tests/unit_tests/market_test/test_market_server.py",
+    "tests/unit_tests/test_market_features_stage7.py",
+    ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-DATA_READINESS.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-MODEL_READY.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-4-draft-ready.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-4-implementation.md",
+    ".codex/handoffs/stage-07-rev-1-attempt-4-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "QA-07-A3-001",
+      "status": "RESOLVED",
+      "resolution": "Runtime constants, service output and all lifecycle events publish exact Stage07/rev1/attempt4/quant and stage07-r1-a4; direct literal tests reject stale provenance and captured output contains neither attempt 1 nor attempt 3 identity."
+    },
+    {
+      "id": "REVIEW-07-A2-B-001",
+      "status": "PASS_PRESERVED",
+      "resolution": "Canonical adjusted-close excess identity and direction rules, zero-mismatch fixture and loader/readiness counterexamples remain green."
+    },
+    {
+      "id": "QA-07-001",
+      "status": "PASS_PRESERVED",
+      "resolution": "Readiness, eligible-row, training-data and deterministic model identities reproduce exactly in normal and reversed order."
+    },
+    {
+      "id": "OBS-07-001..003",
+      "status": "PASS_PRESERVED",
+      "resolution": "Nine measured compact lifecycle boundaries, privacy rejection, context identity, temporal availability, universe membership and eligible-row/model bindings remain green with current Attempt 4 identity."
+    }
+  ],
+  "milestones": {
+    "DATA_READINESS": {
+      "status": "PASS",
+      "artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-DATA_READINESS.json",
+      "sha256": "c0c0813e7569158a36026293b12814b1972b819830f833173542ad8ba8d8543b",
+      "manifest_hash": "c594e6002196e123ca8f6bead7e233f7272376db84250af87c6174cfb93979b7",
+      "eligible_rows_sha256": "93b980674b6801db52eb08c8e6b5aa652f82bcc22be2887224d88d45454166e4",
+      "canonical_label_mismatches": 0
+    },
+    "MODEL_READY": {
+      "status": "PASS",
+      "artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-MODEL_READY.json",
+      "sha256": "835eb5449c4ff89ca888112f8397d17224fc6dd93bf9d879a0ac876603fda500",
+      "readiness_manifest_hash": "c594e6002196e123ca8f6bead7e233f7272376db84250af87c6174cfb93979b7",
+      "eligible_rows_sha256": "93b980674b6801db52eb08c8e6b5aa652f82bcc22be2887224d88d45454166e4",
+      "training_data_hash": "78af5fc9e5a1fcb7263601e65ead1732e83625cf3604cde46d2b3289f2691890",
+      "model_version": "logistic-ridge-21d-v1+sha256:73d858322007097b578ed1aaaab9146c18fd8b2cc729c64fe348a345f386583a"
+    }
+  },
+  "artifact_bindings": {
+    "draft_ready_sha256_matches_observability": true,
+    "milestone_sha256_matches_draft_and_observability": true,
+    "readiness_hash_matches_across_artifacts": true,
+    "eligible_rows_hash_matches_across_artifacts": true,
+    "training_data_hash_matches_model_ready": true,
+    "model_version_matches_current_runtime": true,
+    "runtime_identity_matches_active_attempt": true,
+    "observability_requested_primary_changes": 0
+  },
+  "runtime_input_sha256": {
+    "tools/market_tools/__init__.py": "d5bdb8b07a2491aeecdfe414f836123c8bfcfb2444ddaa72061d4027a0c9bcaa",
+    "tools/market_tools/market_data.py": "b0e360a9b6bc97427c8e74647fd69ff065a5635aca8a935ce3e3c8673a860630",
+    "tools/market_tools/feature_builder.py": "c95e6d569591606b1c3ff36afd8414b20c6a61e7f89a9ef40987f61310025d1f",
+    "tools/market_tools/historical_dataset_builder.py": "9e54de5ba43c9ce87f9c88a60c9189f633c470919de3e3c09d7f82ec1e837eff",
+    "tools/market_tools/forecast_model.py": "200231a42c985b812af12f5f4565171be7ed72a9728d3494ace67d939a62c84a",
+    "tools/market_tools/market_server.py": "7249ec02b782de2380b2c28bae82fcfd91c17fb84080d43941c3286f62d35d56",
+    "tests/fixtures/monthly_point_in_time_fixture.json": "cac1ee7e10a20c6986ad86ac2824ac9d3b4be4a3e03aafe6663f9824e7aef845",
+    "tests/unit_tests/market_test/__init__.py": "3c57dbafdd05661e2b11ef1c1bae6ff03cb34e6a5bc7f0d9596988c67af2f32b",
+    "tests/unit_tests/market_test/test_historical_dataset_builder.py": "f9c44cc7f07bec6752dc73b0e48175e89d7acb9e1c3aa6221bd4616f03783308",
+    "tests/unit_tests/market_test/test_market_server.py": "8da21eb372eaee8346e2035a6344c2913c9d22c014995c4653819fc343f886ff",
+    "tests/unit_tests/test_market_features_stage7.py": "70191c6688b26f5dcf62f6367cba2bca810afb398429cb5a3ab909d311ba1622"
+  },
+  "self_tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "71 passed in 1.20s in Quant draft; 71 passed in 2.11s under independent Observability.",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test -q",
+      "exit_code": 0,
+      "result": "Fresh PRIMARY_FINAL execution: 121 passed in 80.85s.",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe .codex\\scripts\\validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 138; execution enabled; Stage 07 revision 1 attempt 4 ACTIVE in PRIMARY_FINAL with exact Quant implementation locks.",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "SHA-256 verification of eleven draft runtime inputs, draft-ready, two milestones and Observability",
+      "exit_code": 0,
+      "result": "PASS_11_OF_11_RUNTIME; draft and all three artifact hashes matched exactly.",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "Independent Attempt 4 Observability runtime identity, stale-attempt, lifecycle, privacy, canonical-label, exact-21-session and normal/reversed reproduction probe",
+      "exit_code": 0,
+      "result": "PASS_EXACT: runtime constant, service and all 30 captured events identify 07/r1/a4/quant and stage07-r1-a4; stale attempts 1 and 3 are absent; all 9 boundaries, 40 canonical rows, 40 exact targets and milestone bindings reproduce.",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY",
+      "evidence_artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-observability.json"
+    }
+  ],
+  "data_counts": {
+    "fixture_tickers": 1,
+    "monthly_cutoffs": 40,
+    "eligible_forecasts": 40,
+    "canonical_label_mismatches": 0,
+    "exact_21_session_targets": 40,
+    "focused_tests_passed": 71,
+    "final_combined_tests_passed": 121,
+    "measured_lifecycle_boundaries": 9,
+    "captured_lifecycle_events": 30
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "feature_cutoff": "PASS_INPUTS_STOP_AT_AS_OF",
+    "target_horizon": "PASS_EXACT_21ST_REGULAR_SESSION_AFTER_AS_OF",
+    "outcome_availability": "PASS_PREMATURE_MATERIALIZATION_REJECTED",
+    "train_through": "PASS_POST_TRAIN_THROUGH_ROWS_REJECTED",
+    "training_only_preprocessing": "PASS",
+    "eligible_row_content_binding": "PASS",
+    "normal_reversed_order_determinism": "PASS"
+  },
+  "contract_diff": [
+    "Advance immutable runtime/service/lifecycle provenance to Stage07/rev1/attempt4/quant and implementation_version stage07-r1-a4.",
+    "Preserve dataset, feature, forward_21d_excess_return-v1, model-family and action_policy_v1 versions and thresholds; no migration or downstream invalidation."
+  ],
+  "latency_delta": null,
+  "blocking_issues": [],
+  "known_limitations": [
+    "The synthetic single-ticker, 40-cutoff fixture proves engineering correctness only; scientific_report_level remains PRELIMINARY and no investment-performance claim is made.",
+    "Research/news, SEC filing and temporal Graph coverage are reference-only and remain UNVERIFIED_REFERENCE_ONLY.",
+    "Live provider, multi-ticker and externally materialized historical data were not exercised.",
+    "Walk-forward performance metrics, baselines, transaction costs and ablations remain Stage 09 scope."
+  ],
+  "non_blocking_observations": [
+    {
+      "id": "OBS-07-A4-NB-001",
+      "status": "DOCUMENTED_NO_SCOPE_EXPANSION",
+      "detail": "One DATA_READINESS explanatory sentence says current Attempt 3 runtime. Artifact identity, run_id, hashes, current runtime constant, service output and lifecycle evidence all identify Attempt 4; this is stale prose with no behavioral, telemetry, readiness or model-binding effect and the already validated milestone was not modified in PRIMARY_FINAL."
+    }
+  ],
+  "out_of_scope_findings": [],
+  "requested_changes": [],
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime_action": "Quarantine the three Attempt 4 modified runtime/test paths and restore only authorized Attempt 3 bytes after hash verification; never synthesize unavailable prior bytes.",
+    "artifact_action": "Quarantine the five Quant-owned Attempt 4 artifacts while preserving Observability, prior attempts, state and dependency handoffs.",
+    "data_loss_risk": "NONE_WHEN_QUARANTINE_IS_RETAINED",
+    "rollback_tested": false
+  },
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Archive and verify SHA-256 for the three Attempt 4 modified runtime/test paths and five Quant-owned Attempt 4 artifacts.",
+    "Move those exact current files to a timestamped workspace quarantine; do not delete them.",
+    "Restore only the three runtime/test paths from an authorized Attempt 3 archival source and verify available recorded hashes; stop if authoritative prior bytes are unavailable.",
+    "Do not modify the Observability artifact, Attempt 1-3 artifacts, refactor state, dependency handoffs, migrations or external data."
+  ],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "stage08_work": "NOT_RUN",
+    "llm_generated_or_altered_forecast_numbers": false
+  },
+  "supersedes": ".codex/handoffs/stage-07-rev-1-attempt-3-implementation.json",
+  "implementation_ready": true,
+  "created_at": "2026-09-09T18:50:23.5240495Z"
+}

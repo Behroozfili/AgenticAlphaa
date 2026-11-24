@@ -1,0 +1,77 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "core",
+  "changed_files": [
+    "core/forecast_contract.py",
+    "agents/state.py",
+    "core/error_handler.py",
+    "core/__init__.py",
+    "agents/__init__.py",
+    "tests/unit_tests/test_forecast_contract.py",
+    "tests/unit_tests/test_state_forecast_contract.py",
+    "tests/unit_tests/core_test/test_error_handler.py",
+    ".codex/handoffs/stage-01-rev-1-attempt-1-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "draft_scope": {
+    "forecast_contract": "Aware UTC month-end cutoff at the actual XNYS session close, exact 21-session target, LIVE/HISTORICAL_BACKTEST modes, required versions, adjusted-close excess-return labels, and fail-closed temporal/version guards.",
+    "calendar": "Deterministic XNYS regular-session calendar v1 for 1998..2100 with standard holidays, Black Friday close, and known exceptional full closures; unsupported years fail closed.",
+    "state_compatibility": "Eight legacy SharedManagerState keys remain required; forecast context and five feature/output slots are optional and JSON-safe.",
+    "privacy": "State slots retain compact values and evidence IDs; raw evidence is excluded. Breadcrumb extras are scalar-only."
+  },
+  "observability_review_surface": {
+    "allowed_metadata": [
+      "ticker",
+      "as_of",
+      "target",
+      "horizon_trading_days",
+      "analysis_mode",
+      "schema_version",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "calendar_version"
+    ],
+    "forbidden_payloads": ["raw evidence", "full State", "reasoning", "document text"],
+    "requested_review": "Assess trace/progress metadata compatibility and privacy only; any feature-call-site change requires a formal change request."
+  },
+  "draft_self_tests": [
+    {
+      "command": "pytest focused Stage01 contract, State, and error-handler tests",
+      "exit_code": 0,
+      "result": "51 passed in 6.17s"
+    },
+    {
+      "command": "guarded pytest --collect-only -qq",
+      "exit_code": 0,
+      "result": "1109 unit tests collected; external_attempts=[]"
+    },
+    {
+      "command": "guarded pytest -q --disable-warnings --tb=no tests/unit_tests before final close-validation test addition",
+      "exit_code": 1,
+      "result": "1070 passed, 38 precisely preserved pre-existing failures, 6 warnings; external_attempts=[]"
+    },
+    {
+      "command": "python -m py_compile core/forecast_contract.py core/error_handler.py agents/state.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "git diff --check",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only"
+    }
+  ],
+  "known_pre_existing_failures": {
+    "count": 38,
+    "stage_00_count": 40,
+    "resolved_in_draft": 2,
+    "resolution": "The two Stage-01-owned error_handler scalar-only breadcrumb expectations now pass; all other baseline groups remain visible."
+  },
+  "created_at": "2026-08-27T19:53:25.3095509Z"
+}

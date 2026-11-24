@@ -1,0 +1,129 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_identity_and_exact_locks",
+      "command": "refactor state/artifact identity/lock inspection plus validate_refactor_control.py",
+      "exit_code": 0,
+      "result": "PASS; execution is enabled for Stage 01 revision 1 attempt 1 in QA, matching draft-ready/observability/final implementation artifacts exist, the QA artifact path is locked to qa, CONTROL VALID, and Stage 02 remains PENDING/NOT_STARTED"
+    },
+    {
+      "check": "focused_stage01_gate",
+      "command": "pytest -q --disable-warnings tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/core_test/test_error_handler.py tests/unit_tests/core_test/test_observability.py",
+      "exit_code": 0,
+      "result": "PASS; 68 passed in 2.45s"
+    },
+    {
+      "check": "independent_strict_contract_and_state",
+      "command": "inline local assertions for aware UTC normalization, naive rejection, LIVE/HISTORICAL_BACKTEST, month-end XNYS close, exact 21-session target, exceptional closures, supported-year failure, temporal/version guards, State keys and JSON round-trip",
+      "exit_code": 0,
+      "result": "PASS; includes Black Friday 2024 13:00 America/New_York close, 2001-09-11..14, 2012 Sandy, 2007/2018 national closures, and fail-closed target traversal beyond calendar year 2100"
+    },
+    {
+      "check": "adjusted_close_label_semantics",
+      "command": "independent local adjusted-close total-return and SPY excess-return assertions",
+      "exit_code": 0,
+      "result": "PASS; forward_21d_excess_return equals ticker adjusted total return minus SPY adjusted total return and invalid non-finite/non-positive inputs are covered by focused tests"
+    },
+    {
+      "check": "observability_allowlist_privacy_and_legacy_publish",
+      "command": "inline local forecast_trace_metadata, publish_forecast and legacy publish assertions",
+      "exit_code": 0,
+      "result": "PASS; only allowlisted compact metadata is emitted, raw_evidence/brain_reasoning/headers/full nested forecast state are absent, run_id remains top-level for forecast events, and legacy publish wire behavior is preserved"
+    },
+    {
+      "check": "protected_exports_compile_and_collection",
+      "command": "python -m py_compile Stage 01 modules; focused/full pytest collection; git diff --check",
+      "exit_code": 0,
+      "result": "PASS; protected imports/exports remain collectable, Stage 01 modules compile, and diff-check reports only line-ending notices"
+    },
+    {
+      "check": "guarded_full_collection",
+      "command": "localhost-only socket-guarded pytest --collect-only -qq --disable-warnings tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "PASS; 1160 collected (1109 unit, 51 integration); 16 HuggingFace create_connection attempts from legacy RAG import order were blocked before connection and zero external connections completed"
+    },
+    {
+      "check": "guarded_full_unit_regression",
+      "command": "localhost-only socket-guarded pytest -q --disable-warnings --tb=no tests/unit_tests",
+      "exit_code": 1,
+      "result": "PASS_WITH_SEPARATED_NON_STAGE01_FAILURES; 1061 passed, 48 failed, 6 warnings. All Stage 01 tests pass; 38 failures exactly match the documented post-Stage01 known groups, while 10 additional AlphaEmbedder failures are caused by the network-forbidden HuggingFace model not being locally cached under the legacy order-sensitive RAG fixture. All external attempts were blocked and zero completed."
+    }
+  ],
+  "leakage_report": {
+    "status": "PASS",
+    "aware_utc_normalization": "PASS",
+    "naive_or_missing_timestamp_rejection": "PASS",
+    "future_evidence_rejection": "PASS",
+    "historical_mode_current_fallback": "NOT_IMPLEMENTED_OR_INVOKED_STAGE_01",
+    "exact_target_boundary": "PASS",
+    "version_mismatch_rejection": "PASS",
+    "external_network_connections_completed": 0
+  },
+  "regression_report": {
+    "focused_stage01": {
+      "passed": 68,
+      "failed": 0
+    },
+    "collection": {
+      "unit": 1109,
+      "integration": 51,
+      "total": 1160,
+      "status": "PASS"
+    },
+    "full_unit": {
+      "passed": 1061,
+      "failed_total": 48,
+      "warnings": 6,
+      "documented_known_failures": 38,
+      "network_forbidden_rag_fixture_failures": 10,
+      "stage01_regressions": 0
+    },
+    "resolved_stage00_failures": {
+      "count": 2,
+      "owner": "core",
+      "reason": "Stage 01 scalar-only breadcrumb privacy contract now matches the locked error-handler assertions"
+    },
+    "known_failure_groups_preserved": [
+      {"responsible_stage": "05", "owner": "financial", "count": 28},
+      {"responsible_stage": "06", "owner": "sentiment", "count": 4},
+      {"responsible_stage": "08", "owner": "integration", "count": 1},
+      {"responsible_stage": "03", "owner": "data_rag", "count": 1},
+      {"responsible_stage": "00", "owner": "explicit_recovery_or_retirement_decision", "count": 4}
+    ],
+    "state_backward_compatibility": "PASS; the eight legacy required keys are unchanged, new forecast slots are optional, and legacy/current payloads are JSON-safe",
+    "error_handler_regression": "PASS",
+    "observability_additive_compatibility": "PASS",
+    "scope_or_ownership_regressions": 0,
+    "assertions_weakened_or_deleted_by_qa": 0,
+    "external_network_connections_completed": 0
+  },
+  "blocking_issues": [],
+  "environment_blockers": [
+    {
+      "item": "Legacy RAG AlphaEmbedder full-suite fixture requires an unavailable local HuggingFace model when sentence_transformers is imported before its setdefault stub",
+      "status": "NONBLOCKING_FOR_STAGE_01",
+      "effect": "10 additional Stage 03/RAG unit failures and repeated blocked create_connection attempts under full-suite order",
+      "reason_not_blocking": "The socket guard prevented every external connection, the failure paths do not import or exercise Stage 01 implementation, focused and independent Stage 01 gates are complete, and the issue is assigned downstream rather than hidden.",
+      "remediation_owner": "data_rag",
+      "candidate_responsible_stage": "03"
+    }
+  ],
+  "candidate_downstream_stages_affected": [
+    {
+      "stage": "03",
+      "finding": "Make the AlphaEmbedder test fixture order-independent and strictly offline; do not download a model during unit collection/execution."
+    }
+  ],
+  "blocking_findings": [],
+  "requested_primary_changes": [],
+  "network_used": false,
+  "database_or_migration_changes": false,
+  "created_at": "2026-08-28T06:31:19.3801559Z"
+}

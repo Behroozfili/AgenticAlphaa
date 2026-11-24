@@ -1,0 +1,80 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "02",
+  "stage_revision": 2,
+  "accepted_attempt": 2,
+  "primary_agent": "data_rag",
+  "implementation_status": "IMPLEMENTED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "draft_ready": null,
+    "implementation": ".codex/handoffs/stage-02-rev-2-attempt-2-implementation.json",
+    "observability": null,
+    "qa": ".codex/handoffs/stage-02-rev-2-attempt-2-qa.json",
+    "review": ".codex/handoffs/stage-02-rev-2-attempt-2-review.json"
+  },
+  "implementation_markdown": ".codex/handoffs/stage-02-rev-2-attempt-2-implementation.md",
+  "milestone_artifact": ".codex/handoffs/stage-02-rev-2-attempt-2-milestone-SCHEMA_CONTRACT_FROZEN.json",
+  "milestones": {
+    "SCHEMA_CONTRACT_FROZEN": "PASS"
+  },
+  "retry_chain": [
+    {
+      "attempt": 1,
+      "terminal_gate": "QA",
+      "result": "FAIL",
+      "artifact": ".codex/handoffs/stage-02-rev-2-attempt-1-qa.json"
+    },
+    {
+      "attempt": 2,
+      "terminal_gate": "REVIEW",
+      "result": "APPROVED",
+      "artifact": ".codex/handoffs/stage-02-rev-2-attempt-2-review.json"
+    }
+  ],
+  "resolved_findings": [
+    "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+    "STAGE02-REV2-FINAL-ARTIFACT-PHASE-001"
+  ],
+  "accepted_counts": {
+    "migration_tests_passed": 17,
+    "exact_acceptance_gates_passed": 3,
+    "stage01_stage02_regressions_passed": 112,
+    "collection_total": 1234,
+    "collection_errors": 0,
+    "stage02_regressions": 0
+  },
+  "delivered_contract": [
+    "A versioned local amendment replaces over-restrictive document/evidence uniqueness with evidence-scoped chunk identities compatible with immutable dataset, retrieval, and effective-time observations.",
+    "The chunk primary key, temporal columns, V2 RPC filtering, RLS, grants, routes, reconciliation, legacy default, and accepted migrations 001-003 remain unchanged.",
+    "Forward execution and rollback are idempotent and fail closed on schema drift or identity collisions; neither path deletes or rewrites rows."
+  ],
+  "known_limitations": [
+    "Migration 004 was not applied to Supabase; live DDL, RLS/RPC behavior, reconciliation, and latency remain unverified until separately authorized.",
+    "Stage 03 revision 1 is stale and must be reopened at revision 2 to consume the corrected storage identity and resolve its remaining ticker-materialization and pre-materialization-resume findings.",
+    "agents/state.py remains under a current core quarantine lock only; its post-Stage-01 bytes are not accepted into Stage 02 history."
+  ],
+  "rollback": {
+    "documented_in": ".codex/handoffs/stage-02-rev-2-attempt-2-implementation.json",
+    "summary": "The separately authorized rollback first fails closed on document/evidence identity collisions, then restores the revision-1 constraints without deleting or rewriting rows."
+  },
+  "operational_safety": {
+    "migration_application": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "live_reconciliation": false,
+    "route_switch": false,
+    "legacy_deletion": false,
+    "network_used": false,
+    "deploy_commit_or_push": false
+  },
+  "next_stage": "03",
+  "next_stage_revision": 2,
+  "next_stage_activated": false,
+  "supersedes": ".codex/handoffs/stage-02-rev-1-handoff.json",
+  "created_at": "2026-08-30T21:29:58.8143741Z"
+}

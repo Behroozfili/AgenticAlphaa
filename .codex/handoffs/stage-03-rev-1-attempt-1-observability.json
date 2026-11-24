@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [
+    ".codex/handoffs/stage-03-rev-1-attempt-1-observability.json"
+  ],
+  "requested_primary_changes": [
+    {
+      "id": "OBS-03-001",
+      "blocking": true,
+      "owner": "data_rag",
+      "requested_paths": [
+        "rag/ingestion.py",
+        "tests/unit_tests/test_rag/test_ingestion.py"
+      ],
+      "reason": "Stage 03 lifecycle instrumentation is incomplete: the only pipeline breadcrumb contains run_id and historical, loader latency exists only for live yfinance per ticker, and load/process/vector/graph/checkpoint outcomes do not expose measured latency or the available dataset, adapter/schema, embedding-model, stage/revision/attempt/agent, count, and degraded/status metadata.",
+      "requested_change": "At the existing ingestion call sites, emit compact allowlisted start/complete/failure telemetry for load, process, vector, graph, resume/skip, and checkpoint boundaries. Include run_id, normalized tickers, as_of when present, dataset_version, VectorStoreConfig schema/adapter identity, embedding model/version/cache schema when instantiated, stage=03, stage_revision=1, attempt=1, agent=data_rag, monotonic latency_ms, document/chunk/quarantine/upsert or relation counts, stage status, and explicit degraded flags. Do not emit query text, article/chunk text, URLs, credentials, headers, provider payloads, or prompts. Add offline mock assertions for metadata allowlisting, latency presence, resume visibility, failure/degraded status, and non-emission of raw evidence/secrets.",
+      "source_lock_required": true
+    },
+    {
+      "id": "OBS-03-002",
+      "blocking": true,
+      "owner": "data_rag",
+      "requested_paths": [
+        "rag/ingestion.py",
+        "tests/unit_tests/test_rag/test_ingestion.py"
+      ],
+      "reason": "StageStatus.error persists str(exc) in the checkpoint and rag.seed serializes it to CLI output. External/provider exception strings are not an allowlisted compact field and may contain credentials, private request content, URLs, raw payload fragments, or other sensitive data.",
+      "requested_change": "Persist and print only a deterministic sanitized error category/code suitable for operators; keep untrusted exception text out of IngestionManifest, checkpoint JSON, breadcrumbs, logs, and CLI output. Add an offline regression test using an exception message containing sentinel secret/raw-payload text and assert that no persisted or emitted artifact contains the sentinels.",
+      "source_lock_required": true
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "Existing Stage 03 breadcrumb payloads do not include credentials, headers, prompts, article/chunk text, filing text, or duplicated tool payloads.",
+      "status": "PASS",
+      "evidence": "rag/ingestion.py currently emits only run_id and historical in its explicit load breadcrumb; no raw evidence is passed to add_breadcrumb."
+    },
+    {
+      "check": "Checkpoint manifests avoid raw documents, chunks, embeddings, URLs, prompts, and provider payload duplication.",
+      "status": "PASS",
+      "evidence": "IngestionManifest contains run identity/boundaries, separate Vector/Graph status and counts, quarantine_count, chunk_count, and updated_at only."
+    },
+    {
+      "check": "Persisted and CLI-visible failure details are compact and safely allowlisted.",
+      "status": "FAIL",
+      "evidence": "rag/ingestion.py assigns str(exc) to StageStatus.error on load/process/vector/graph failures; CheckpointStore.save serializes it and rag/seed.py prints the full manifest. OBS-03-002 requests sanitization."
+    },
+    {
+      "check": "No chain-of-thought or brain_reasoning was added, traversed, or persisted by the Stage 03 draft or this pass.",
+      "status": "PASS"
+    },
+    {
+      "check": "No external tracing service was initialized or contacted by this observability pass.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "BLOCKING_GAP_STAGE_03_LIFECYCLE_LATENCY_AND_VERSION_METADATA_INCOMPLETE",
+  "instrumentation_audit": {
+    "existing": [
+      "Deterministic ingestion run_id is present in the manifest and one load breadcrumb.",
+      "Dataset version, normalized tickers, historical flag, temporal boundaries, counts, updated_at, and separate Vector/Graph status are visible in the checkpoint manifest.",
+      "Checkpoint replacement is atomic and resume/skip/complete/failed state is externally inspectable when a checkpoint path is configured.",
+      "Embedding model/version/dimension/cache-schema metadata exists on EmbeddingManifest and embedded record metadata.",
+      "Vector adapter schema and selected table/RPC identity are explicit in VectorStoreConfig and AlphaVectorStore."
+    ],
+    "missing_or_incomplete": [
+      "No complete Stage 03 operation lifecycle telemetry for load/process/vector/graph/checkpoint/resume.",
+      "No measured latency for ingestion stages or whole-run completion/failure; only live yfinance per-ticker logging measures latency.",
+      "Available dataset, embedding-model/cache, adapter/schema, and stage/revision/attempt/agent metadata is not joined into operational telemetry.",
+      "No explicit degraded flags or evidence/count metadata accompanies failure, empty-input, resume, skip, or partial Graph outcomes.",
+      "Untrusted exception strings are persisted in checkpoint/CLI output."
+    ],
+    "checkpoint_state_visibility": "PASS_WITH_INSTRUMENTATION_GAPS",
+    "observability_source_files_modified": false,
+    "feature_call_sites_modified": false,
+    "change_request_artifact_written": false,
+    "primary_reactivation_required": true
+  },
+  "tests_run": [
+    {
+      "command": "python -m py_compile rag/ingestion.py rag/embedding_manager.py rag/loader.py rag/processor.py rag/vector_store.py rag/retriever.py rag/seed.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_ingestion.py tests/unit_tests/core_test/test_observability.py tests/unit_tests/core_test/test_error_handler.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "60 passed in 16.31s"
+    },
+    {
+      "command": "initial focused pytest selection including tests/unit_tests/core_test/test_progress_bus.py",
+      "exit_code": 4,
+      "result": "TEST_SELECTION_ERROR: referenced progress_bus test file does not exist; no tests ran. Corrected selection passed in the preceding entry."
+    }
+  ],
+  "blocking_issues": [
+    "OBS-03-001: Stage-scoped lifecycle latency/status/progress and available run/version metadata are not sufficiently instrumented.",
+    "OBS-03-002: Untrusted exception strings are persisted and printed without sanitization."
+  ],
+  "network_used": false,
+  "database_reads": false,
+  "database_writes": false,
+  "migrations_or_seed_execution": false,
+  "global_lock_validation_limitation": "The pre-existing unrelated agents/state.py lock mismatch was not investigated, modified, or attributed to Stage 03.",
+  "created_at": "2026-08-29T06:41:25.9654910Z"
+}

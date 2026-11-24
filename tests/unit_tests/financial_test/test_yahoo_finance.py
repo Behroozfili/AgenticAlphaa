@@ -9,6 +9,7 @@ pandas-like DataFrame stand-ins for .history()/.financials/.quarterly_financials
 """
 from unittest.mock import patch, MagicMock
 import pandas as pd
+import pytest
 
 from tools.financial_tools.yahoo_finance import (
     _safe_get,
@@ -18,6 +19,37 @@ from tools.financial_tools.yahoo_finance import (
     get_revenue_growth,
     get_peer_comparison,
 )
+import tools.financial_tools.yahoo_finance as yahoo_module
+from financial_test import STAGE5_RUN_ID, stage5_context
+
+_real_get_price_history = get_price_history
+_real_get_financial_ratios = get_financial_ratios
+_real_get_balance_sheet_snapshot = get_balance_sheet_snapshot
+_real_get_revenue_growth = get_revenue_growth
+_real_get_peer_comparison = get_peer_comparison
+
+
+@pytest.fixture(autouse=True)
+def inject_stage5_identity(monkeypatch):
+    module = __import__(__name__, fromlist=["x"])
+    monkeypatch.setattr(module, "get_price_history", lambda ticker, *args, **kwargs: _real_get_price_history(
+        ticker, *args, start=kwargs.pop("start", "2020-01-01"),
+        forecast_context=kwargs.pop("forecast_context", stage5_context(str(ticker).upper())),
+        run_id=kwargs.pop("run_id", STAGE5_RUN_ID), **kwargs,
+    ))
+    monkeypatch.setattr(module, "get_financial_ratios", lambda ticker, *args, **kwargs: _real_get_financial_ratios(
+        ticker, *(args or (stage5_context(str(ticker).upper()), STAGE5_RUN_ID)), **kwargs,
+    ))
+    monkeypatch.setattr(module, "get_balance_sheet_snapshot", lambda ticker, *args, **kwargs: _real_get_balance_sheet_snapshot(
+        ticker, *(args or (stage5_context(str(ticker).upper()), STAGE5_RUN_ID)), **kwargs,
+    ))
+    monkeypatch.setattr(module, "get_revenue_growth", lambda ticker, *args, **kwargs: _real_get_revenue_growth(
+        ticker, *(args or (stage5_context(str(ticker).upper()), STAGE5_RUN_ID)), **kwargs,
+    ))
+    monkeypatch.setattr(module, "get_peer_comparison", lambda ticker, *args, **kwargs: _real_get_peer_comparison(
+        ticker, *args, forecast_context=kwargs.pop("forecast_context", stage5_context(str(ticker).upper())),
+        run_id=kwargs.pop("run_id", STAGE5_RUN_ID), **kwargs,
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +72,33 @@ class TestSafeGet:
 # ---------------------------------------------------------------------------
 
 class TestGetPriceHistory:
+    @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
+    def test_stage5_exact_adjusted_boundary(self, mock_ticker_cls):
+        frame = pd.DataFrame({
+            "Open": [149.0, 151.0], "High": [151.0, 153.0],
+            "Low": [148.0, 150.0], "Close": [150.0, 152.0],
+            "Volume": [10, 20],
+        }, index=pd.to_datetime(["2026-06-29", "2026-06-30"]))
+        mock_ticker_cls.return_value.history.return_value = frame
+        result = _real_get_price_history(
+            "NVDA", start="2026-06-29", end="2026-06-30",
+            forecast_context=stage5_context(), run_id=STAGE5_RUN_ID,
+        )
+        mock_ticker_cls.return_value.history.assert_called_once_with(
+            start="2026-06-29", end="2026-07-01", auto_adjust=True, actions=False,
+        )
+        assert [row["adjusted_close"] for row in result["records"]] == [150.0, 152.0]
+        assert result["adjustment_mode"] == "auto_adjust_total_return"
+
+    @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
+    def test_historical_current_snapshot_fails_before_provider(self, mock_ticker_cls):
+        result = _real_get_financial_ratios(
+            "NVDA", stage5_context("NVDA", "HISTORICAL_BACKTEST"), STAGE5_RUN_ID,
+        )
+        assert result["status"] == "DATA_UNAVAILABLE"
+        assert result["error_code"] == "CURRENT_ONLY_PROVIDER_REJECTED"
+        assert result["provenance"]["current_fallback_used"] is False
+        mock_ticker_cls.assert_not_called()
     @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
     def test_happy_path_returns_records(self, mock_ticker_cls):
         df = pd.DataFrame({
@@ -76,7 +135,8 @@ class TestGetPriceHistory:
         result = get_price_history("NVDA")
 
         assert result["records"] == []
-        assert "network down" in result["error"]
+        assert result["error_code"] == "YAHOO_ADJUSTED_HISTORY_UNAVAILABLE"
+        assert "network down" not in result["error"]
 
     @patch("tools.financial_tools.yahoo_finance.yf.Ticker")
     def test_ticker_uppercased_in_output(self, mock_ticker_cls):
@@ -181,11 +241,12 @@ class TestGetFinancialRatios:
 
         result = get_financial_ratios("NVDA")
 
-        assert result["error"] == "rate limited"
+        assert result["error_code"] == "YAHOO_CURRENT_SNAPSHOT_UNAVAILABLE"
+        assert "rate limited" not in result["error"]
         # NOTE: on the error path this function only returns {"ticker", "error"} —
         # no other keys — which differs from the happy-path schema. Callers
         # must check `error` before reading other fields.
-        assert set(result.keys()) == {"ticker", "error"}
+        assert set(result.keys()) == {"ticker", "error_code", "error"}
 
 
 class TestGetBalanceSheetSnapshot:
@@ -259,7 +320,8 @@ class TestGetRevenueGrowth:
     def test_exception_is_caught(self, mock_ticker_cls):
         mock_ticker_cls.side_effect = RuntimeError("boom")
         result = get_revenue_growth("NVDA")
-        assert result["error"] == "boom"
+        assert result["error_code"] == "YAHOO_GROWTH_DATA_UNAVAILABLE"
+        assert "boom" not in result["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +331,7 @@ class TestGetRevenueGrowth:
 class TestGetPeerComparison:
     @patch("tools.financial_tools.yahoo_finance.get_financial_ratios")
     def test_computes_peer_averages(self, mock_get_ratios):
-        def fake_ratios(ticker):
+        def fake_ratios(ticker, *args, **kwargs):
             data = {
                 "NVDA": {"pe_ratio": 60, "forward_pe": 40, "price_to_book": 50,
                          "price_to_sales": 30, "ev_to_ebitda": 50, "beta": 1.7, "error": None},
@@ -308,7 +370,7 @@ class TestGetPeerComparison:
 
     @patch("tools.financial_tools.yahoo_finance.get_financial_ratios")
     def test_peer_fields_with_none_excluded_from_average(self, mock_get_ratios):
-        def fake_ratios(ticker):
+        def fake_ratios(ticker, *args, **kwargs):
             if ticker == "NVDA":
                 return {"pe_ratio": 60, "forward_pe": None, "price_to_book": None,
                          "price_to_sales": None, "ev_to_ebitda": None, "beta": None, "error": None}
@@ -325,5 +387,6 @@ class TestGetPeerComparison:
             side_effect=RuntimeError("boom"),
         ):
             result = get_peer_comparison("NVDA", peers=["AMD"])
-            assert result["error"] == "boom"
+            assert result["error_code"] == "YAHOO_PEER_DATA_UNAVAILABLE"
+            assert "boom" not in result["error"]
             assert result["primary"] == {}

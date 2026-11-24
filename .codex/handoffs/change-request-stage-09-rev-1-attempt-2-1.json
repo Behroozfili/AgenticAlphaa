@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 159,
+  "status": "CHANGES_REQUESTED",
+  "target_agent": "quant",
+  "requested_paths": [
+    "evaluation/point_in_time_dataset.py",
+    "tests/unit_tests/test_monthly_backtest_stage9.py"
+  ],
+  "reason": "Stage 09 revision 1 attempt 2 changes executed product behavior by repairing the scientific classification gate, but every lifecycle/progress/error event still publishes attempt=1 and implementation_version=stage09-r1-a1 from STAGE09_RUNTIME_IDENTITY. The active candidate and matching workflow artifacts are attempt 2, and the focused telemetry test explicitly codifies the stale attempt-1 value. This is false runtime provenance under the repository's enforced active-attempt attribution rule. Stage 03 r1/a2 review rejected the same stale-attempt pattern, Stage 07 r1/a3 QA failed it, and Stage 08 r1/a2 observability required advancement. The correction is within the already locked retry paths and does not authorize any scientific, telemetry-shape, privacy, metric, fold or Stage 10A change.",
+  "blocking": true,
+  "supplements_observability_artifact": {
+    "path": ".codex/handoffs/stage-09-rev-1-attempt-2-observability.json",
+    "sha256": "2cb75f58f52a577ad49cece3847bf3d77d0a319d4ba1c1cbd611df3d8694b445",
+    "disposition": "SUPPLEMENTAL_BLOCKING_FINDING_WITHOUT_OVERWRITE"
+  },
+  "requested_changes": [
+    {
+      "id": "OBS-09-A2-001",
+      "blocking": true,
+      "request": "In evaluation/point_in_time_dataset.py, advance the single immutable STAGE09_RUNTIME_IDENTITY from attempt=1 and implementation_version=stage09-r1-a1 to attempt=2 and implementation_version=stage09-r1-a2. In tests/unit_tests/test_monthly_backtest_stage9.py, update the direct lifecycle identity assertion to require attempt=2 and add or preserve an exact assertion for stage09-r1-a2. Continue deriving every fixture-materialization, fold-fit, fold-prediction, metric-aggregation, leakage-audit, run and progress event from that single identity. Re-run the exact offline Stage 09 suite and active-state-versus-runtime-identity counterprobe. Preserve telemetry event shape/order/count semantics, finite nonnegative monotonic latency, bounded counts/degraded flags, stable payload-free errors, PRIVATE_SENTINEL redaction and sink-failure isolation. Preserve the REVIEW-09-001 executed-OOS fix, exact 499/500 behavior, telemetry-enabled/disabled scientific equality, report_hash=213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779, PRELIMINARY fixture classification and future_record_count=0."
+    }
+  ],
+  "evidence": [
+    "The active control tuple is Stage 09 revision 1 attempt 2 in OBSERVABILITY at control_revision 159, with execution enabled and this exact change-request path locked to observability.",
+    "evaluation/point_in_time_dataset.py:35-40 defines STAGE09_RUNTIME_IDENTITY with attempt=1 and implementation_version=stage09-r1-a1; emit_stage09_event copies that identity into every Stage 09 event.",
+    "tests/unit_tests/test_monthly_backtest_stage9.py:75-76 explicitly requires event attempt==1 even though the active candidate is attempt 2.",
+    "The canonical offline probe emitted 231 events whose identity was consistently 09/r1/a1/quant while the workflow candidate was 09/r1/a2; safe payloads and consistent stale attribution do not make the provenance truthful.",
+    "Stage 03 r1/a2 review states that accepting an Attempt-2 candidate whose telemetry and test assert attempt 1 emits false provenance and violates revision/attempt identity consistency.",
+    "Stage 07 r1/a3 QA failed because its runtime identity remained attempt 1 after product/runtime changes, despite other observability checks passing.",
+    "Stage 08 r1/a2 observability and change request required attempt=2/stage08-r1-a2 and correction of tests that asserted attempt 1.",
+    "Attempt 2 changes evaluation/point_in_time_dataset.py and evaluation/monthly_backtest.py to repair REVIEW-09-001, so it is an executed product candidate rather than artifact-only revalidation.",
+    "Both requested source/test paths are already locked to quant in the active Stage 09 attempt."
+  ],
+  "scope_constraints": [
+    "Do not change dataset rows, feature values, labels, eligibility, folds, variants, model fit/prediction, metrics, action policy, transaction costs, scientific thresholds/classification logic, leakage rules, report content or report hash.",
+    "Do not change telemetry payload fields, boundary names, lifecycle order, progress semantics, privacy allowlist, error codes, degraded behavior, sink isolation or external-export policy except for the two immutable identity values and their direct assertions.",
+    "Do not modify Attempt-1 artifacts, the existing Attempt-2 observability artifact, state, contracts, dependencies, migrations, external systems or Stage 10A."
+  ],
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-12T07:54:10.9125647Z"
+}

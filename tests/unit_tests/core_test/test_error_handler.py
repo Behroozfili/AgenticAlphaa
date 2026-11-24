@@ -12,11 +12,20 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from core.error_handler import (
+    DataUnavailableAsOfError,
+    TemporalLeakageError,
+    VersionMismatchError,
     with_error_reporting,
     _add_breadcrumb,
     _capture,
     _safe_extra,
 )
+
+
+def test_temporal_contract_errors_have_stable_semantics():
+    assert issubclass(TemporalLeakageError, ValueError)
+    assert issubclass(DataUnavailableAsOfError, LookupError)
+    assert issubclass(VersionMismatchError, ValueError)
 
 
 # ---------------------------------------------------------------------------

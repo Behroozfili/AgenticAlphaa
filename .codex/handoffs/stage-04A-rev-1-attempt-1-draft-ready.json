@@ -1,0 +1,149 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "data_rag",
+  "execution_phase": "PRIMARY_DRAFT",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    "rag/graph_store.py",
+    "rag/hybrid_rag.py",
+    "tests/unit_tests/test_rag/test_graph_store.py",
+    "tests/unit_tests/test_rag/test_hybried.py",
+    "tests/fixtures/stage4a_temporal_graph_hybrid.json",
+    ".codex/handoffs/stage-04A-rev-1-attempt-1-draft-ready.json"
+  ],
+  "revalidated_unchanged_stage_file": {
+    "path": "rag/__init__.py",
+    "sha256": "8e626b80cd9fa25d9fcb4ebb05f9f5049b33384f2b7c1fd6ca6fecfa92a375c1"
+  },
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "dependency_handoff": ".codex/handoffs/stage-03-rev-2-handoff.json",
+  "dependency_handoff_sha256": "19a684a9f65c7e348f758725280497195a7daaa381c3dded794eab66e04a3a2a",
+  "graph_contract": {
+    "write_model": "Additive AlphaDocumentV2, AlphaChunkV2, EvidenceObservationV2, TemporalRelationObservationV2 nodes; temporal facts never average or overwrite aggregate relationship evidence.",
+    "immutable_identity": [
+      "Stage-03 document_id",
+      "Stage-03 chunk_id",
+      "Stage-03 evidence_id",
+      "deterministic observation_id",
+      "deterministic entity_id"
+    ],
+    "time_fields": [
+      "published_at",
+      "retrieved_at",
+      "filed_at",
+      "effective_from",
+      "effective_to"
+    ],
+    "unknown_time_policy": "Unknown required time is retained with is_quarantined=true and excluded from temporal traversal.",
+    "legacy_default": "Callers constructing the legacy GraphDocument shape continue through the unchanged legacy entity/relationship adapter; no route or namespace is deleted or switched."
+  },
+  "retrieval_contract": {
+    "shared_context": "One validated ForecastContext is passed unchanged to Vector and Graph branches and returned with the fused result.",
+    "vector_boundary": "ticker, as_of, dataset_version, and historical=true are delegated to the Stage-03 fail-closed retriever before ranking.",
+    "graph_boundary": "Temporal Cypher filters quarantine, ticker, dataset version, relation type, publication, retrieval, filing, and effective interval before returning observations.",
+    "backend_failure": "A temporal Graph error returns an explicit graph_error degradation and never falls back to unbounded legacy traversal.",
+    "citation_identity": "Vector and Graph citations preserve shared document_id/chunk_id/evidence_id; Graph adds observation_id. Both provenance paths survive RRF deduplication.",
+    "degradation_modes": [
+      "hybrid",
+      "vector_only",
+      "graph_only",
+      "unavailable"
+    ]
+  },
+  "deterministic_fixture": {
+    "path": "tests/fixtures/stage4a_temporal_graph_hybrid.json",
+    "modes": [
+      "vector_only",
+      "graph_only",
+      "hybrid",
+      "unavailable"
+    ],
+    "counterexamples": [
+      "future publication",
+      "future retrieval",
+      "unknown publication",
+      "unknown retrieval",
+      "unknown effective start",
+      "wrong dataset",
+      "wrong ticker",
+      "quarantined observation"
+    ],
+    "external_dependencies": "NONE"
+  },
+  "draft_self_tests": [
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py",
+      "exit_code": 0,
+      "result": "57 passed in 15.91s"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag tests/unit_tests/test_stage3_narrative_stability.py",
+      "exit_code": 0,
+      "result": "313 passed in 52.71s"
+    },
+    {
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1257 tests collected in 15.91s; zero collection errors"
+    },
+    {
+      "command": "python -m py_compile scoped source/tests; git diff --check scoped files; validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; line-ending notices only"
+    }
+  ],
+  "source_sha256": {
+    "rag/graph_store.py": "cc3bbe164cf76e637421640d318310621eb35effa7743f79fbc43be7683ba48a",
+    "rag/hybrid_rag.py": "8d643b173d6f0b71b06a0c2854c2c8dd37d7f70d349b3b5a992aceffc181a92d",
+    "rag/__init__.py": "8e626b80cd9fa25d9fcb4ebb05f9f5049b33384f2b7c1fd6ca6fecfa92a375c1",
+    "tests/unit_tests/test_rag/test_graph_store.py": "4c170ec83e9a5923807b6097580195f05bc7807e019c4da0d13f75d650b010e0",
+    "tests/unit_tests/test_rag/test_hybried.py": "921ca5feb55720954e2f966eac4b8082d0b9a3d6f757b8e3288af0241ae643f8",
+    "tests/fixtures/stage4a_temporal_graph_hybrid.json": "f4371765140cae52600e1165e253499006dadccf89aed421523fd9a77f49d83b"
+  },
+  "leakage_result": {
+    "status": "PASS",
+    "details": "Temporal Graph requires known publication/retrieval/effective-start time; rejects future publication/retrieval/filing, closed effective intervals, quarantine, wrong ticker, and wrong dataset before traversal. Vector uses the identical context before ranking. Context-bound failures do not fall back to legacy."
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "external_counts": "NOT_AVAILABLE_NO_EXTERNAL_READ",
+    "legacy_data_deleted": false,
+    "route_switched": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the prior graph_store.py and hybrid_rag.py bytes; legacy namespace/data and route remain untouched.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "privacy_and_observability": {
+    "status": "READY_FOR_AUDIT",
+    "observability_paths_modified": false,
+    "result_payload": "Identifiers, timestamps, source URL/title citations, branch availability, degradation reasons, and counts; no credentials or raw exception traces are persisted by the draft artifact.",
+    "raw_model_reasoning_persisted": false
+  },
+  "external_execution": {
+    "network_access": "NOT_RUN",
+    "database_reads": "NOT_RUN",
+    "database_writes": "NOT_RUN_UNAUTHORIZED",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "Temporal V2 behavior is deterministic fixture/mock validated because Neo4j migration application and reconciliation were not authorized or attempted.",
+    "Legacy calls without ForecastContext remain legacy-compatible and are not represented as point-in-time safe.",
+    "Runtime graph extraction still requires the existing configured Anthropic service; all Stage04A tests avoid network access.",
+    "Stage04B is not active and was not modified."
+  ],
+  "prior_stage_artifacts_modified": false,
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-08-31T15:07:44.5090534Z"
+}

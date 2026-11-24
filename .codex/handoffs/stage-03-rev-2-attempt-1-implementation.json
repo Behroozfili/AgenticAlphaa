@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "03",
+  "stage_revision": 2,
+  "attempt": 1,
+  "agent": "data_rag",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "base_git_reference": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-3-implementation.json",
+  "draft_ready_artifact": ".codex/handoffs/stage-03-rev-2-attempt-1-draft-ready.json",
+  "observability_artifact": ".codex/handoffs/stage-03-rev-2-attempt-1-observability.json",
+  "observability_sha256": "f473ef7c8fef9536fa231e5e46fb6d6f1b1064455e3de02c001e1b441e9a2221",
+  "observability_status": {
+    "status": "AUDITED",
+    "requested_primary_changes": [],
+    "change_request_required": false,
+    "privacy": "PASS",
+    "latency": "PASS_STAGE03_R2_A1_ALLOWLISTED_MONOTONIC_LIFECYCLE_OFFLINE_VERIFIED"
+  },
+  "changed_files": [
+    "rag/loader.py",
+    "rag/seed.py",
+    "rag/processor.py",
+    "rag/ingestion.py",
+    "rag/vector_store.py",
+    "tests/unit_tests/test_rag/test_ingestion.py",
+    "tests/unit_tests/test_rag/test_loader.py",
+    "tests/unit_tests/test_rag/test_processor.py",
+    "tests/unit_tests/test_rag/test_vectore_store.py",
+    "tests/unit_tests/test_root_main.py",
+    ".codex/handoffs/stage-03-rev-2-attempt-1-draft-ready.json",
+    ".codex/handoffs/stage-03-rev-2-attempt-1-implementation.md",
+    ".codex/handoffs/stage-03-rev-2-attempt-1-implementation.json"
+  ],
+  "revalidated_unchanged_stage03_files": [
+    "rag/__init__.py",
+    "rag/embedding_manager.py",
+    "rag/retriever.py",
+    "main.py",
+    "tests/fixtures/stage3_ticker_regressions.json",
+    "tests/unit_tests/test_rag/test_embedding_manager.py",
+    "tests/unit_tests/test_rag/test_retriever.py",
+    "tests/unit_tests/test_rag/test_pipline_rag.py"
+  ],
+  "blocking_finding_resolutions": [
+    {
+      "id": "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+      "status": "RESOLVED",
+      "resolution": "Accepted Stage 02 revision 2 migration 004 provides evidence-scoped identities. Stage 03 V2 upsert targets the exact new conflict columns and actual processor-to-row regressions preserve all dataset/retrieval/effective observations."
+    },
+    {
+      "id": "STAGE03-TICKER-MATERIALIZATION-007",
+      "status": "RESOLVED",
+      "resolution": "Historical loader independently rejects unrequested tickers; evidence IDs bind ticker and complete metadata association; raw-document and processed-record manifests prevent ticker/metadata drift during resume; multi-ticker evidence remains distinct."
+    },
+    {
+      "id": "STAGE03-PREMATERIALIZATION-RESUME-008",
+      "status": "RESOLVED",
+      "resolution": "Same-request checkpoints with no completed Vector/Graph work may recover from missing credentials and transient load/process failures, while completed work without an exact fingerprint remains fail-closed."
+    }
+  ],
+  "self_tests_run": [
+    {
+      "command": "pytest exact Stage 03 revision 2 blocker matrix",
+      "exit_code": 0,
+      "result": "12 passed in 15.66s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "pytest complete Stage 03 owned test set after final source bytes",
+      "exit_code": 0,
+      "result": "228 passed in 58.26s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "pytest accepted Stage 01 and Stage 02 regression set after final source bytes",
+      "exit_code": 0,
+      "result": "112 passed in 23.62s",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "pytest --collect-only tests/unit_tests tests/integration_tests tests/integration_test_2",
+      "exit_code": 0,
+      "result": "1246 tests collected; zero collection errors"
+    },
+    {
+      "command": "Observability focused lifecycle/privacy/retry and snapshot fail-closed audit",
+      "exit_code": 0,
+      "result": "8 focused tests and 6 snapshot tests passed; AUDITED with no requested changes"
+    },
+    {
+      "command": "python -m py_compile Stage 03 source; scoped git diff --check; control/artifact/lock validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; line-ending notices only"
+    }
+  ],
+  "contract_diff": [
+    "Historical provider output is independently constrained to requested normalized tickers; rejected rows are quarantined.",
+    "Evidence identity binds document identity, ticker, complete metadata association, dataset, publication/retrieval/effective interval and filing time.",
+    "Materialization identity binds request/provider/adapter/embedding identity plus document/evidence/chunk, full RawDocument and full processed-record manifests.",
+    "V2 upsert targets the accepted Stage 02 revision 2 evidence-scoped unique identity rather than chunk_id alone.",
+    "Pre-materialization failed checkpoints may retry only when no completed work exists; completed Vector/Graph state still requires an exact fingerprint.",
+    "Telemetry provenance is stage03-r2-a1 with compact allowlisted lifecycle metadata and sanitized deterministic error codes.",
+    "Legacy Vector remains the default runtime; V2 remains explicit and historical mode remains fail-closed.",
+    "Stage 04A remains pending, not started and untouched."
+  ],
+  "data_counts": {
+    "exact_blocker_tests_passed": 12,
+    "focused_stage03_passed": 228,
+    "focused_stage01_stage02_passed": 112,
+    "unit_integration_collected": 1246,
+    "collection_errors": 0,
+    "external_rows_read": null,
+    "external_rows_written": 0,
+    "migrations_applied": 0,
+    "seed_runs": 0
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "verified": [
+      "historical live fetch disabled",
+      "unrequested archive ticker quarantined",
+      "future publication and late retrieval excluded",
+      "unknown historical evidence time quarantined",
+      "dataset and effective interval enforced before ranking",
+      "legacy historical backend fails closed"
+    ]
+  },
+  "latency_delta": {
+    "benchmark_run": false,
+    "instrumentation": "time.perf_counter monotonic allowlisted lifecycle latency_ms",
+    "status": "AUDITED_STAGE03_R2_A1_OFFLINE"
+  },
+  "blocking_issues": [],
+  "known_limitations": [
+    "Migration 004 application was explicitly requested but is not executable because the remote development target has no SQL connection/password/access token, linked Supabase CLI, supabase executable or psql executable in this environment.",
+    "V2 live database behavior therefore remains deterministic offline fixture/mock validated; no live reconciliation or production latency claim is made.",
+    "Temporal Graph implementation is Stage 04A scope and remains inactive.",
+    "agents/state.py remains under its separate core quarantine lock and was not modified or claimed."
+  ],
+  "out_of_scope_findings": [
+    "Stage 04A remains PENDING/NOT_STARTED and must not be activated as part of Stage 03 closure.",
+    "Migration application needs a separately available SQL execution channel even though the user authorized the specific migration."
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application_authorized": true,
+    "migration_application": false,
+    "migration_operation_attempted": false,
+    "seed_or_backfill": false,
+    "legacy_deletion": false,
+    "route_switch": false,
+    "stage04A_activation": false,
+    "deploy_commit_or_push": false
+  },
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "No operational database rollback is required because migration SQL, external writes, seed/backfill, reconciliation and route switching were not executed.",
+    "Keep the runtime on the default legacy Vector adapter.",
+    "For an authorized Stage 03 workspace rollback, restore only the cumulative Stage 03 product/test paths to their pre-Stage-03 bytes while preserving migrations, control history, artifacts and unrelated workspace edits."
+  ],
+  "rollback_tested": false,
+  "prior_revision_artifacts_modified": false,
+  "implementation_ready": true,
+  "created_at": "2026-08-31T08:40:01.5770816Z"
+}

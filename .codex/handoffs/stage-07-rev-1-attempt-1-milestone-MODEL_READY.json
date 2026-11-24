@@ -1,0 +1,65 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "milestone",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "quant",
+  "status": "PASS",
+  "milestone_name": "MODEL_READY",
+  "milestone_status": "PASS",
+  "evidence": [
+    {
+      "check": "model_artifact",
+      "status": "PASS",
+      "artifact": {
+        "model_family_version": "logistic-ridge-21d-v1",
+        "model_version": "logistic-ridge-21d-v1+sha256:6e85cb305a98f846ca304ff6478e8bf5593e1ac9fbb3b96b8e836a5e9df50040",
+        "feature_version": "monthly-market-features-v1",
+        "dataset_version": "adjusted-ohlcv-cache-v1",
+        "action_policy_version": "action_policy_v1",
+        "horizon_trading_days": 21,
+        "feature_names": ["f1", "f2", "optional", "optional__missing", "research_graph_coverage"],
+        "imputer": {"strategy": "training_fold_median", "statistics": [1.95, 0.07072212271846101, 0.42857142857142855, 0.0, 1.0]},
+        "scaler": {"strategy": "training_fold_standard", "means": [1.95, 0.012129186943174159, 0.42142857142857143, 0.2, 1.0], "scales": [1.1543396380615196, 0.6897790843408065, 0.24526121019127703, 0.4000000000000001, 1.0]},
+        "logistic": {"l2": 1.0, "coefficients_with_intercept": [-3.657306586068145e-12, 0.0005943740631327663, 0.0020785673142262166, 0.00026216972909456107, 9.75860358801881e-05, 0.0]},
+        "ridge_return": {"alpha": 1.0, "coefficients_with_intercept": [0.009, 0.022454609474384716, -0.0001961001325862992, 2.663533442647791e-05, -5.930080230226997e-05, 0.0]},
+        "ridge_excess_return": {"alpha": 1.0, "coefficients_with_intercept": [0.0045, 0.011227304737192358, -9.80500662931496e-05, 1.3317667213238955e-05, -2.9650401151134984e-05, 0.0]},
+        "residual_interval": [-0.0008070641781567529, 0.0008810567305633961],
+        "training_start": "2019-01-31T21:00:00Z",
+        "training_end": "2022-04-29T20:00:00Z",
+        "training_rows": 40,
+        "training_cutoffs": 40,
+        "training_data_hash": "70fb4cd2ab4d65a2fcca197cb2a46103e737701f545a3db838612b88bb5a3fe6",
+        "readiness_manifest_hash": "c55fa5a85e9002bdc762572eda1d2a9b25619341694faf64dc19bd36713ec326"
+      }
+    },
+    {
+      "check": "deterministic_forecast_probe",
+      "status": "PASS",
+      "generated_by": "tools.market_tools.forecast_model.predict",
+      "result": {
+        "probability_positive": 0.500033851280067,
+        "expected_return_21d": 0.009013768487802243,
+        "expected_excess_return": 0.004506884243901122,
+        "confidence_interval": [0.00820670430964549, 0.00989482521836564],
+        "action": "HOLD",
+        "action_policy_version": "action_policy_v1",
+        "model_version": "logistic-ridge-21d-v1+sha256:6e85cb305a98f846ca304ff6478e8bf5593e1ac9fbb3b96b8e836a5e9df50040",
+        "feature_version": "monthly-market-features-v1"
+      }
+    },
+    {
+      "check": "determinism_and_leakage",
+      "status": "PASS",
+      "detail": "Reversed input order reproduced the same artifact and prediction; train_through rejects later rows; target bars cannot change as-of features; outcome is unavailable before the exact 21st session."
+    },
+    {
+      "check": "fixed_action_policy",
+      "status": "PASS",
+      "detail": "BUY >=0.55 and >=0.02; AVOID <=0.45 and <=-0.02; otherwise HOLD. No threshold was tuned or changed."
+    }
+  ],
+  "blocking_issues": [],
+  "created_at": "2026-09-06T08:41:45.4086062Z"
+}

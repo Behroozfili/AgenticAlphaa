@@ -1,0 +1,53 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "00",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "core",
+  "status": "IMPLEMENTED",
+  "execution_mode": "IMPLEMENTATION",
+  "changed_files": [
+    "tests/unit_tests/core_test/test_observability.py",
+    "tests/unit_tests/test_rag/test_pipline_rag.py",
+    ".codex/baseline-manifest.json",
+    ".codex/handoffs/stage-00-rev-1-attempt-3-implementation.md",
+    ".codex/handoffs/stage-00-rev-1-attempt-3-implementation.json",
+    ".codex/handoffs/stage-00-rev-1-attempt-3-milestone-BASELINE_READY.json"
+  ],
+  "self_tests_run": [
+    {"command": ".venv/Scripts/python.exe -m pytest -q --disable-warnings tests/unit_tests/core_test/test_observability.py", "exit_code": 0, "result": "17 passed in 1.58s", "network_mode": "FORCED_OFFLINE"},
+    {"command": "torch-preloaded pytest focused Yahoo/Reddit circuit breakers", "exit_code": 0, "result": "2 passed", "network_mode": "FORCED_OFFLINE"},
+    {"command": "guarded pytest --collect-only -qq --disable-warnings tests/unit_tests tests/integration_tests", "exit_code": 0, "duration_seconds": 25.10, "result": "1136 collected: 1085 unit, 51 integration; external_attempts=[]", "network_mode": "LOCALHOST_ONLY_GUARD"},
+    {"command": "guarded pytest -q --disable-warnings --tb=no tests/unit_tests", "exit_code": 1, "duration_seconds": 39.01, "result": "1045 passed, 40 pre-existing failed, 6 warnings; external_attempts=[]", "network_mode": "LOCALHOST_ONLY_GUARD"},
+    {"command": "guarded pytest -q --disable-warnings --tb=no tests/unit_tests/test_supabase_phase5_migration.py", "exit_code": 1, "duration_seconds": 0.37, "result": "4 preserved failures; external_attempts=[]", "network_mode": "LOCALHOST_ONLY_GUARD"},
+    {"command": "uv lock --check --offline", "exit_code": 0, "result": "PASS; 210 packages resolved"}
+  ],
+  "qa_findings_resolved": [
+    {"id": "STAGE00-OFFLINE-RUNNER-001", "resolution": "Observability fixture restores LangChain tracing variables; guarded full unit run recorded zero external attempts."},
+    {"id": "STAGE00-OFFLINE-UNIT-IO-002", "resolution": "Each loader circuit-breaker test mocks its non-target provider; guarded full unit run recorded zero Reddit or other external attempts."}
+  ],
+  "contract_diff": ["Test-isolation-only changes; no product or assertion contract changes."],
+  "data_counts": {"unit_collected": 1085, "integration_collected": 51, "total_collected": 1136, "unit_passed": 1045, "unit_failed_pre_existing": 40, "external_attempts": 0},
+  "leakage_report": {"status": "NOT_APPLICABLE_STAGE_00", "historical_dataset": "NOT_AVAILABLE"},
+  "latency_delta": {"attempt_2_unit_seconds": 31.74, "attempt_3_guarded_unit_seconds": 39.01},
+  "blocking_issues": [],
+  "known_limitations": [
+    {"issue": "Legacy supabase_phase5_provenance_migration.sql absent", "status": "BLOCKED_PRE_EXISTING", "disposition": "NO_VALID_RETARGET"},
+    {"issue": "Supabase/Neo4j/backup/restore evidence", "status": "NOT_AVAILABLE_NOT_RUN"},
+    {"issue": "Offline unit baseline", "status": "CAPTURED_WITH_40_PRE_EXISTING_FAILURES"}
+  ],
+  "out_of_scope_findings": [
+    {"issue": "Some focused collection orders can expose a pre-existing torch stub/module-order interaction", "disposition": "Installed torch was preloaded for deterministic Stage 00 evidence; no product or unrelated test file was changed."}
+  ],
+  "requested_changes": [],
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Revert only the attempt-3 fixture restoration and non-target provider mocks.",
+    "Restore attempt-2 evidence fields in .codex/baseline-manifest.json.",
+    "Remove only the three attempt-3 Core artifacts; preserve attempts 1 and 2, state, QA evidence, product files, and dfc.md."
+  ],
+  "supersedes": ".codex/handoffs/stage-00-rev-1-attempt-2-implementation.json",
+  "implementation_ready": true,
+  "created_at": "2026-08-27T19:00:10.4207811Z"
+}

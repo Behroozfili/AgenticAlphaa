@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "INSTRUMENTED",
+  "changed_files": [
+    "core/observability.py",
+    "core/progress_bus.py",
+    ".codex/handoffs/stage-01-rev-1-attempt-1-observability.json"
+  ],
+  "requested_primary_changes": [],
+  "privacy_checks": [
+    {
+      "check": "Forecast metadata is derived from an explicit allowlist rather than serializing SharedManagerState or arbitrary payloads.",
+      "status": "PASS",
+      "allowed": [
+        "run_id",
+        "ticker",
+        "as_of",
+        "target",
+        "horizon",
+        "analysis_mode",
+        "dataset_version",
+        "feature_version",
+        "model_version",
+        "schema_version",
+        "calendar_version",
+        "stage",
+        "stage_revision",
+        "attempt",
+        "agent",
+        "latency_ms",
+        "evidence_count",
+        "degraded_flags"
+      ]
+    },
+    {
+      "check": "Raw evidence, full State, reasoning, brain_reasoning, headers, secrets, prompts, filing text, article chunks, and duplicated tool payloads are not accepted by the new forecast metadata/event path.",
+      "status": "PASS",
+      "evidence": "Focused contract assertion supplied raw_evidence, brain_reasoning, and headers beside valid context fields; all forbidden keys were absent from emitted metadata."
+    },
+    {
+      "check": "No external tracing service was initialized or contacted by this pass.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "CONTRACT_READY_NO_RUNTIME_MEASUREMENT_STAGE_01",
+  "latency_instrumentation": {
+    "clock": "time.perf_counter",
+    "unit": "milliseconds",
+    "behavior": "Latency is emitted only when a caller supplies a monotonic start timestamp; no measurement was fabricated for this artifact."
+  },
+  "instrumentation_contract": {
+    "trace_metadata_builder": "core.observability.forecast_trace_metadata",
+    "latency_helper": "core.observability.elapsed_latency_ms",
+    "progress_publisher": "core.progress_bus.publish_forecast",
+    "event_types": [
+      "forecast_context",
+      "feature_start",
+      "feature_complete",
+      "monthly_forecast_start",
+      "monthly_forecast_complete",
+      "backtest_start",
+      "backtest_complete",
+      "forecast_degraded",
+      "forecast_error"
+    ],
+    "run_id_location": "top-level progress event",
+    "feature_call_sites_changed": false,
+    "legacy_publish_behavior_changed": false
+  },
+  "tests_run": [
+    {
+      "command": "python -m py_compile core/observability.py core/progress_bus.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/core_test/test_observability.py --disable-warnings",
+      "exit_code": 0,
+      "result": "17 passed in 1.55s"
+    },
+    {
+      "command": "pytest --collect-only -q focused Stage01 and observability tests",
+      "exit_code": 0,
+      "result": "68 tests collected in 3.89s"
+    },
+    {
+      "command": "inline ForecastContext metadata/progress allowlist and legacy publish compatibility assertions",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "pytest -q focused Stage01 and observability tests --disable-warnings",
+      "exit_code": 0,
+      "result": "68 passed in 2.49s"
+    },
+    {
+      "command": "git diff --check -- core/observability.py core/progress_bus.py",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only"
+    }
+  ],
+  "blocking_issues": [],
+  "change_request_required": false,
+  "network_used": false,
+  "database_or_migration_changes": false,
+  "created_at": "2026-08-28T06:07:36.2718110Z"
+}

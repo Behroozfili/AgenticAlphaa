@@ -1,14 +1,11 @@
-"""
-rag/processor.py — AlphaProcessor
-
-"""
+"""Deterministic, revision-preserving chunk processing."""
 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -16,13 +13,8 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from rag.loader import RawDocument
 
 logger = logging.getLogger(__name__)
+_DEFAULT_MAX_SEEN = 100_000
 
-
-_DEFAULT_MAX_SEEN: int = 100_000
-
-# ---------------------------------------------------------------------------
-# Data Schema
-# ---------------------------------------------------------------------------
 
 @dataclass
 class ProcessedChunk:
@@ -39,41 +31,31 @@ class ProcessorMetrics:
 
     def report(self) -> dict[str, int]:
         return {
-            "total_docs":        self.total_docs,
-            "chunks_created":    self.chunks_created,
+            "total_docs": self.total_docs,
+            "chunks_created": self.chunks_created,
             "duplicates_skipped": self.duplicates_skipped,
-            "content_updates":   self.content_updates,
+            "content_updates": self.content_updates,
         }
 
-
-# ---------------------------------------------------------------------------
-# Hashing Utilities
-# ---------------------------------------------------------------------------
 
 def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _url_hash(url: str) -> str:
-    return hashlib.sha256(url.encode("utf-8")).hexdigest()
+    return _sha256(url)
 
 
-# ---------------------------------------------------------------------------
-# AlphaProcessor
-# ---------------------------------------------------------------------------
+def _metadata_hash(metadata: dict[str, Any]) -> str:
+    """Hash the complete JSON metadata association without persisting a copy."""
+    encoded = json.dumps(metadata, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return _sha256(encoded)
+
 
 class AlphaProcessor:
-    
-
-    # Semantic boundary separators — ordered from coarsest to finest
     SEPARATORS = ["\n\n", "\n", ". ", "? ", "! ", "; ", ", ", " ", ""]
 
-    def __init__(
-        self,
-        chunk_size: int = 512,
-        chunk_overlap: int = 64,
-        max_seen: int = _DEFAULT_MAX_SEEN,
-    ) -> None:
+    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 64, max_seen: int = _DEFAULT_MAX_SEEN) -> None:
         self.splitter = RecursiveCharacterTextSplitter(
             separators=self.SEPARATORS,
             chunk_size=chunk_size,
@@ -81,95 +63,102 @@ class AlphaProcessor:
             length_function=len,
             is_separator_regex=False,
         )
-        
         self._seen: dict[str, str] = {}
-        self._max_seen: int = max_seen
+        # Exact evidence observations only. URL/content similarity must never
+        # suppress a distinct revision, dataset, or retrieval observation.
+        self._seen_revisions: set[str] = set()
+        self._max_seen = max_seen
         self.metrics = ProcessorMetrics()
-
-    # ------------------------------------------------------------------
-    # Public API
-    # ------------------------------------------------------------------
 
     def process(self, docs: list[RawDocument]) -> list[ProcessedChunk]:
-      
         self.metrics = ProcessorMetrics()
-        all_chunks: list[ProcessedChunk] = []
-
+        chunks: list[ProcessedChunk] = []
         for doc in docs:
             self.metrics.total_docs += 1
-            chunks = self._process_doc(doc)
-            all_chunks.extend(chunks)
-
+            chunks.extend(self._process_doc(doc))
         logger.info("AlphaProcessor metrics: %s", self.metrics.report())
-        return all_chunks
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    def _process_doc(self, doc: RawDocument) -> list[ProcessedChunk]:
-        full_text    = f"{doc.title}\n\n{doc.content}".strip()
-        c_hash       = _sha256(full_text)
-        u_hash       = _url_hash(doc.url)
-        ingested_at  = datetime.now(timezone.utc).isoformat()
-
-       
-        if u_hash in self._seen:
-            existing_c_hash = self._seen[u_hash]
-            if existing_c_hash == c_hash:
-                logger.debug("SKIP duplicate url=%s", doc.url)
-                self.metrics.duplicates_skipped += 1
-                return []
-            else:
-                logger.info("UPDATE new content for url=%s", doc.url)
-                self.metrics.content_updates += 1
-       
-        self._add_to_seen(u_hash, c_hash)
-
-       
-        raw_chunks = self.splitter.split_text(full_text)
-        chunks: list[ProcessedChunk] = []
-
-        for idx, chunk_text in enumerate(raw_chunks):
-            chunk_text = chunk_text.strip()
-            if not chunk_text:
-                continue
-
-            metadata: dict[str, Any] = {
-                "content_hash":    c_hash,
-                "url_hash":        u_hash,
-                "ticker":          doc.ticker,
-                "source_type":     doc.source_type,
-                "published_at_utc": doc.published_at,
-                "ingested_at":     ingested_at,
-                "chunk_index":     idx,
-                "url":             doc.url,
-                "title":           doc.title,
-                "fiscal_year":     doc.metadata.get("fiscal_year"),
-                "fiscal_quarter":  doc.metadata.get("fiscal_quarter"),
-                "period_start":    doc.metadata.get("period_start"),
-                "period_end":      doc.metadata.get("period_end"),
-                "duration_months": doc.metadata.get("duration_months"),
-                "filing_type":     doc.metadata.get("filing_type"),
-                "accession_number": doc.metadata.get("accession_number"),
-                "metric_scope":    doc.metadata.get("metric_scope"),
-                "gaap_status":     doc.metadata.get("gaap_status"),
-            }
-            chunks.append(ProcessedChunk(text=chunk_text, metadata=metadata))
-            self.metrics.chunks_created += 1
-
         return chunks
 
-    def _add_to_seen(self, u_hash: str, c_hash: str) -> None:
-    
+    def _process_doc(self, doc: RawDocument) -> list[ProcessedChunk]:
+        full_text = f"{doc.title}\n\n{doc.content}".strip()
+        content_hash = _sha256(full_text)
+        url_hash = _url_hash(doc.url)
+        source_id = doc.source_id or _sha256(f"{doc.source_type}|{doc.url}")
+        document_version = str(doc.revision or "1")
+        document_id = _sha256("|".join((source_id, content_hash, document_version)))
+        ticker = doc.ticker.strip().upper()
+        association_hash = _sha256("|".join((ticker, _metadata_hash(doc.metadata))))
+        evidence_id = _sha256("|".join((
+            document_id,
+            association_hash,
+            doc.dataset_version,
+            doc.published_at or "unknown",
+            doc.retrieved_at or "unknown",
+            doc.effective_from or "unknown",
+            doc.effective_to or "open",
+            str(doc.metadata.get("filed_at") or "unknown"),
+        )))
+        evidence_key = evidence_id
+
+        if evidence_key in self._seen_revisions:
+            self.metrics.duplicates_skipped += 1
+            return []
+        if url_hash in self._seen:
+            if self._seen[url_hash] != content_hash:
+                self.metrics.content_updates += 1
+        self._add_to_seen(url_hash, content_hash)
+        self._seen_revisions.add(evidence_key)
+
+        result: list[ProcessedChunk] = []
+        for index, text in enumerate(self.splitter.split_text(full_text)):
+            text = text.strip()
+            if not text:
+                continue
+            chunk_hash = _sha256(text)
+            # Include the immutable evidence observation so a later retrieval
+            # or dataset snapshot cannot collide with an earlier Vector row.
+            chunk_id = _sha256("|".join((evidence_id, str(index), chunk_hash)))
+            metadata: dict[str, Any] = {
+                "document_id": document_id,
+                "chunk_id": chunk_id,
+                "evidence_id": evidence_id,
+                "canonical_source_id": source_id,
+                "source_id": source_id,
+                "source_version": document_version,
+                "document_version": document_version,
+                "content_hash": content_hash,
+                "chunk_hash": chunk_hash,
+                "url_hash": url_hash,
+                "ticker": ticker,
+                "association_hash": association_hash,
+                "source_type": doc.source_type,
+                "published_at": doc.published_at,
+                "published_at_utc": doc.published_at,
+                "retrieved_at": doc.retrieved_at,
+                "effective_from": doc.effective_from,
+                "effective_to": doc.effective_to,
+                "dataset_version": doc.dataset_version,
+                "chunk_index": index,
+                "url": doc.url,
+                "title": doc.title,
+                "ingested_at": doc.retrieved_at,
+            }
+            for key in (
+                "filed_at", "fiscal_year", "fiscal_quarter", "period_start", "period_end",
+                "duration_months", "filing_type", "accession_number", "metric_scope", "gaap_status",
+            ):
+                metadata[key] = doc.metadata.get(key)
+            result.append(ProcessedChunk(text=text, metadata=metadata))
+            self.metrics.chunks_created += 1
+        return result
+
+    def _add_to_seen(self, url_hash: str, content_hash: str) -> None:
         if len(self._seen) >= self._max_seen:
-            # Evict the oldest half — dict preserves insertion order (Python 3.7+)
-            evict_count = self._max_seen // 2
-            keys_to_evict = list(self._seen.keys())[:evict_count]
-            for k in keys_to_evict:
-                del self._seen[k]
-            logger.warning(
-                "AlphaProcessor._seen cap reached (%d) — evicted %d oldest entries.",
-                self._max_seen, evict_count,
-            )
-        self._seen[u_hash] = c_hash
+            evict_count = max(1, self._max_seen // 2)
+            for key in list(self._seen)[:evict_count]:
+                del self._seen[key]
+            logger.warning("AlphaProcessor._seen cap reached (%d); evicted %d oldest entries.", self._max_seen, evict_count)
+        self._seen[url_hash] = content_hash
+
+
+__all__ = ["AlphaProcessor", "ProcessedChunk", "ProcessorMetrics", "_sha256", "_url_hash"]

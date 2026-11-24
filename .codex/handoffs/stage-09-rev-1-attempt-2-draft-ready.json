@@ -1,0 +1,191 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "quant",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 158,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "retry_scope": "Strict REVIEW-09-001 repair limited to executed walk-forward OOS scientific classification and exact threshold tests. No model, fold, metric, telemetry, fixture, upstream, state, dependency, external-system or Stage 10A change.",
+  "trigger_review": {
+    "path": ".codex/handoffs/stage-09-rev-1-attempt-1-review.json",
+    "sha256": "e75f3fee31d83fe0ae59b6977c3ce4555d15e26b54b706be2bdd28c3e3589f39",
+    "blocking_finding": "REVIEW-09-001",
+    "disposition": "RESOLVED_IN_CURRENT_DRAFT"
+  },
+  "dependency_handoffs": [
+    {
+      "stage": "08",
+      "path": ".codex/handoffs/stage-08-rev-1-handoff.json",
+      "sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+      "state_status": "CLOSED"
+    }
+  ],
+  "immutable_attempt_1_artifacts": [
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-draft-ready.json", "sha256": "de058ebaeeb139a2eb07913fdf7e4b201a68d605e2c5ecf11bce605a2fbe11f5"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-observability.json", "sha256": "ce2c10d05263288c233dfe5d8b1de604c954f1230d8b037030fda6600a7e8580"},
+    {"path": ".codex/handoffs/change-request-stage-09-rev-1-attempt-1-1.json", "sha256": "685004de49a8792449ef0b0ee46a3ff7dd7f8c848acf81211f402f9b69c9dada"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.md", "sha256": "8e03d32c4f6e257506a1466fe39bc1d63a96572abd76e75c23b0d391e1d43e3f"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.json", "sha256": "bddd6c7e363322059927f73f9de6cbe241aea83c8cc6ae5827f1892ca8c18232"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-qa.json", "sha256": "8300ab8489e5805193302f791f45c12c0e3194259129060bfbeedd6dbe6cbfa3"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-review.json", "sha256": "e75f3fee31d83fe0ae59b6977c3ce4555d15e26b54b706be2bdd28c3e3589f39"}
+  ],
+  "changed_files": [
+    "evaluation/point_in_time_dataset.py",
+    "evaluation/monthly_backtest.py",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py",
+    "tests/unit_tests/test_monthly_backtest_stage9.py",
+    ".codex/handoffs/stage-09-rev-1-attempt-2-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "finding_disposition": {
+    "REVIEW-09-001": "PASS_RESOLVED: source-row count can no longer produce SCIENTIFIC. Dataset materialization defers with eligible_oos_forecasts=0; the executed walk-forward report classifies only after identical variant coverage is established and requires at least 10 executed tickers, 60 source monthly cutoffs and 500 common eligible OOS forecasts per variant.",
+    "OBS-09-001": "PASS_PRESERVED: local injectable payload-safe telemetry, event order, finite nonnegative latency, fail-closed signals, privacy allowlist and sink isolation remain unchanged."
+  },
+  "scientific_gate": {
+    "classification_owner": "executed walk-forward report",
+    "source_dataset_can_claim_scientific": false,
+    "required_tickers": 10,
+    "required_monthly_cutoffs": 60,
+    "required_eligible_oos_forecasts": 500,
+    "eligible_oos_definition": "count of the common fold/ticker/as_of row set after all variant coverage checks",
+    "actual_oos_manifest_field": "forecast_count_per_variant",
+    "threshold_manifest_field": "scientific_minimums",
+    "ticker_and_cutoff_manifest_source": "dataset manifest bound by dataset_manifest_hash",
+    "all_conditions_required": true,
+    "source_rows_substitute_for_oos": false
+  },
+  "boundary_counterexamples": [
+    {
+      "ticker_count": 10,
+      "monthly_cutoff_count": 60,
+      "eligible_source_rows": 600,
+      "eligible_oos_forecasts": 0,
+      "expected": "PRELIMINARY",
+      "actual": "PRELIMINARY",
+      "status": "PASS_SOURCE_ROWS_REJECTED_AS_OOS_PROXY"
+    },
+    {
+      "ticker_count": 10,
+      "monthly_cutoff_count": 60,
+      "eligible_oos_forecasts": 499,
+      "expected": "PRELIMINARY",
+      "actual": "PRELIMINARY",
+      "status": "PASS"
+    },
+    {
+      "ticker_count": 10,
+      "monthly_cutoff_count": 60,
+      "eligible_oos_forecasts": 500,
+      "expected": "SCIENTIFIC",
+      "actual": "SCIENTIFIC",
+      "status": "PASS"
+    },
+    {
+      "ticker_count": 9,
+      "monthly_cutoff_count": 60,
+      "eligible_oos_forecasts": 500,
+      "expected": "PRELIMINARY",
+      "actual": "PRELIMINARY",
+      "status": "PASS_ALL_CONDITIONS_REQUIRED"
+    },
+    {
+      "ticker_count": 10,
+      "monthly_cutoff_count": 59,
+      "eligible_oos_forecasts": 500,
+      "expected": "PRELIMINARY",
+      "actual": "PRELIMINARY",
+      "status": "PASS_ALL_CONDITIONS_REQUIRED"
+    }
+  ],
+  "preservation_evidence": {
+    "current_fixture_scientific_report_level": "PRELIMINARY",
+    "current_fixture_report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779",
+    "report_hash_unchanged_from_attempt_1": true,
+    "telemetry_enabled_disabled_exact_equality": true,
+    "telemetry_event_count": 231,
+    "fold_count": 11,
+    "eligible_oos_forecasts_per_variant": 22,
+    "total_variant_records": 154,
+    "future_record_count": 0,
+    "identical_variant_row_identity": true,
+    "model_or_numeric_change": false,
+    "action_policy_or_cost_change": false,
+    "fixture_change": false
+  },
+  "draft_self_tests": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <five exact Stage09 test modules> -q",
+      "exit_code": 0,
+      "result": "23 passed in 12.24s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Canonical fixture report with telemetry disabled versus enabled",
+      "exit_code": 0,
+      "result": "PASS: exact equality; report_hash=213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779; PRELIMINARY; OOS=22 per variant; future_record_count=0; telemetry events=231",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "71 passed in 1.18s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURES_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q <five exact Stage09 test modules>",
+      "exit_code": 0,
+      "result": "23 tests collected in 0.71s; zero collection errors",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile <two modified evaluation modules> <two modified Stage09 test modules>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check -- <four exact REVIEW-09-001 source/test paths>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent quant",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 158 before draft artifact creation",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "source_sha256": {
+    "evaluation/point_in_time_dataset.py": "d7f5793bbd7069630484d04103dfbf4f882410e567d0b67c4bdf5d1ae6bd250b",
+    "evaluation/monthly_backtest.py": "1861cc3f635679fd14d40a13c8d445090f6a938efb0e994effe683485f9611d2",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py": "f1481f43365caf24f38d0989ee0c7012cfa398f213adcee76863f35dd919a1b4",
+    "tests/unit_tests/test_monthly_backtest_stage9.py": "d3c0874af912384a4b934fd99c4e1db1e10f66573cd7c9d4c27aa963a03a67f0"
+  },
+  "operational_safety": {
+    "network_used": false,
+    "provider_calls": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false,
+    "prior_attempt_artifacts_changed": false,
+    "stage10a_or_later_files_changed": false
+  },
+  "limitations": [
+    "The current two-ticker local fixture remains synthetic engineering evidence and not investment-performance evidence.",
+    "Actual ticker and cutoff inputs remain bound in the dataset manifest; actual common eligible OOS count and thresholds remain recorded as forecast_count_per_variant and scientific_minimums in the report manifest.",
+    "Because observability_required is true, Attempt 2 final implementation MD/JSON are intentionally not written in PRIMARY_DRAFT."
+  ],
+  "final_implementation_artifacts_written": false,
+  "stage10a_status": "PENDING_NOT_STARTED_UNCHANGED",
+  "created_at": "2026-09-12T07:44:20.5112863Z"
+}

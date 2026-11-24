@@ -1,0 +1,224 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "reviewer",
+  "status": "REVIEW_REJECTED",
+  "review_status": "REJECTED",
+  "execution_phase": "REVIEW",
+  "control_revision": 110,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-06-rev-1-attempt-2-review.json"
+  ],
+  "artifact_chain": {
+    "dependency_handoff": {
+      "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+      "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+      "identity_valid": true,
+      "status": "CLOSED"
+    },
+    "prior_review": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-1-review.json",
+      "sha256": "d5b19765594a7b08075712f627a1e660040bbdd5e16ccfb3188896a0f3d36979",
+      "identity_valid": true,
+      "review_status": "REJECTED"
+    },
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-2-draft-ready.json",
+      "sha256": "537594dfb81297f2734619eea410a186d876913fed0523bfc3d998b5cddfe5cd",
+      "identity_valid": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-2-observability.json",
+      "sha256": "5af79684becfea6856ef4a66d24b48e66923d1ce455bce9da89a4255759f9f76",
+      "identity_valid": true,
+      "status": "CHANGES_REQUESTED"
+    },
+    "change_request": {
+      "path": ".codex/handoffs/change-request-stage-06-rev-1-attempt-2-1.json",
+      "sha256": "81da16287e193f1aec3fe2c457681f7c1de223d6368484c65a170d0415f88a0c",
+      "identity_valid": true
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-2-implementation.md",
+      "sha256": "0e563ff43608b3dc4050f671c20fa3b43e8463a7f8e28ebc816d5a0e7dce20b4"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-2-implementation.json",
+      "sha256": "8f7a2503db2b8c9d97df80e772306606f83e28f6907e1bc1f0b6ab598db0d076",
+      "identity_valid": true,
+      "recorded_source_hashes_valid": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-06-rev-1-attempt-2-qa.json",
+      "sha256": "ca7687b208c19b39fcddaac29e8ce3a3b2ff912e244405bdeef87914844ffda9",
+      "identity_valid": true,
+      "qa_status": "PASS"
+    }
+  },
+  "blocking_findings": [
+    {
+      "id": "REVIEW-06-A2-B-001",
+      "category": "FEATURE_INTEGRITY_AND_MISSING_DATA",
+      "summary": "The typed SentimentFeatures slot can claim non-degraded availability when a required sentiment model failed or was unavailable.",
+      "evidence": "agents/executor_helpers/sentiment_helper.py:444-452 derives missing/degraded state only from window availability, temporal rejections, unscored evidence and total absence of eligible evidence. It does not inspect finbert_result, vader_result or fear_greed_result status/coverage. Lines 455-459 record all configured model versions regardless of whether that model produced data. The independent probe supplied eligible evidence, a valid FinBERT chunk score, vader_result status ERROR with zero chunks, and a FinBERT-only fusion result; the resulting typed slot reported degraded=false, degraded_flags=(), missing_flags=(), aggregate_7d=0.7 while advertising the VADER model version.",
+      "contract_violation": "Stage 06 requires explainable missing data and a compact SentimentFeatures output with trustworthy missing/degraded flags and model provenance. Stage 08 is specified to consume SentimentFeatures from State, so a healthy-looking typed slot must not hide a missing model merely because a partial aggregate can be computed."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "REVIEW-06-A2-NB-001",
+      "summary": "The private _retrieve_social_data helper retains a legacy no-context branch.",
+      "assessment": "The actual MCP call_tool entry now validates ForecastContext/run_id unconditionally before dispatch, and repository search found no non-test caller of the private helper. Removing the private legacy branch would further reduce misuse risk but is not blocking for the reviewed runtime path."
+    },
+    {
+      "id": "REVIEW-06-A2-NB-002",
+      "summary": "Live providers and external trace export remain unverified by design.",
+      "assessment": "The reviewed evidence is offline and deterministic under the explicit no-network/no-external-write constraints. This is correctly disclosed and is not a scientific performance claim."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    {
+      "finding": "REVIEW-06-A2-B-001",
+      "owner": "sentiment",
+      "paths": [
+        "agents/executor_helpers/sentiment_helper.py",
+        "agents/sentiment_agent.py",
+        "tests/unit_tests/test_sentiment_phase4.py",
+        "tests/unit_tests/test_agents/test_sentiments_agent.py"
+      ],
+      "requirement": "Derive model availability and degradation from the validated FinBERT, VADER and fusion results, not only from window evidence. A missing/error/NO_DATA required model or failed fusion must be explicit in the typed slot's missing/degraded flags and availability/provenance. Propagate the selected attempt's coverage/quality degradation into sentiment_features before Shared State commit. Add helper and full-agent sentinels for one-model failure, fusion failure and low coverage, proving partial aggregates may remain available but the slot is never marked healthy."
+    }
+  ],
+  "review_blockers": [
+    "The current Attempt 2 typed SentimentFeatures contract can conceal required-model failure from downstream monthly forecast consumers."
+  ],
+  "resolved_findings": [
+    {
+      "id": "REVIEW-06-B-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "Every present published_at/effective_from field is parsed independently and any invalid or post-as_of value rejects the evidence. The exact future-effective_from counterexample passed."
+    },
+    {
+      "id": "REVIEW-06-B-002",
+      "status": "PASS_RESOLVED",
+      "evidence": "Individual raw chunks are point-in-time filtered before canonical grouping and grouped documents are revalidated. The exact same-URL past/future counterexample passed and future text was absent."
+    },
+    {
+      "id": "REVIEW-06-B-003",
+      "status": "PASS_RESOLVED",
+      "evidence": "MCP call_tool now requires ForecastContext/run_id before every dispatch. The exact missing-identity counterexample failed closed and did not invoke retrieval."
+    },
+    {
+      "id": "REVIEW-06-NB-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "The immutable 40-character FinBERT commit is accurately identified as git-revision."
+    },
+    {
+      "id": "OBS-06-A2-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "A single exported MappingProxy identity drives helper and agent lifecycle/trace/progress metadata and emits stage=06, revision=1, attempt=2, agent=sentiment and implementation_version=stage06-r1-a2. The three exact identity sentinels passed."
+    },
+    {
+      "id": "OBS-06-001_THROUGH_004",
+      "status": "PASS_PRESERVED",
+      "evidence": "Private payload exclusion, eight measured boundaries, child-span failure sanitization and immutable local FinBERT/VADER provenance remain intact in Attempt 2."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_locks": "PASS: all 10 implementation-recorded Attempt 2 paths and the reviewer artifact have exact owner locks. All 8 recorded source/test SHA-256 values match. No Stage 07, Manager, Quant, database, migration, dependency, deployment, commit, push, seed or deletion path was modified.",
+    "artifact_integrity": "PASS: Stage 05 is CLOSED; the rejected Attempt 1 review remains byte-identical; Attempt 2 draft-ready, observability, change-request, implementation MD/JSON and QA all match revision 1 attempt 2. All chain hashes match, QA is PASS and all inputs validate under the active control plane.",
+    "temporal_safety": "PASS: every present published/effective timestamp is independently checked against as_of; invalid, future, expired and outside-30-day evidence fails closed; filtering occurs per raw chunk before grouping and again before aggregation; no timestamp becomes now and no current provider fallback is reachable through the MCP entry.",
+    "forecast_identity_and_provider_policy": "PASS: ForecastContext, run_id and ticker consistency are mandatory at agent and MCP entry points. Retrieval receives as_of, dataset_version and historical=true with a fixed 30-day candidate window.",
+    "window_and_deduplication": "PASS: deterministic 7/14/30 calendar-day nested aggregates, momentum, dispersion, volumes, canonical document deduplication and source diversity are implemented and covered by fixtures.",
+    "feature_missing_and_degraded_integrity": "FAIL_BLOCKING: window availability is represented, but missing/error model and selected-attempt quality/coverage state are not propagated into the typed sentiment_features slot, which can therefore report degraded=false for a partial or failed model pipeline.",
+    "model_reproducibility": "PASS: FinBERT is pinned to immutable local Git revision 4556d13015211d73dccd3fdd39d39232506f3e43 with deterministic inference settings and local_files_only; VADER includes the SHA-256 of installed lexicon bytes and disables automatic download; fusion is versioned.",
+    "state_and_data_hygiene": "PASS_WITH_FEATURE_STATUS_BLOCKER: Shared State receives compact summary and feature slot only; brain_reasoning, full attempts, raw chunks, source metadata and per-chunk model payloads remain private. The payload shape is compact, but its missing/degraded semantics are incomplete as described in REVIEW-06-A2-B-001.",
+    "observability_and_privacy": "PASS: Attempt 2 identity is truthful; all eight lifecycle boundaries carry allowlisted identity, measured non-negative latency, semantic counts and bounded flags; provider errors are sanitized inside the child span and private query/evidence/error payloads are not exported.",
+    "financial_and_numeric_integrity": "PASS_BY_SCOPE: Stage 06 does not modify DCF/WACC, the nine financial intents/mappers, Quant output, target, action policy or storage keys; no LLM-authored 21-session numeric forecast is introduced.",
+    "scientific_honesty": "PASS: artifacts disclose offline-only validation and five known out-of-scope baseline failures, make no investment-success claim and do not conflate engineering test success with model performance.",
+    "regression": "PASS_TEST_EXECUTION_BUT_INCOMPLETE_STATUS_COVERAGE: the three prior counterexamples passed, Attempt 2 observability identity passed, and the full Stage 06 suite passed 167 tests with 5 live tests deselected. No existing test covers a typed slot produced from one-model/fusion failure or propagates low coverage into that slot.",
+    "operational_safety": "PASS: rollback is documented. No database read/write, migration application, seed, deletion, deployment, commit or push was performed by review or reported by the attempt."
+  },
+  "tests_and_checks": [
+    {
+      "command": "three exact Attempt 1 reviewer counterexamples",
+      "result": "PASS: 3 passed in 20.16s; future effective_from rejected, same-URL future text isolated, missing MCP identity failed closed"
+    },
+    {
+      "command": "tests/unit_tests/test_agents/test_sentiments_agent.py::TestStage06ObservabilitySentinels",
+      "result": "PASS: 3 passed in 26.16s; attempt=2 and stage06-r1-a2 identity preserved with payload-free instrumentation"
+    },
+    {
+      "command": "complete offline Stage 06 suite with not-live/not-slow/not-db markers",
+      "result": "PASS: 167 passed, 5 deselected, 1 warning in 6.85s"
+    },
+    {
+      "command": "one-model-unavailable typed-feature executable probe",
+      "result": "FAIL_BLOCKING: valid FinBERT plus VADER status ERROR/zero chunks produced aggregate_7d=0.7, degraded=false, degraded_flags=[], missing_flags=[] and still recorded VADER provenance"
+    },
+    {
+      "command": "independent SHA-256 and owner-lock verification",
+      "result": "PASS: dependency/prior-review/Attempt2 chain files match; 8/8 implementation source/test hashes match; 10/10 implementation changed paths are locked to sentiment"
+    },
+    {
+      "command": "official artifact, control and lock validation",
+      "result": "PASS: prior review and all five Attempt 2 JSON inputs returned CONTROL VALID; --check-control --check-locks returned CONTROL VALID"
+    },
+    {
+      "command": "stale identity and legacy prompt scans",
+      "result": "PASS: zero stage06-r1-a1 references in Attempt 2 runtime/test identity paths and zero promt_sentinemt references in agents/tools/tests"
+    }
+  ],
+  "source_integrity": {
+    "attempt2_recorded_source_test_paths": 8,
+    "attempt2_matching_paths": 8,
+    "attempt2_mismatches": 0,
+    "implementation_changed_paths": 10,
+    "all_implementation_paths_locked_to_sentiment": true,
+    "prior_review_hash_matches": true,
+    "old_prompt_exists": false,
+    "old_prompt_runtime_references": 0,
+    "stale_attempt1_identity_references": 0
+  },
+  "known_out_of_scope_failures": [
+    {
+      "path": "tests/unit_tests/test_agents/test_manager_agent.py::TestRunFullPipeline::test_happy_path_runs_all_three_agents_and_finalises",
+      "count": 1,
+      "classification": "BASELINE_RESPONSIBLE_STAGE_08",
+      "review_assessment": "Correctly classified by the Stage 00 baseline manifest; no Manager path changed in Attempt 2."
+    },
+    {
+      "path": "tests/unit_tests/test_supabase_phase5_migration.py",
+      "count": 4,
+      "classification": "BLOCKED_PRE_EXISTING_NO_VALID_RETARGET",
+      "review_assessment": "Correctly classified by the Stage 00 baseline manifest; Attempt 2 owns no migration path."
+    }
+  ],
+  "external_execution": {
+    "network_acquisition_by_review": false,
+    "live_sentiment_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "local_pinned_model_import": "USED_EXISTING_LOCAL_CACHE_ONLY",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage07_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "activated": false
+  },
+  "supersedes": ".codex/handoffs/stage-06-rev-1-attempt-1-review.json",
+  "created_at": "2026-09-04T13:14:02.6926658Z"
+}

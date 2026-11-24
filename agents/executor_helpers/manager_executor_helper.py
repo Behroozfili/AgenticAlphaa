@@ -1,4 +1,7 @@
 
+import asyncio
+import copy
+import inspect
 import json
 from typing import Any, Union
 from agents.state import EvaluationSnapshot
@@ -123,3 +126,66 @@ def infer_result_keys(agent_key: str, state: SharedManagerState) -> list[str]:
     if result_key and state.get(result_key):
         return [result_key]
     return []
+
+
+async def maybe_await(value):
+    """Await a provider result only when the injected boundary is asynchronous."""
+    return await value if inspect.isawaitable(value) else value
+
+
+async def run_monthly_specialists_concurrently(
+    agents: dict[str, Any], state: SharedManagerState,
+) -> dict[str, SharedManagerState | BaseException]:
+    """Run specialists after one common context, on isolated state copies."""
+    names = ("research", "financial", "sentiment")
+    calls = [agents[name].run(copy.deepcopy(state)) for name in names]
+    results = await asyncio.gather(*calls, return_exceptions=True)
+    return dict(zip(names, results, strict=True))
+
+
+def controlled_monthly_join(
+    base: SharedManagerState,
+    results: dict[str, SharedManagerState | BaseException],
+) -> tuple[SharedManagerState, list[str]]:
+    """Join only each specialist's owned typed slot and compact legacy summary."""
+    joined: SharedManagerState = copy.deepcopy(base)
+    order = ["context", "research", "financial", "sentiment", "controlled_join"]
+    contracts = {
+        "research": ("research_features", "aggregated_research_context"),
+        "financial": ("financial_features", "financial_metrics_summary"),
+        "sentiment": ("sentiment_features", "sentiment_analysis_summary"),
+    }
+    history = list(joined.get("agent_execution_history", []))
+    for name, (slot_name, legacy_name) in contracts.items():
+        result = results[name]
+        if isinstance(result, BaseException):
+            joined[slot_name] = {
+                "version": "unavailable", "values": {}, "evidence_ids": [],
+                "missing": True, "degraded": True,
+                "errors": [f"{name.upper()}_EXECUTION_FAILED"],
+            }
+            history.append({
+                "agent_name": name, "outcome": "degraded",
+                "error_code": f"{name.upper()}_EXECUTION_FAILED",
+            })
+            continue
+        if not isinstance(result, dict):
+            raise TypeError(f"{name} agent must return SharedManagerState")
+        slot = result.get(slot_name)
+        if not isinstance(slot, dict):
+            slot = {
+                "version": "unavailable", "values": {}, "evidence_ids": [],
+                "missing": True, "degraded": True,
+                "errors": [f"{name.upper()}_FEATURES_MISSING"],
+            }
+        joined[slot_name] = copy.deepcopy(slot)
+        legacy = result.get(legacy_name)
+        if isinstance(legacy, (dict, list)):
+            joined[legacy_name] = copy.deepcopy(legacy)
+        history.append({
+            "agent_name": name,
+            "outcome": "degraded" if slot.get("degraded") else "success",
+            "result_keys": [slot_name],
+        })
+    joined["agent_execution_history"] = history
+    return joined, order

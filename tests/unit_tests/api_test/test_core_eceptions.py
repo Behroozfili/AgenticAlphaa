@@ -16,6 +16,15 @@ from api.core.exceptions import (
     MemoryError,
     ExternalServiceError,
     ConfigurationError,
+    DataUnavailableError,
+    RuntimeVersionError,
+    TemporalBoundaryError,
+    map_core_exception,
+)
+from core.error_handler import (
+    DataUnavailableAsOfError,
+    TemporalLeakageError,
+    VersionMismatchError,
 )
 
 
@@ -187,3 +196,18 @@ def test_to_dict_reflects_subclass_code(exc_cls, expected_code, expected_status)
     d = err.to_dict()
     assert d["error"] == expected_code
     assert err.http_status == expected_status
+
+
+@pytest.mark.parametrize(
+    ("core_error", "api_type", "forbidden"),
+    [
+        (TemporalLeakageError("future=secret"), TemporalBoundaryError, "secret"),
+        (DataUnavailableAsOfError("provider row secret"), DataUnavailableError, "secret"),
+        (VersionMismatchError("model secret-v9"), RuntimeVersionError, "secret-v9"),
+    ],
+)
+def test_core_exception_mapping_is_sanitized(core_error, api_type, forbidden):
+    mapped = map_core_exception(core_error)
+    assert isinstance(mapped, api_type)
+    assert mapped.detail is None
+    assert forbidden not in str(mapped.to_dict())

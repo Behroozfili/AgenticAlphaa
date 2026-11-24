@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 154,
+  "status": "CHANGES_REQUESTED",
+  "target_agent": "quant",
+  "requested_paths": [
+    "evaluation/point_in_time_dataset.py",
+    "evaluation/monthly_backtest.py",
+    "evaluation/forecast_metrics.py",
+    "evaluation/temporal_leakage.py",
+    "evaluation/backtest_cli.py",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py",
+    "tests/unit_tests/test_monthly_backtest_stage9.py",
+    "tests/unit_tests/test_forecast_metrics_stage9.py",
+    "tests/unit_tests/test_temporal_leakage_stage9.py",
+    "tests/unit_tests/test_backtest_cli_stage9.py"
+  ],
+  "reason": "The Stage 09 draft has correct deterministic scientific output and a fail-closed zero-future audit, but it has no measured observability at any required execution boundary. The scoped source contains no monotonic timing, lifecycle/progress event sink, or payload-safe failure event for fixture materialization, fold fit, fold prediction, metric aggregation, or leakage audit. Report records carry run/fold/model identity, but runtime telemetry does not establish the immutable active stage=09, stage_revision=1, attempt=1, agent=quant identity. Because BacktestReport intentionally contains labels, forecast values and opaque evidence IDs for scientific evaluation, it must never be serialized wholesale into traces or progress events.",
+  "blocking": true,
+  "requested_changes": [
+    {
+      "id": "OBS-09-001",
+      "blocking": true,
+      "request": "Add one immutable Stage 09 runtime identity (stage=09, stage_revision=1, attempt=1, agent=quant, implementation/backtest version) and a local injectable or existing in-process lifecycle/progress sink. Measure finite non-negative monotonic latency_ms at the actual fixture_materialization, fold_model_fit, fold_prediction, metric_aggregation and leakage_audit boundaries, plus run started/completed/fail_closed signals. Events must use compact allowlisted identity only: run_id; fold_id and model_variant where applicable; ticker/as_of/target/horizon/analysis_mode where applicable; dataset/feature/model/schema/backtest/metrics/audit versions; bounded row/fold/forecast/evidence counts; stable outcome/error codes; and bounded missing/degraded flags. Never include raw feature vectors, labels or actual/predicted numeric arrays, model coefficients, evidence IDs/content, prompts, chain-of-thought, private payloads, exception messages/repr/tracebacks, secrets, tokens or headers. Failure events must be emitted before re-raising the original exception without changing exception behavior. Keep telemetry outside BacktestReport and its canonical hash so the exact report_hash, folds, records, metrics, scientific PRELIMINARY classification, honest Full Model comparisons and zero-future audit remain byte-for-byte/deterministically unchanged. Add offline tests for event order/identity, finite latency, bounded progress, degraded and fail-closed signals, PRIVATE_SENTINEL redaction, and exact equality of scientific output with telemetry enabled versus disabled. Do not contact an external trace service."
+    }
+  ],
+  "evidence": [
+    "The active control tuple is Stage 09 revision 1 attempt 1 in OBSERVABILITY at control_revision 154, execution is enabled, observability is required, and both exact artifact paths are locked to observability.",
+    "The matching draft-ready SHA-256 is de058ebaeeb139a2eb07913fdf7e4b201a68d605e2c5ecf11bce605a2fbe11f5 and its Stage 08 dependency SHA-256 matches adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479.",
+    "A scoped exact source scan found no perf_counter, elapsed_latency_ms, latency_ms, event_sink, progress event, or lifecycle event call in the six Stage 09 evaluation modules.",
+    "The deterministic in-memory report reproduced report_hash=213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779, scientific_report_level=PRELIMINARY, fold_count=11, forecast_count_per_variant=22, total records=154, and leakage future_record_count=0 with status=PASS.",
+    "All 12 source/test/fixture SHA-256 values recorded by the draft match current files, and the exact focused offline suite passed 16 tests.",
+    "BacktestReport records intentionally include actual outcome labels, forecast numbers and evidence_ids for scientific evaluation; without an explicit allowlisted event processor or sink, wholesale tracing of the report would violate the Stage 09 privacy boundary."
+  ],
+  "scope_constraints": [
+    "Do not change dataset rows, labels, feature selection, models, coefficients, folds, eligibility, action policy, transaction costs, metrics, scientific classification, leakage rules, report schema/content/hash, contracts or Stage 10A.",
+    "Do not write raw lifecycle payloads to BacktestReport, disk, logs, external tracing services or databases.",
+    "Do not modify state, prior-stage artifacts, migrations, dependencies or external systems."
+  ],
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-11T15:16:16.2410866Z"
+}

@@ -1,0 +1,222 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 107,
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    ".codex/handoffs/change-request-stage-06-rev-1-attempt-2-1.json",
+    ".codex/handoffs/stage-06-rev-1-attempt-2-observability.json"
+  ],
+  "requested_primary_changes": [
+    {
+      "id": "OBS-06-A2-001",
+      "blocking": true,
+      "owner": "sentiment",
+      "requested_paths": [
+        "agents/executor_helpers/sentiment_helper.py",
+        "agents/sentiment_agent.py",
+        "tests/unit_tests/test_agents/test_sentiments_agent.py"
+      ],
+      "reason": "Attempt 2 runtime spans, progress/lifecycle metadata and tests still identify themselves as rejected Attempt 1 via attempt=1 and stage06-r1-a1.",
+      "change_request": ".codex/handoffs/change-request-stage-06-rev-1-attempt-2-1.json"
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "OBS-06-001: private query and free-form provider error text are excluded from logs, progress, Sentry and Shared State.",
+      "status": "PASS_PRESERVED",
+      "evidence": "Agent logs use fixed operation labels; progress uses the forecast-safe publisher; MCP error persistence uses stable codes. PRIVATE_SENTINEL tests passed in the complete offline suite."
+    },
+    {
+      "check": "OBS-06-002: lifecycle and progress instrumentation uses allowlisted forecast identity, measured latency, semantic counts and degraded flags.",
+      "status": "PASS_COVERAGE_WITH_BLOCKING_ATTEMPT_IDENTITY_ERROR",
+      "evidence": "All eight Stage 06 boundaries remain instrumented with monotonic latency and compact fields, but every event incorrectly records attempt 1 rather than active attempt 2. OBS-06-A2-001 is blocking."
+    },
+    {
+      "check": "OBS-06-003: provider/MCP exceptions are sanitized inside the decorated child span.",
+      "status": "PASS_PRESERVED",
+      "evidence": "The MCP wrapper returns a safe fail-closed result containing stable error_code/error_type/outcome/latency and does not let the original exception cross the decorated boundary. The private-exception sentinel passed."
+    },
+    {
+      "check": "OBS-06-004: sentiment model provenance is immutable and local-only.",
+      "status": "PASS_PRESERVED",
+      "evidence": "FinBERT uses immutable Git revision 4556d13015211d73dccd3fdd39d39232506f3e43 with local_files_only=True; VADER includes a 64-character local lexicon SHA-256; fusion remains versioned."
+    },
+    {
+      "check": "SharedManagerState persistence remains compact and reference-only.",
+      "status": "PASS_PRESERVED",
+      "evidence": "Only compact_sentiment_summary and MonthlySentimentFeatures.to_state_slot are committed. brain_reasoning, full attempts, raw chunks, source metadata and per-chunk model payloads stay private and are excluded by the allowlist."
+    },
+    {
+      "check": "Attempt 1 artifacts remain immutable.",
+      "status": "PASS_7_OF_7",
+      "evidence": "Draft-ready, observability, change-request, implementation MD/JSON, QA and review hashes all match the immutable hash chain recorded by the Attempt 1 review."
+    },
+    {
+      "check": "No external trace provider, database mutation, migration, seed, deletion, deployment, commit or push was executed.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "PASS_EIGHT_MEASURED_PAYLOAD_FREE_BOUNDARIES_BUT_BLOCKING_STALE_ATTEMPT_IDENTITY",
+  "attempt2_rework_audit": {
+    "REVIEW-06-B-001": {
+      "status": "PASS_RESOLVED",
+      "evidence": "select_point_in_time_evidence independently parses each present published_at and effective_from, rejects any invalid or post-as_of value, selects the latest eligible observation time, validates effective_to independently, rejects expiry at or before as_of and re-runs the same gate before aggregation. Executable temporal probe passed 8/8 cases."
+    },
+    "REVIEW-06-B-002": {
+      "status": "PASS_RESOLVED",
+      "evidence": "_retrieve_social_data filters each non-empty raw chunk through select_point_in_time_evidence before eligible_chunks are grouped. A same-canonical-URL past/future probe returned only PAST and no future marker; the exact regression test also passed."
+    },
+    "REVIEW-06-B-003": {
+      "status": "PASS_RESOLVED",
+      "evidence": "call_tool invokes require_sentiment_context unconditionally before match dispatch. Missing both identity fields returns a fail-closed error and the mocked retriever is not called. All MCP schemas continue requiring forecast_context and run_id."
+    },
+    "REVIEW-06-NB-001": {
+      "status": "PASS_RESOLVED",
+      "evidence": "FinBERT provenance now labels the 40-character immutable identifier as git-revision rather than sha256-revision."
+    }
+  },
+  "temporal_field_matrix": [
+    {
+      "field": "published_at",
+      "invalid": "REJECTED_PUBLISHED_AT_INVALID",
+      "after_as_of": "REJECTED_FUTURE_EVIDENCE_REJECTED",
+      "eligible_boundary": "ACCEPTED"
+    },
+    {
+      "field": "effective_from",
+      "invalid": "REJECTED_EFFECTIVE_FROM_INVALID",
+      "after_as_of": "REJECTED_FUTURE_EVIDENCE_REJECTED",
+      "combined_with_published_at": "LATEST_ELIGIBLE_PRESENT_TIME_USED"
+    },
+    {
+      "field": "effective_to",
+      "invalid": "REJECTED_EFFECTIVE_TO_INVALID",
+      "at_or_before_as_of": "REJECTED_EXPIRED_EVIDENCE_REJECTED",
+      "after_as_of": "ACCEPTED_ACTIVE_INTERVAL"
+    },
+    {
+      "field": "all_observation_times_missing",
+      "status": "REJECTED_EVIDENCE_TIMESTAMP_MISSING"
+    },
+    {
+      "field": "observation_before_30d_lower_bound",
+      "status": "REJECTED_OUTSIDE_30D_WINDOW_REJECTED"
+    }
+  ],
+  "instrumentation_audit": {
+    "required_lifecycle_boundaries": 8,
+    "measured_boundary_coverage": "PASS_8_OF_8",
+    "normal_trace_processors_allowlisted": true,
+    "raw_exception_crosses_child_span": false,
+    "private_payload_sentinels": "PASS",
+    "semantic_counts_present": true,
+    "degraded_flags_bounded": true,
+    "forecast_context_fields_present": true,
+    "stage_identity": "PASS_STAGE_06_REVISION_1_AGENT_SENTIMENT",
+    "attempt_identity": "FAIL_EMITS_1_DURING_ACTIVE_ATTEMPT_2",
+    "implementation_version": "FAIL_EMITS_STAGE06_R1_A1_DURING_ACTIVE_ATTEMPT_2"
+  },
+  "source_integrity": {
+    "draft_ready_artifact": ".codex/handoffs/stage-06-rev-1-attempt-2-draft-ready.json",
+    "draft_ready_sha256": "537594dfb81297f2734619eea410a186d876913fed0523bfc3d998b5cddfe5cd",
+    "attempt2_recorded_source_paths": 6,
+    "attempt2_source_hash_match": "PASS_6_OF_6",
+    "dependency_handoff": ".codex/handoffs/stage-05-rev-1-handoff.json",
+    "dependency_handoff_sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+    "dependency_handoff_match": "PASS",
+    "prior_review": ".codex/handoffs/stage-06-rev-1-attempt-1-review.json",
+    "prior_review_sha256": "d5b19765594a7b08075712f627a1e660040bbdd5e16ccfb3188896a0f3d36979",
+    "prior_review_match": "PASS",
+    "attempt1_artifact_hashes": {
+      ".codex/handoffs/stage-06-rev-1-attempt-1-draft-ready.json": "291fd6a2ad5a23d787cc28ecad9e71c2cb9e91bbc516c6d232c8681867107329",
+      ".codex/handoffs/stage-06-rev-1-attempt-1-observability.json": "0cca8a2b60e647c6ef9c722a26e048f20c5851735c2861678409e934bb3f36f3",
+      ".codex/handoffs/change-request-stage-06-rev-1-attempt-1-1.json": "d42326c97203bd6f3952eec45fa5b2139fcb47e521034b8c7b9a69998d51c849",
+      ".codex/handoffs/stage-06-rev-1-attempt-1-implementation.md": "565d664a0bdc3ccb24c450ade0a2d69ba7ab7b2cbd89451b5b0b85ae2fd04bd5",
+      ".codex/handoffs/stage-06-rev-1-attempt-1-implementation.json": "3c54d93dd66a6f0b2e4077f7b0865c893465177e492ea89d223c40d0a23cf1a1",
+      ".codex/handoffs/stage-06-rev-1-attempt-1-qa.json": "3fc94f1d5e7c34fef11d98e0c84d32b6eef84265dead91fe515aa3735e06d7ed",
+      ".codex/handoffs/stage-06-rev-1-attempt-1-review.json": "d5b19765594a7b08075712f627a1e660040bbdd5e16ccfb3188896a0f3d36979"
+    },
+    "attempt1_artifact_immutability": "PASS_7_OF_7"
+  },
+  "tests_run": [
+    {
+      "command": "python -m pytest tests/unit_tests/test_sentiment_phase4.py tests/unit_tests/sentiment_test/test_finbert_anayzer.py tests/unit_tests/sentiment_test/test_sentiment_server.py -q",
+      "exit_code": 0,
+      "result": "51 passed in 16.25s"
+    },
+    {
+      "command": "complete offline Stage06 unit and integration suite with not-live/not-slow/not-db markers",
+      "exit_code": 0,
+      "result": "167 passed, 5 deselected, 1 deprecation warning in 7.03s"
+    },
+    {
+      "command": "full pytest collection",
+      "exit_code": 0,
+      "result": "1285 tests collected in 17.43s; zero collection errors"
+    },
+    {
+      "command": "executable temporal-field, pre-group mixed-future and missing-MCP-identity probe",
+      "exit_code": 0,
+      "result": "TEMPORAL_FIELDS_PASS=8/8; PRE_GROUP_FUTURE_ISOLATION=PASS; UNCONDITIONAL_MCP_IDENTITY=PASS"
+    },
+    {
+      "command": "executable Attempt2 lifecycle identity probe",
+      "exit_code": 1,
+      "result": "FAIL_BLOCKING: emitted attempt=1 and implementation_version=stage06-r1-a1 during active attempt 2"
+    },
+    {
+      "command": "SHA-256 verification of six Attempt2 paths, Stage05 dependency, prior review and seven Attempt1 artifacts",
+      "exit_code": 0,
+      "result": "PASS_6_OF_6_ATTEMPT2; DEPENDENCY_MATCH; PRIOR_REVIEW_MATCH; PASS_7_OF_7_ATTEMPT1_IMMUTABLE"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact .codex/handoffs/stage-06-rev-1-attempt-2-draft-ready.json --agent sentiment",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    },
+    {
+      "command": "py_compile, git diff --check and legacy promt_sentinemt scan for Attempt2 paths",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only; zero legacy prompt references"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-06-A2-001: active Attempt 2 runtime observability metadata and its sentinel falsely identify events as Attempt 1/stage06-r1-a1."
+  ],
+  "stage_boundary": {
+    "previous_stage": "05",
+    "previous_stage_status": "CLOSED",
+    "next_stage": "07",
+    "next_stage_status": "PENDING",
+    "next_stage_phase": "NOT_STARTED",
+    "next_stage_activated": false
+  },
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "network_contact": "NOT_INTENTIONALLY_USED; ZERO_CONTACT_NOT_INDEPENDENTLY_PROVEN_BECAUSE_A_LOCAL_PINNED_MODEL_IMPORT_EMITTED_A_GENERIC_HUGGING_FACE_UNAUTHENTICATED_REQUEST_WARNING",
+    "local_model_weights": "LOADED_FROM_EXISTING_PINNED_LOCAL_CACHE",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "limitations": [
+    "Validation used deterministic fixtures, mocks and an existing pinned local model cache; live providers were not exercised.",
+    "The complete suite passes because its preserved lifecycle sentinel still expects stale Attempt 1 identity; test success therefore does not clear OBS-06-A2-001.",
+    "The local pinned-model import emitted a generic Hugging Face unauthenticated-request warning. No acquisition/download command was run, but zero network contact was not independently instrumented by this audit.",
+    "Observability changed no product source, test, state, prior artifact, migration or shared instrumentation file.",
+    "Stage 07 remains PENDING/NOT_STARTED."
+  ],
+  "created_at": "2026-09-03T20:32:13.6006923Z"
+}

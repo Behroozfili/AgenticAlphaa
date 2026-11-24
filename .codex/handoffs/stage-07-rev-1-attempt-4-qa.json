@@ -1,0 +1,139 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 4,
+  "agent": "qa",
+  "control_revision": 139,
+  "implementation_artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-implementation.json",
+  "implementation_sha256": "5fc72223d42996c419643731d35a854b544a68772ee547c3a4b0d9d0df2bea09",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "CONTROL VALID; execution enabled; Stage 07 revision 1 attempt 4 remained ACTIVE in QA; support and the non-existing QA artifact path were locked to qa."
+    },
+    {
+      "command": "Attempt 4 artifact schema, identity, chain, dependency, milestone and runtime-input SHA-256 validation",
+      "exit_code": 0,
+      "result": "Six chain JSON artifacts satisfy artifact.schema.json. All 19 declared runtime/test/fixture, dependency, milestone, draft-ready, Observability and implementation-MD hash bindings match. Implementation SHA-256 is 5fc72223d42996c419643731d35a854b544a68772ee547c3a4b0d9d0df2bea09; MD is e2c42713c070ba4787d23d38e7bfe049bf5f44f35717bd07833cc5cedbbf51a0; Observability is 573edf099991ee51160d59e0e24a92d533b230405d54a6d56f4236400fd6eed0."
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider --collect-only tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "71 tests collected in 0.84s; zero collection errors."
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "71 passed in 1.66s using deterministic offline local fixtures."
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test -q",
+      "exit_code": 0,
+      "result": "121 passed in 22.41s; ForecastContext, State and Stage 07 combined regression passed offline."
+    },
+    {
+      "command": "Independent runtime/service/all-lifecycle identity, privacy, canonical-label, exact-target and milestone-reproduction probe",
+      "exit_code": 0,
+      "result": "Runtime constant and service output identify 07/r1/a4/quant. Seventeen captured events covered all nine lifecycle boundaries; every event had exact 07/r1/a4/quant and stage07-r1-a4 identity, finite non-negative latency and no forbidden payload keys. Attempts 1 and 3 were absent from service/lifecycle output. Five malformed/private/oversized run IDs and raw private evidence were rejected. All 40 labels and exact 21-session targets matched; normal/reversed readiness, model and prediction were identical and complete milestone bindings matched."
+    },
+    {
+      "command": "Independent label magnitude/sign counterprobes and 36-cutoff train-only preprocessing/leakage probe",
+      "exit_code": 0,
+      "result": "Four loader/readiness magnitude and sign counterexamples failed closed. Independently recomputed training-fold medians, means, scales, selected features and residual interval matched the model; later rows under the 36-cutoff readiness were rejected. No separate probability calibrator is implemented."
+    }
+  ],
+  "leakage_report": {
+    "status": "PASS",
+    "exact_21_trading_session_target": "PASS_40_OF_40",
+    "future_target_bar_isolation": "PASS",
+    "pre_target_outcome_rejection": "PASS",
+    "snapshot_finalization_boundary": "PASS",
+    "universe_membership_binding": "PASS",
+    "canonical_excess_return_magnitude": "PASS",
+    "canonical_direction_sign": "PASS",
+    "eligible_row_content_binding": "PASS",
+    "model_to_readiness_binding": "PASS",
+    "train_through_rejection": "PASS",
+    "training_only_imputer_scaler_selector": "PASS",
+    "training_only_residual_interval": "PASS",
+    "calibration": "NOT_APPLICABLE_NO_SEPARATE_CALIBRATOR",
+    "normal_reversed_order_determinism": "PASS"
+  },
+  "regression_report": {
+    "status": "PASS",
+    "focused_stage07": "71/71 passed",
+    "forecast_context_state_combined": "121/121 passed",
+    "focused_collection": "71 collected with zero errors",
+    "canonical_label_rows": "40/40 valid",
+    "exact_21_session_targets": "40/40 valid",
+    "milestone_reproduction": "PASS_EXACT",
+    "privacy_and_failure_paths": "PASS",
+    "scientific_scope": "PRELIMINARY synthetic single-ticker 40-cutoff engineering fixture; no investment-performance claim"
+  },
+  "finding_disposition": {
+    "QA-07-A3-001": "PASS_RESOLVED: runtime constant, service output and every captured lifecycle event publish exact Stage07/rev1/attempt4/quant and stage07-r1-a4; stale attempts 1 and 3 are absent.",
+    "REVIEW-07-A2-B-001": "PASS_PRESERVED: canonical excess-return magnitude and direction-sign identity, exact 21-session targets and fail-closed counterexamples remain valid.",
+    "QA-07-001": "PASS_PRESERVED: readiness, eligible-row, training-data, deterministic model and prediction identities reproduce exactly in normal and reversed order.",
+    "OBS-07-001..003": "PASS_PRESERVED: all nine measured compact lifecycle boundaries, privacy rejection, context identity, temporal availability, universe membership and row/model bindings passed independently."
+  },
+  "identity_and_privacy_report": {
+    "status": "PASS",
+    "expected_identity": {
+      "stage": "07",
+      "stage_revision": 1,
+      "attempt": 4,
+      "agent": "quant",
+      "implementation_version": "stage07-r1-a4"
+    },
+    "runtime_constant_exact": true,
+    "service_output_exact": true,
+    "all_nine_lifecycle_boundaries_exact": true,
+    "captured_lifecycle_events": 17,
+    "stale_attempt_1_absent": true,
+    "stale_attempt_3_absent": true,
+    "opaque_run_and_evidence_references": "PASS",
+    "private_sentinel_rejection": "PASS",
+    "payload_free_lifecycle_events": "PASS"
+  },
+  "semantic_reproducibility_report": {
+    "status": "PASS",
+    "data_readiness_artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-DATA_READINESS.json",
+    "data_readiness_artifact_sha256": "c0c0813e7569158a36026293b12814b1972b819830f833173542ad8ba8d8543b",
+    "readiness_manifest_hash": "c594e6002196e123ca8f6bead7e233f7272376db84250af87c6174cfb93979b7",
+    "eligible_rows_sha256": "93b980674b6801db52eb08c8e6b5aa652f82bcc22be2887224d88d45454166e4",
+    "model_ready_artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-milestone-MODEL_READY.json",
+    "model_ready_artifact_sha256": "835eb5449c4ff89ca888112f8397d17224fc6dd93bf9d879a0ac876603fda500",
+    "training_data_hash": "78af5fc9e5a1fcb7263601e65ead1732e83625cf3604cde46d2b3289f2691890",
+    "model_version": "logistic-ridge-21d-v1+sha256:73d858322007097b578ed1aaaab9146c18fd8b2cc729c64fe348a345f386583a",
+    "normal_order": "EXACT_MATCH",
+    "reversed_order": "EXACT_MATCH",
+    "complete_milestone_bindings_match": true
+  },
+  "non_blocking_observations": [
+    {
+      "id": "OBS-07-A4-NB-001",
+      "severity": "NON_BLOCKING",
+      "finding": "One explanatory sentence in the DATA_READINESS milestone says current Attempt 3 runtime.",
+      "assessment": "This is stale prose only. The artifact identity, run_id, immutable SHA-256, runtime constant, service output, all nine lifecycle identities, readiness/model hashes and independent reproduction consistently identify Attempt 4; no behavioral, privacy, telemetry or model-binding impact was observed."
+    }
+  ],
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [],
+  "external_execution": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "delete": false,
+    "deploy": false,
+    "commit_or_push": false,
+    "stage08_work": false
+  },
+  "created_at": "2026-09-09T19:01:48.8972630Z"
+}

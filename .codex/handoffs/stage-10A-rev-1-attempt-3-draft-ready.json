@@ -1,0 +1,222 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "core",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 175,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "retry_scope": "Strict REVIEW-10A-A2-001 repair only: make the API/runtime configuration boundary invoke the existing fail-closed Sentry and LangSmith cleanup/initializer interfaces for every Settings configuration before any effective gate decision, with a hostile legacy environment matrix. No route, agent, error-handler, Stage10B, product formula, dependency or external-system change.",
+  "trigger_review": {
+    "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-review.json",
+    "sha256": "dffe9b9dca8a62ec440074dfa8024031188c413e0c93e82c4e60f3d018c60702",
+    "review_status": "REJECTED",
+    "blocking_finding": "REVIEW-10A-A2-001",
+    "disposition": "RESOLVED_IN_CURRENT_DRAFT"
+  },
+  "dependency_handoffs": [
+    {
+      "stage": "09",
+      "path": ".codex/handoffs/stage-09-rev-1-handoff.json",
+      "sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+      "state_status": "CLOSED"
+    }
+  ],
+  "immutable_prior_attempt_artifacts": [
+    {
+      "attempt": 1,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-draft-ready.json",
+      "sha256": "10cb19dd94d64f18ba1e88c86a1b5fa5116c83f3ba8c3424575fc096c17b1a06"
+    },
+    {
+      "attempt": 1,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json",
+      "sha256": "6952d6790995f426f5ace00dd323b2b96c317d7b35bd633cb74bc2b75816353c"
+    },
+    {
+      "attempt": 1,
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json",
+      "sha256": "5293a8b273d7330ca11af9491cf9402a22a5a56ea630f8e1f5646805447a05f5"
+    },
+    {
+      "attempt": 1,
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-2.json",
+      "sha256": "fa5a7f59fb8553138e72e691061fbb6418ad7abdd875b65d9424ddbdacca7895"
+    },
+    {
+      "attempt": 1,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.md",
+      "sha256": "2e8f4da71959373a0a70dae039ebcbc5c9072059ce4aaf91f9f7049cb4f4b72e"
+    },
+    {
+      "attempt": 1,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.json",
+      "sha256": "f30f3e154a2e8e977e1a97b44bb95f61b60c960873869d901f621f256cd63ae7"
+    },
+    {
+      "attempt": 1,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-qa.json",
+      "sha256": "5fcc4ebda0e6f3da92dd272270076c30857d5090b3c3a48e6062cd34b2fcd04e"
+    },
+    {
+      "attempt": 1,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-review.json",
+      "sha256": "d8f4a9bababc4232b41ad86173e27fafb51f9fffc739a8714018eb014529237c"
+    },
+    {
+      "attempt": 2,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-draft-ready.json",
+      "sha256": "9c6cd944b8858297b79f914580abd52cb9840a79b118610a67958861c96300c5"
+    },
+    {
+      "attempt": 2,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-observability.json",
+      "sha256": "56a491e16ba387a51f127e75996e94eb76471041dab85eaabf235de347aea3b1"
+    },
+    {
+      "attempt": 2,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-implementation.md",
+      "sha256": "5e78528df589e7a64b9e335c99ef523bc34d85350073f84c957a79295570fada"
+    },
+    {
+      "attempt": 2,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-implementation.json",
+      "sha256": "b69556d7481c27ca172028921cc8e239691bfd6aa570a86658cbfa8164b23ae6"
+    },
+    {
+      "attempt": 2,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-qa.json",
+      "sha256": "334707c81de099534339327330f4187277e429a51a245323a61668ac06352333"
+    },
+    {
+      "attempt": 2,
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-review.json",
+      "sha256": "dffe9b9dca8a62ec440074dfa8024031188c413e0c93e82c4e60f3d018c60702"
+    }
+  ],
+  "changed_files": [
+    "api/main.py",
+    "tests/unit_tests/api_test/test_api_main.py",
+    ".codex/handoffs/stage-10A-rev-1-attempt-3-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "finding_disposition": {
+    "REVIEW-10A-A2-001": "PASS_RESOLVED: _configure_optional_observability now invokes both existing fail-closed initializers unconditionally for every default, incomplete and full Settings configuration. Stale local enabled flags are reset, legacy LangSmith tracing flags are forced false, LANGCHAIN_API_KEY is removed, tracing_is_enabled() is false, and no Sentry SDK, LangSmith Client or socket call occurs.",
+    "REVIEW-10A-001": "PASS_PRESERVED: full configuration remains fail-closed and safe local injectable Stage10A lifecycle telemetry remains available.",
+    "REVIEW-10A-002": "PASS_PRESERVED: api/routes/analyze.py remains at the accepted Attempt2 hash with legacy app-state Manager resolution, unnormalized status forwarding and privacy sanitation.",
+    "OBS-10A-A2-001": "PASS_PRESERVED_AT_ATTEMPT2_IDENTITY: current Observability-owned runtime identity remains 10A/r1/a2/core exactly as instructed; Observability owns the Attempt3 identity advance in the next pass."
+  },
+  "hostile_environment_matrix": {
+    "cases": 31,
+    "coverage": "Every five-bit default/incomplete combination of global observability, Sentry flag, Sentry credential, LangSmith flag and LangSmith credential; the only excluded tuple is the separately covered fully complete configuration.",
+    "initial_langchain_tracing_v2": "true",
+    "initial_langsmith_tracing": "true",
+    "initial_langchain_api_key": "PRIVATE_SENTINEL",
+    "initial_sentry_local_enabled": true,
+    "initial_langsmith_local_enabled": true,
+    "configure_result": [false, false],
+    "final_langchain_tracing_v2": "false",
+    "final_langsmith_tracing": "false",
+    "final_langchain_api_key_present": false,
+    "final_tracing_is_enabled": false,
+    "sentry_sdk_init_calls": 0,
+    "sentry_capture_calls": 0,
+    "langsmith_client_calls": 0,
+    "socket_calls": 0,
+    "status": "PASS_ALL_CASES"
+  },
+  "preservation_evidence": {
+    "api_route_sha256": "32c755190b678b393e32ca3886e6153a111d1d35659046196c5153d3d4d48070",
+    "api_route_unchanged_from_attempt2": true,
+    "core_observability_sha256": "9f644852adeb896eee2423ee684f5431ff477c55460106e6734d6ae52b74977f",
+    "langsmith_trace_sha256": "f2ad8e7c83f27706861298b8a32619d6b774428b93517036afd4a24dc2dd607b",
+    "observability_owned_sources_changed_by_core": false,
+    "local_lifecycle_telemetry_preserved": true,
+    "full_configuration_fail_closed": true,
+    "stage10b_activated": false
+  },
+  "draft_self_tests": [
+    {
+      "command": "forced-offline pytest tests/unit_tests/api_test/test_api_main.py -q",
+      "exit_code": 0,
+      "result": "45 passed in 2.08s; 31 hostile default/incomplete gate cases all pass",
+      "network_mode": "FORCED_OFFLINE_SOCKET_GUARDED"
+    },
+    {
+      "command": "forced-offline pytest of ten exact Stage10A API/config/dependency/exception/analyze/memory/root/runtime/observability modules",
+      "exit_code": 0,
+      "result": "245 passed in 64.23s",
+      "network_mode": "FORCED_OFFLINE_MOCKED_CLIENTS_AND_SOCKET_GUARDS"
+    },
+    {
+      "command": "forced-offline proportional Stage01/08/09 regression modules",
+      "exit_code": 0,
+      "result": "140 passed in 41.02s",
+      "network_mode": "FORCED_OFFLINE_LOCKED_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "forced-offline direct analyze route behavior/privacy tests",
+      "exit_code": 0,
+      "result": "22 passed in 2.22s",
+      "network_mode": "FORCED_OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 pytest --collect-only -q",
+      "exit_code": 0,
+      "result": "1477 tests collected in 19.15s; zero collection errors",
+      "network_mode": "FORCED_OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": "py_compile api/main.py tests/unit_tests/api_test/test_api_main.py plus scoped git diff --check",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent core",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 175 before draft artifact creation",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "preflight_notes": [
+    "An initial direct-test run had one environment-dependent assertion expecting an empty Settings credential while the local process supplied one. No credential value is recorded here. The assertion was corrected to compare the initializer call with the Settings value without logging it; the final direct suite passed 45/45.",
+    "The earlier Attempt2 non-offline collection HF Hub warning remains UNVERIFIED actual contact and excluded from current acceptance evidence; all current accepted evidence ran forced-offline."
+  ],
+  "source_sha256": {
+    "api/main.py": "7f502c2c85dc0e9a5261f094d680004f513982b9e0c830143ec59fc5a4a05e46",
+    "tests/unit_tests/api_test/test_api_main.py": "512abd5c3a8f28d742ed14878e083af239dcc75d7414f67a0e2fe6f6b8d67fb2"
+  },
+  "observability_review_focus": [
+    "Advance only Observability-owned runtime identity to 10A/r1/a3/core and stage10a-r1-a3.",
+    "Re-run the hostile default/incomplete/full configuration matrix and confirm tracing_is_enabled() false, credential export environment removed, and zero external SDK/client/socket calls.",
+    "Preserve the unconditional API cleanup boundary, local lifecycle telemetry, Attempt2 route correction, request/memory isolation, no-auto-seed behavior and all prior artifact hashes."
+  ],
+  "known_limitations": [
+    "Runtime identity intentionally remains Attempt2 until the separately owned Observability pass advances it to Attempt3.",
+    "External Sentry and LangSmith export intentionally remains unavailable even with complete configuration until legacy request-reachable tracing and exception capture are proven payload-safe.",
+    "Stage10B remains pending and owns versioned forecast persistence, authentication-aware identity, route forecast fields, progress/backtest jobs, UI and E2E wiring.",
+    "Final implementation MD/JSON are intentionally not written while observability_required is true and the phase is PRIMARY_DRAFT."
+  ],
+  "operational_safety": {
+    "network_intentionally_used": false,
+    "dedicated_guarded_external_attempts": 0,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "dependency_change": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false,
+    "prior_attempt_artifacts_changed": false,
+    "observability_owned_sources_changed_by_core": false,
+    "route_or_stage10b_changed": false
+  },
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-13T14:12:43.9158715Z"
+}

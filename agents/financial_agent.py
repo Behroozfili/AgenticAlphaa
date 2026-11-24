@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import logging
 import asyncio
+import time
+from types import SimpleNamespace
 from typing import Any
 
 import anthropic
@@ -15,21 +17,30 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from langgraph.graph import END, StateGraph
 import os
-from agents.prompts.promt_finance_checker import CHECKER_SYSTEM_PROMPT,system_prompt
+from agents.prompts.prompt_finance_checker import CHECKER_SYSTEM_PROMPT, system_prompt
 from evaluation.financial_sanity import evaluate_financial_sanity
 from evaluation.earnings_quality import normalize_earnings_quality
-from evaluation.claim_contract import typed_financial_claim
-from agents.executor_helpers.finance_executor_helper import ( extract_ticker, annotate_confidence, build_consistency_checks, build_data_quality_score, sanitize_nans)
+from agents.executor_helpers.finance_executor_helper import (
+    annotate_confidence, build_consistency_checks, build_data_quality_score,
+    extract_ticker, sanitize_nans,
+)
 from agents.state import FinancialAgentState, SharedManagerState
 from langsmith import traceable
-from core.observability import traced_call_tool
-from core.error_handler import add_breadcrumb, capture_exception
+from core.forecast_contract import ForecastContext
+from core.observability import elapsed_latency_ms
+from core.error_handler import add_breadcrumb
 from core.progress_bus import publish as _publish_progress, session_from_directives
 from agents.executor_helpers.financial_helper import (INTENTS,  BASELINE_EXTRACTION,
     BASELINE_COMPUTE, ANALYSIS_PROFILES, FULL_REPORT_PROFILES,  MONTE_CARLO_TOOLS,
     EXTRACTION_REGISTRY, EXTRACTION_ORDER, COMPUTE_ORDER,
     COMPUTE_REGISTRY, SUMMARY_CALCULATED_PASSTHROUGH, checker_requirements,
-    normalize_depth,derive_compute_facts, surface_calculated_ratios,select_sec_filing_type,
+    normalize_depth, derive_compute_facts, select_sec_filing_type,
+
+)
+from agents.executor_helpers.monthly_financial_features import build_monthly_financial_features
+from tools.financial_tools import (
+    financial_implementation_identity, financial_lifecycle_event,
+    financial_trace_metadata, require_financial_context,
 )
 
 
@@ -45,8 +56,168 @@ _select_sec_filing_type = select_sec_filing_type
 
 log = logging.getLogger("financial-analyst-agent")
 
-_FACTS_YEARS_RETAINED = 3
-_FILING_TEXT_CHAR_LIMIT = 20_000
+_TRACE_IDENTITY = financial_implementation_identity()
+_FINANCIAL_MCP_TOOLS = frozenset(
+    set(EXTRACTION_REGISTRY) | set(COMPUTE_REGISTRY) | {
+        "tool_get_cik", "tool_list_filings", "tool_get_filing_text",
+    }
+)
+_MCP_ERROR_CODES = frozenset({
+    "CURRENT_ONLY_PROVIDER_REJECTED", "FINANCIAL_CALCULATION_FAIL_CLOSED",
+    "FINANCIAL_TOOL_DATA_UNAVAILABLE", "FINANCIAL_TOOL_FAIL_CLOSED",
+    "SEC_CIK_UNAVAILABLE", "SEC_COMPANYFACTS_UNAVAILABLE",
+    "SEC_FILING_UNAVAILABLE", "SEC_SUBMISSIONS_UNAVAILABLE",
+    "YAHOO_ADJUSTED_HISTORY_UNAVAILABLE",
+})
+
+
+def _financial_identity(state: Any) -> tuple[ForecastContext, str]:
+    payload = state if isinstance(state, dict) else {}
+    directives = payload.get("manager_directives") if isinstance(payload.get("manager_directives"), dict) else {}
+    return require_financial_context(
+        payload.get("forecast_context") or directives.get("forecast_context"),
+        directives.get("run_id") or payload.get("run_id"),
+        ticker=directives.get("ticker"),
+    )
+
+
+def _trace_inputs(operation: str):
+    def process(inputs: dict[str, Any]) -> dict[str, Any]:
+        state = inputs.get("shared_state") or inputs.get("state") or {}
+        try:
+            context, run_id = _financial_identity(state)
+            metadata = financial_trace_metadata(context, run_id)
+        except (TypeError, ValueError):
+            metadata = dict(_TRACE_IDENTITY)
+        return {
+            "operation": operation, "metadata": metadata,
+            "loop_counter": state.get("loop_counter", 0) if isinstance(state, dict) else 0,
+            "resume": "not_applicable",
+        }
+    return process
+
+
+def _trace_outputs(operation: str):
+    def process(outputs: Any) -> dict[str, Any]:
+        payload = outputs if isinstance(outputs, dict) else {}
+        features = payload.get("financial_features") if isinstance(payload.get("financial_features"), dict) else {}
+        evidence = features.get("evidence_ids") if isinstance(features.get("evidence_ids"), list) else []
+        return {
+            "operation": operation, "metadata": dict(_TRACE_IDENTITY),
+            "evidence_count": len(evidence), "missing": bool(features.get("missing", False)),
+            "degraded": bool(features.get("degraded", False)), "resume": "not_applicable",
+        }
+    return process
+
+
+def _safe_tool_name(value: Any) -> str:
+    tool = str(value or "").strip()
+    if tool not in _FINANCIAL_MCP_TOOLS:
+        raise ValueError("unknown Stage05 financial MCP tool")
+    return tool
+
+
+def _bounded_score(value: Any) -> int:
+    try:
+        return max(0, min(int(value), 100))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+class _SafeFinancialMCPResult:
+    """Proxy the MCP result while exposing only compact trace metadata."""
+
+    __slots__ = ("_raw", "safe_trace")
+
+    def __init__(self, raw: Any, safe_trace: dict[str, Any]) -> None:
+        self._raw = raw
+        self.safe_trace = safe_trace
+
+    @property
+    def content(self) -> Any:
+        return self._raw.content
+
+
+def _financial_mcp_trace_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
+    context = inputs.get("context")
+    run_id = inputs.get("run_id")
+    try:
+        metadata = financial_trace_metadata(context, run_id)
+        tool = _safe_tool_name(inputs.get("tool"))
+    except (TypeError, ValueError):
+        metadata = dict(_TRACE_IDENTITY)
+        tool = "financial_tool_unknown"
+    arguments = inputs.get("arguments")
+    return {
+        **metadata, "operation": "mcp_dispatch", "tool": tool,
+        "input_count": min(len(arguments), 1000) if isinstance(arguments, dict) else 0,
+    }
+
+
+def _financial_mcp_trace_outputs(outputs: Any) -> dict[str, Any]:
+    event = outputs.safe_trace if isinstance(outputs, _SafeFinancialMCPResult) else {}
+    allowed = {
+        "stage", "stage_revision", "attempt", "agent", "implementation_version",
+        "run_id", "ticker", "as_of", "target", "horizon", "analysis_mode",
+        "dataset_version", "feature_version", "model_version", "schema_version",
+        "boundary", "provider", "operation", "latency_ms", "outcome", "missing",
+        "degraded", "input_count", "result_count", "error_code", "tool",
+    }
+    return {key: value for key, value in event.items() if key in allowed}
+
+
+@traceable(
+    name="financial.mcp_dispatch", run_type="tool", metadata=_TRACE_IDENTITY,
+    process_inputs=_financial_mcp_trace_inputs,
+    process_outputs=_financial_mcp_trace_outputs,
+)
+async def _financial_call_tool(
+    session: ClientSession, tool: str, arguments: dict[str, Any], *,
+    context: ForecastContext, run_id: str,
+) -> _SafeFinancialMCPResult:
+    """Call MCP without permitting arguments, results or exceptions into traces."""
+    validated_context, identity = require_financial_context(context, run_id)
+    safe_tool = _safe_tool_name(tool)
+    started_at = time.perf_counter()
+    outcome = "success"
+    error_code: str | None = None
+    missing = False
+    degraded = False
+    try:
+        raw = await session.call_tool(safe_tool, arguments)
+        try:
+            compact_probe = json.loads(raw.content[0].text)
+        except (AttributeError, IndexError, TypeError, json.JSONDecodeError):
+            compact_probe = {}
+        if isinstance(compact_probe, dict) and (
+            compact_probe.get("error") or compact_probe.get("status") == "DATA_UNAVAILABLE"
+        ):
+            outcome = "unavailable"
+            missing = True
+            degraded = True
+            candidate = str(compact_probe.get("error_code") or "")
+            error_code = candidate if candidate in _MCP_ERROR_CODES else "FINANCIAL_TOOL_DATA_UNAVAILABLE"
+    except Exception:
+        outcome = "fail_closed"
+        missing = True
+        degraded = True
+        error_code = "FINANCIAL_TOOL_FAIL_CLOSED"
+        raw = SimpleNamespace(content=[SimpleNamespace(text=json.dumps({
+            "error": "Financial tool failed closed.",
+            "error_code": error_code,
+        }))])
+    safe_trace = financial_lifecycle_event(
+        context=validated_context, run_id=identity, boundary="financial_mcp_ratio_dispatcher",
+        started_at=started_at, outcome=outcome,
+        counts={
+            "input_count": len(arguments),
+            "result_count": len(getattr(raw, "content", []) or []),
+        },
+        missing=missing, degraded=degraded, error_code=error_code,
+    )
+    safe_trace["tool"] = safe_tool
+    return _SafeFinancialMCPResult(raw, safe_trace)
+
 _MCP_SERVER_PARAMS = StdioServerParameters(
     command="python",
     args=[os.path.join(os.path.dirname(__file__), "..","tools","financial_tools" ,"financial_server.py")],
@@ -55,6 +226,7 @@ _MCP_SERVER_PARAMS = StdioServerParameters(
 
 
 class FinancialAnalystAgent:
+    _extract_ticker = staticmethod(extract_ticker)
     
     def __init__(
         self,
@@ -75,11 +247,7 @@ class FinancialAnalystAgent:
        
         self._graph = self._build_graph()
 
-        log.info(
-            "FinancialAnalystAgent initialised — model=%s, server_script=%s",
-            model,
-            self._server_params.args[-1] if self._server_params.args else "<none>",
-        )
+        log.info("FINANCIAL_AGENT_INITIALIZED")
 
    
 
@@ -89,11 +257,14 @@ class FinancialAnalystAgent:
     ) -> None:
         """Run CIK -> filing list -> filing text using only returned identifiers."""
         raw = state["raw_numerical_data"]
+        context, run_id = _financial_identity(state)
         session_id = session_from_directives(state["manager_directives"])
         workflow: dict[str, Any] = {"form_type": form_type, "status": "started"}
         raw["sec_filing"] = workflow
 
         async def call(tool: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+            arguments = dict(arguments)
+            arguments.update(forecast_context=context.to_dict(), run_id=run_id)
             _publish_progress(
                 session_id, "agent_tool_call", agent="financial",
                 message=f"Financial Agent: calling tool '{tool}'...",
@@ -104,10 +275,12 @@ class FinancialAnalystAgent:
                     "mcp.financial", f"Calling {tool}",
                     {"tool": tool, "ticker": ticker},
                 )
-                result = await traced_call_tool(session, tool, arguments)
+                result = await _financial_call_tool(
+                    session, tool, arguments, context=context, run_id=run_id,
+                )
                 data = json.loads(result.content[0].text)
                 if data.get("error"):
-                    errors.append(f"{tool} error: {data['error']}")
+                    errors.append("FINANCIAL_TOOL_DATA_UNAVAILABLE")
                     return None
                 _publish_progress(
                     session_id, "agent_tool_result", agent="financial",
@@ -115,10 +288,9 @@ class FinancialAnalystAgent:
                     detail={"tool": tool},
                 )
                 return data
-            except Exception as exc:
-                errors.append(f"{tool} exception: {exc}")
-                log.exception("Executor: SEC chain step %s failed", tool)
-                capture_exception("mcp.financial", exc, tags={"tool": tool})
+            except Exception:
+                errors.append("FINANCIAL_TOOL_FAIL_CLOSED")
+                log.error("FINANCIAL_TOOL_FAIL_CLOSED tool=%s", tool)
                 return None
 
         cik_data = await call("tool_get_cik", {"ticker": ticker})
@@ -151,6 +323,7 @@ class FinancialAnalystAgent:
                     "cik": cik,
                     "primary_document": filing.get("primary_document"),
                     "form_type": form_type,
+                    "filed_at": filing.get("filed_at") or filing.get("filing_date"),
                 },
             )
             if text_data is None or text_data.get("validation_status") != "VALID":
@@ -169,7 +342,9 @@ class FinancialAnalystAgent:
             error="No filing candidate passed primary-document validation.",
         )
 
-    @traceable(name="financial.extract", run_type="tool")
+    @traceable(name="financial.extract", run_type="tool", metadata=_TRACE_IDENTITY,
+               process_inputs=_trace_inputs("financial_extract"),
+               process_outputs=_trace_outputs("financial_extract"))
     async def _execute_data_extraction(
         self,
         session: ClientSession,
@@ -177,6 +352,7 @@ class FinancialAnalystAgent:
     ) -> None:
         
         directives = state["manager_directives"]
+        context, run_id = _financial_identity(state)
         task_query = state["task_query"]
         ticker     = extract_ticker(task_query, directives)
 
@@ -184,7 +360,7 @@ class FinancialAnalystAgent:
             state["raw_numerical_data"]["extraction_errors"] = [
                 "Could not determine ticker symbol from task_query or manager_directives."
             ]
-            log.error("Executor: ticker extraction failed — aborting data pull.")
+            log.error("FINANCIAL_TICKER_EXTRACTION_FAILED")
             return
 
         state["raw_numerical_data"]["ticker"] = ticker
@@ -198,7 +374,7 @@ class FinancialAnalystAgent:
         )
 
         extraction_tools, _ = self._resolve_tools(state)
-        log.info("Executor: intent-resolved extraction tools = %s", extraction_tools)
+        log.info("FINANCIAL_EXTRACTION_PLAN tool_count=%d", len(extraction_tools))
         feedback = (state.get("validation_feedback") or "").lower()
         pending: list[str] = []
         for tool in extraction_tools:
@@ -220,37 +396,41 @@ class FinancialAnalystAgent:
 
             if args is None:
                 industry = raw.get("yahoo_ratios", {}).get("industry", "")
-                log.info(
-                    "Executor: skipping %s — inputs unavailable for ticker=%s "
-                    "(industry=%r).", tool, ticker, industry,
-                )
+                log.info("FINANCIAL_EXTRACTION_SKIPPED tool=%s missing=True", tool)
                 if tool == "tool_get_peer_comparison":
                     raw["peer_comparison"] = {
                         "note": f"No peer mapping available for industry={industry!r}.",
                     }
                 return
 
+            args = dict(args)
+            args.update(forecast_context=context.to_dict(), run_id=run_id)
+
             log.info("Executor: calling %s for %s", tool, ticker)
             _publish_progress(
                 session_id, "agent_tool_call", agent="financial",
                 message=f"Financial Agent: calling tool '{tool}'...",
-                detail={"tool": tool, **({"peers": args["peers"]} if "peers" in args else {})},
+                detail={"tool": tool, **({"peer_count": len(args["peers"])} if "peers" in args else {})},
             )
             try:
                 add_breadcrumb(
                     "mcp.financial", f"Calling {tool}",
                     {"tool": tool, "ticker": ticker},
                 )
-                result = await traced_call_tool(session, tool, args)
+                result = await _financial_call_tool(
+                    session, tool, args, context=context, run_id=run_id,
+                )
                 data = json.loads(result.content[0].text)
-                if data.get("error"):
-                    errors.append(f"{tool} error: {data['error']}")
-                raw[store_key] = data
-            except Exception as exc:
-                errors.append(f"{tool} exception: {exc}")
+                if data.get("error") or data.get("status") == "DATA_UNAVAILABLE":
+                    errors.append(str(data.get("error_code") or "FINANCIAL_TOOL_DATA_UNAVAILABLE"))
+                raw[store_key] = (
+                    {} if data.get("error_code") == "FINANCIAL_TOOL_FAIL_CLOSED"
+                    else data
+                )
+            except Exception:
+                errors.append("FINANCIAL_TOOL_FAIL_CLOSED")
                 raw[store_key] = {}
-                log.exception("Executor: %s failed", tool)
-                capture_exception("mcp.financial", exc, tags={"tool": tool})
+                log.error("FINANCIAL_TOOL_FAIL_CLOSED tool=%s", tool)
 
             _publish_progress(
                 session_id, "agent_tool_result", agent="financial",
@@ -288,7 +468,9 @@ class FinancialAnalystAgent:
             "Executor: data extraction complete — %d error(s) recorded.", len(errors)
         )
 
-    @traceable(name="financial.compute", run_type="tool")
+    @traceable(name="financial.compute", run_type="tool", metadata=_TRACE_IDENTITY,
+               process_inputs=_trace_inputs("financial_compute"),
+               process_outputs=_trace_outputs("financial_compute"))
     async def _execute_ratio_computation(
         self,
         session: ClientSession,
@@ -297,6 +479,7 @@ class FinancialAnalystAgent:
        
         raw        = state["raw_numerical_data"]
         xbrl_src   = raw.get("xbrl_financials", {})
+        context, run_id = _financial_identity(state)
         session_id = session_from_directives(state["manager_directives"])
 
         
@@ -313,7 +496,9 @@ class FinancialAnalystAgent:
             )
             try:
                 add_breadcrumb("mcp.financial", f"Calling {tool}", {"tool": tool})
-                result = await traced_call_tool(session, tool, args)
+                result = await _financial_call_tool(
+                    session, tool, args, context=context, run_id=run_id,
+                )
                 parsed = json.loads(result.content[0].text)
                 parsed["_inputs"] = dict(args)
                 parsed["_period"] = period
@@ -348,23 +533,23 @@ class FinancialAnalystAgent:
                     detail={"tool": tool, "outcome": "success"},
                 )
                 return parsed
-            except Exception as exc:
-                log.warning("Ratio computation tool '%s' failed: %s", tool, exc)
+            except Exception:
+                log.warning("FINANCIAL_CALCULATION_FAIL_CLOSED tool=%s", tool)
                 _publish_progress(
                     session_id, "agent_tool_result", agent="financial",
                     message=f"Financial Agent: '{tool}' failed",
-                    detail={"tool": tool, "outcome": "error", "error": str(exc)},
+                    detail={"tool": tool, "outcome": "FAIL_CLOSED", "error_code": "FINANCIAL_CALCULATION_FAIL_CLOSED"},
                 )
-                capture_exception("mcp.financial", exc, tags={"tool": tool})
                 failure = {
-                    "error": str(exc),
-                    "_inputs": dict(args),
+                    "error": "Financial calculation failed closed.",
+                    "error_code": "FINANCIAL_CALCULATION_FAIL_CLOSED",
+                    "_inputs": {},
                     "_period": period,
                     "validation_status": "UNAVAILABLE",
                     "source": "calculation_error",
                     "exact_period": period,
                     "formula": None,
-                    "fallback_reason": f"Metric calculation failed: {exc}",
+                    "fallback_reason": "Financial calculation failed closed.",
                     "confidence": "none",
                     "is_approximation": False,
                 }
@@ -378,7 +563,7 @@ class FinancialAnalystAgent:
         state["calculated_ratios"]["earnings_quality"] = normalize_earnings_quality(xbrl_src)
 
         _, compute_tools = self._resolve_tools(state)
-        log.info("Executor: intent-resolved compute tools = %s", compute_tools)
+        log.info("FINANCIAL_COMPUTE_PLAN tool_count=%d", len(compute_tools))
 
         d = derive_compute_facts(
             raw, state["calculated_ratios"], depth=self._resolve_depth(state),
@@ -425,7 +610,7 @@ class FinancialAnalystAgent:
             else:
                 args, period = plan
                 metadata = None
-            log.info("Computing %s (period=%s)", tool, period)
+            log.info("FINANCIAL_CALCULATION_STARTED tool=%s", tool)
             result = await _call(tool, args, period=period, metadata=metadata)
             if spec.post is not None:
                 spec.post(result, d)
@@ -433,7 +618,9 @@ class FinancialAnalystAgent:
 
         log.info("Executor: ratio computation complete.")
 
-    @traceable(name="financial.checker", run_type="llm")
+    @traceable(name="financial.checker", run_type="llm", metadata=_TRACE_IDENTITY,
+               process_inputs=_trace_inputs("financial_checker"),
+               process_outputs=_trace_outputs("financial_checker"))
     async def _check_data_quality(self, state: FinancialAgentState) -> dict[str, Any]:
         
         raw  = state["raw_numerical_data"]
@@ -526,13 +713,13 @@ class FinancialAnalystAgent:
         if not intent_requirements["passed"]:
             missing = intent_requirements["missing_groups"]
             log.warning(
-                "[Checker] Intent coverage failed before LLM audit — missing=%s", missing,
+                "FINANCIAL_CHECKER_COVERAGE_FAILED missing_count=%d", len(missing),
             )
             _publish_progress(
                 session_from_directives(state["manager_directives"]),
                 "agent_checker", agent="financial",
                 message="Financial Agent: checking data quality — needs more data",
-                detail={"is_complete": False, "missing_groups": missing},
+                detail={"is_complete": False, "missing_count": len(missing)},
             )
             return {
                 "is_complete": False,
@@ -575,36 +762,35 @@ class FinancialAnalystAgent:
             verdict_text = verdict_text.replace("```json", "").replace("```", "").strip()
             verdict = json.loads(verdict_text)
 
-        except json.JSONDecodeError as exc:
-            log.warning("[Checker] Claude returned non-JSON verdict: %s | raw=%s",
-                        exc, verdict_text[:300])
+        except json.JSONDecodeError:
+            log.warning("FINANCIAL_CHECKER_PARSE_ERROR")
             return {
                 "is_complete": False,
                 "score":       0,
                 "passed":      [],
                 "failed":      ["CHECKER PARSE ERROR"],
-                "issues":      [f"Claude Checker returned malformed JSON: {exc}"],
+                "issues":      ["FINANCIAL_CHECKER_PARSE_ERROR"],
                 "feedback":    "Checker could not parse its own verdict. "
                                "Re-run full extraction with tool_get_financial_ratios, "
                                "tool_get_revenue_growth, and tool_get_xbrl_financials.",
             }
 
-        except Exception as exc:
-            log.exception("[Checker] Claude API call failed: %s", exc)
+        except Exception:
+            log.error("FINANCIAL_CHECKER_API_ERROR")
             
             return {
                 "is_complete": False,
                 "score":       0,
                 "passed":      [],
                 "failed":      ["CHECKER API ERROR"],
-                "issues":      [f"Claude Checker API call failed: {exc}"],
+                "issues":      ["FINANCIAL_CHECKER_API_ERROR"],
                 "feedback":    "Checker API call failed. Retry full data extraction "
                                "on the next iteration.",
             }
 
        
         is_complete = bool(verdict.get("is_complete", False))
-        score       = int(verdict.get("score", 0))
+        score       = _bounded_score(verdict.get("score", 0))
         passed      = verdict.get("passed", [])
         failed      = verdict.get("failed", [])
         issues      = verdict.get("issues", [])
@@ -616,18 +802,15 @@ class FinancialAnalystAgent:
                 score, len(passed), loop,
             )
         else:
-            log.warning(
-                "[Checker] FAIL — score=%d | failed=%s | issues=%s",
-                score, failed, issues,
-            )
+            log.warning("FINANCIAL_CHECKER_FAIL score=%d failed_count=%d issue_count=%d", score, len(failed), len(issues))
 
         _publish_progress(
             session_from_directives(state["manager_directives"]), "agent_checker", agent="financial",
             message=(
                 f"Financial Agent: checking data quality — "
-                f"{'sufficient ✓' if is_complete else 'needs more data'} (score={score})"
+                f"{'sufficient ✓' if is_complete else 'needs more data'}"
             ),
-            detail={"is_complete": is_complete, "score": score, "failed": failed},
+            detail={"is_complete": is_complete, "score": score, "failed_count": len(failed)},
         )
 
         return {
@@ -645,7 +828,9 @@ class FinancialAnalystAgent:
     # LAYER 3 — BRAIN / ORCHESTRATOR (Lifecycle & Loop Gateway)
     # =========================================================================
 
-    @traceable(name="financial.brain", run_type="llm")
+    @traceable(name="financial.brain", run_type="llm", metadata=_TRACE_IDENTITY,
+               process_inputs=_trace_inputs("financial_brain"),
+               process_outputs=_trace_outputs("financial_brain"))
     async def _brain(self, state: FinancialAgentState) -> dict[str, Any]:
         
         iteration   = state["loop_counter"]
@@ -683,10 +868,7 @@ class FinancialAnalystAgent:
             parsed = json.loads(clean)
             result = self._validate_brain_output(parsed)
             result["raw_plan"] = raw_plan
-            log.info(
-                "Brain intents for iteration %d: %s (%s)",
-                iteration, result["intents"], result["rationale"],
-            )
+            log.info("FINANCIAL_BRAIN_COMPLETE iteration=%d intent_count=%d", iteration, len(result["intents"]))
             return result
 
         except json.JSONDecodeError:
@@ -698,11 +880,8 @@ class FinancialAnalystAgent:
                 "raw_plan": raw_plan,
             }
 
-        except Exception as exc:
-            log.exception("Brain: Claude API call failed — defaulting to overview.")
-            capture_exception(
-                "financial.brain", exc, tags={"iteration": str(iteration)},
-            )
+        except Exception:
+            log.error("FINANCIAL_BRAIN_API_ERROR iteration=%d", iteration)
             default_plan = "Default plan: overview bundle (extraction + core ratios)."
             state["messages"].append({"role": "assistant", "content": default_plan})
             return {
@@ -794,36 +973,76 @@ class FinancialAnalystAgent:
         new_counter = state["loop_counter"] + 1
         log.info("--- Loop iteration %d ---", new_counter)
         brain_output = await self._brain(state)
-        log.info(
-            "Brain intents: %s — %s",
-            brain_output["intents"], brain_output["rationale"],
-        )
+        intents = list(brain_output["intents"])
+        if state.get("manager_directives", {}).get("monthly_feature_profile"):
+            # The monthly model has a fixed feature contract. Intent routing
+            # may add tools, but cannot omit required numerical families.
+            for intent in (
+                "valuation", "profitability", "growth",
+                "financial_health", "liquidity", "cash_flow",
+            ):
+                if intent not in intents:
+                    intents.append(intent)
+        log.info("FINANCIAL_BRAIN_ROUTED intent_count=%d", len(intents))
        
         return {
             "loop_counter": new_counter,
-            "intents":      brain_output["intents"],
+            "intents":      intents,
             "extra_tools":  brain_output["extra_tools"],
             "rationale":    brain_output["rationale"],
         }
 
     async def _node_extract(self, state: FinancialAgentState) -> dict[str, Any]:
+        started_at = time.perf_counter()
         await self._execute_data_extraction(self._session, state)
+        context, run_id = _financial_identity(state)
+        raw = state["raw_numerical_data"]
+        errors = raw.get("extraction_errors") if isinstance(raw.get("extraction_errors"), list) else []
+        financial_lifecycle_event(
+            context=context, run_id=run_id, boundary="agent_extraction",
+            started_at=started_at, outcome="degraded" if errors else "success",
+            counts={"tool_count": len(raw), "error_count": len(errors)},
+            missing=not bool(raw), degraded=bool(errors),
+            error_code="FINANCIAL_TOOL_DATA_UNAVAILABLE" if errors else None,
+        )
         return {"raw_numerical_data": state["raw_numerical_data"]}
 
     async def _node_compute(self, state: FinancialAgentState) -> dict[str, Any]:
+        started_at = time.perf_counter()
         await self._execute_ratio_computation(self._session, state)
+        context, run_id = _financial_identity(state)
+        calculated = state["calculated_ratios"]
+        missing_count = sum(
+            1 for value in calculated.values()
+            if isinstance(value, dict) and value.get("validation_status") == "UNAVAILABLE"
+        )
+        financial_lifecycle_event(
+            context=context, run_id=run_id, boundary="agent_calculation",
+            started_at=started_at, outcome="degraded" if missing_count else "success",
+            counts={"result_count": len(calculated), "missing_count": missing_count},
+            missing=bool(missing_count), degraded=bool(missing_count),
+        )
         return {"calculated_ratios": state["calculated_ratios"]}
 
     async def _node_checker(self, state: FinancialAgentState) -> dict[str, Any]:
+        started_at = time.perf_counter()
         check_result = await self._check_data_quality(state)
         is_complete = check_result["is_complete"]
         if is_complete:
-            log.info("[Checker] PASSED (score=%s) after %d iteration(s).",
-                     check_result.get("score"), state["loop_counter"])
+            log.info("FINANCIAL_CHECKER_PASSED loop_count=%d", state["loop_counter"])
         else:
-            log.warning("[Checker] FAILED iteration %d (score=%s). Feedback: %s",
-                        state["loop_counter"], check_result.get("score"),
-                        str(check_result.get("feedback", ""))[:120])
+            log.warning("FINANCIAL_CHECKER_RETRY loop_count=%d", state["loop_counter"])
+        context, run_id = _financial_identity(state)
+        failed = check_result.get("failed") if isinstance(check_result.get("failed"), list) else []
+        financial_lifecycle_event(
+            context=context, run_id=run_id, boundary="agent_checker",
+            started_at=started_at, outcome="success" if is_complete else "degraded",
+            counts={
+                "result_count": 1, "missing_count": len(failed),
+                "loop_count": state["loop_counter"],
+            },
+            missing=bool(failed), degraded=not is_complete,
+        )
         # Cached so run() doesn't recompute evaluate_financial_sanity() over
         # the same inputs after the graph finishes.
         return {
@@ -870,41 +1089,29 @@ class FinancialAnalystAgent:
     # ENTRY GATEWAY — run()
     # =========================================================================
 
-    @staticmethod
-    def _trim_filing(sec_filing: dict[str, Any]) -> dict[str, Any]:
-        """Cap filing prose before it crosses into the Manager's state.
-
-        The identifiers (CIK, accession number, form type) are what make the
-        filing citable and are always kept in full; only the body text is cut.
-        """
-        if not isinstance(sec_filing, dict) or not sec_filing:
-            return {}
-
-        trimmed = dict(sec_filing)
-        filing_text = trimmed.get("filing_text")
-        if not isinstance(filing_text, dict):
-            return trimmed
-
-        filing_text = dict(filing_text)
-        body = filing_text.get("text")
-        if isinstance(body, str) and len(body) > _FILING_TEXT_CHAR_LIMIT:
-            filing_text["text"] = body[:_FILING_TEXT_CHAR_LIMIT]
-            filing_text["text_truncated"] = True
-            filing_text["text_original_chars"] = len(body)
-        trimmed["filing_text"] = filing_text
-        return trimmed
-
-    @traceable(name="FinancialAnalystAgent.run", run_type="chain")
+    @traceable(
+        name="FinancialAnalystAgent.run", run_type="chain", metadata=_TRACE_IDENTITY,
+        process_inputs=_trace_inputs("financial_run"),
+        process_outputs=_trace_outputs("financial_run"),
+    )
     async def run(self, shared_state: SharedManagerState) -> SharedManagerState:
         
-        directives = shared_state.get("manager_directives", {})
+        directives = dict(shared_state.get("manager_directives", {}))
+        context, run_id = require_financial_context(
+            shared_state.get("forecast_context"),
+            directives.get("run_id") or shared_state.get("run_id"),
+        )
+        directive_ticker = str(directives.get("ticker") or context.ticker).upper()
+        if directive_ticker != context.ticker:
+            raise ValueError("manager ticker must match ForecastContext.ticker")
+        directives.update(
+            ticker=context.ticker, forecast_context=context.to_dict(), run_id=run_id,
+            monthly_feature_profile=True,
+        )
+        run_started_at = time.perf_counter()
         max_loops  = int(directives.get("max_loops", self._default_max_loops))
 
-        log.info(
-            "FinancialAnalystAgent.run() started — task_query='%s', max_loops=%d",
-            shared_state.get("task_query", ""),
-            max_loops,
-        )
+        log.info("FINANCIAL_RUN_STARTED max_loops=%d", max_loops)
 
         # -- Initialise agent-local state -------------------------------------
         state: FinancialAgentState = {
@@ -915,7 +1122,7 @@ class FinancialAnalystAgent:
             "validation_feedback": "",
             "is_complete":         False,
             "task_query":          shared_state["task_query"],
-            "manager_directives":  dict(shared_state.get("manager_directives", {})),
+            "manager_directives":  directives,
             
             "intents":             [],
             "extra_tools":         [],
@@ -953,95 +1160,74 @@ class FinancialAnalystAgent:
         calc = state["calculated_ratios"]
 
        
+        pre_state_started_at = time.perf_counter()
         annotate_confidence(calc)
-        consistency_checks = build_consistency_checks(raw, calc)
-        data_quality = build_data_quality_score(raw, calc)
-        # Reuse the checker's verdict when it ran on this same final state.
-        # It is only recomputed if the graph exited before any checker pass
-        # (e.g. max_loops reached on a path that never populated it).
+        features = build_monthly_financial_features(
+            raw=raw, calculated=calc, forecast_context=context, run_id=run_id,
+        )
+        feature_slot = features.to_state_slot()
+
+        financial_lifecycle_event(
+            context=context, run_id=run_id, boundary="pre_shared_state_gate",
+            started_at=pre_state_started_at,
+            outcome="degraded" if feature_slot["degraded"] else "success",
+            counts={
+                "result_count": len(feature_slot["values"]),
+                "evidence_count": len(feature_slot["evidence_ids"]),
+                "missing_count": len(feature_slot["missing_flags"]),
+            },
+            missing=feature_slot["missing"], degraded=feature_slot["degraded"],
+        )
+
+        # Shared State excludes raw Yahoo/SEC payloads, filing text, checker
+        # prose and attempt history. It retains a compact typed slot plus the
+        # calculated compatibility view consumed by legacy Manager paths.
+        yahoo = raw.get("yahoo_ratios", {})
+        xbrl = raw.get("xbrl_financials", {})
         financial_sanity = state.get("financial_sanity") or evaluate_financial_sanity({
             "forecast": calc.get("forecast", {}),
             "dcf_valuation": calc.get("dcf", {}),
             "reverse_dcf": calc.get("reverse_dcf", {}),
             "earnings_quality": calc.get("earnings_quality", {}),
         })
-
-        financial_facts = []
-        for series_name, entries in raw.get("xbrl_financials", {}).items():
-            if not isinstance(entries, list):
-                continue
-            metric = series_name.removesuffix("_annual")
-            for entry in entries[:_FACTS_YEARS_RETAINED]:
-                if not isinstance(entry, dict) or "value" not in entry:
-                    continue
-                financial_facts.append(typed_financial_claim({
-                    "metric": metric, "value": entry.get("value"), "unit": entry.get("unit"),
-                    "ticker": raw.get("ticker"), "fiscal_year": entry.get("fiscal_year"),
-                    "fiscal_quarter": entry.get("fiscal_quarter"),
-                    "period_start": entry.get("period_start"), "period_end": entry.get("period_end"),
-                    "duration_months": entry.get("duration_months"),
-                    "filing_type": entry.get("filing_type"),
-                    "accession_number": entry.get("accession_number"),
-                    "filed_at": entry.get("filed_at"),
-                    "xbrl_concept": entry.get("xbrl_concept"),
-                    "metric_scope": entry.get("metric_scope"),
-                    "gaap_status": entry.get("gaap_status"),
-                    "validation_status": entry.get("validation_status"),
-                    "source": entry.get("source"),
-                    "selected_source": entry.get("selected_source"),
-                    "exact_period": entry.get("exact_period"),
-                    "fallback_reason": entry.get("fallback_reason"),
-                    "confidence": entry.get("confidence"),
-                    "is_approximation": entry.get("is_approximation", False),
-                    "provenance_status": "COMPLETE" if entry.get("accession_number") else "INCOMPLETE",
-                    # Distinct historical facts are retained, not merged into one claim.
-                    "comparison": True,
-                }))
-
         current_ratio_metric = calc.get("current_ratio_calc", {})
-        if not current_ratio_metric and raw.get("yahoo_ratios", {}).get("current_ratio") is not None:
-            yahoo = raw.get("yahoo_ratios", {})
+        if not current_ratio_metric and yahoo.get("current_ratio") is not None:
             current_ratio_metric = {
                 "current_ratio": yahoo.get("current_ratio"),
-                "interpretation": "sourced_from_yahoo",
-                "semantic_name": "current_ratio",
-                "formula": "Current Assets / Current Liabilities",
+                "validation_status": "FALLBACK",
                 "source": "yahoo_finance.currentRatio",
-                "exact_period": {
-                    "basis": "snapshot", "period_start": None,
-                    "period_end": yahoo.get("financial_data_period_end"),
-                },
-                "fallback_reason": "Current Ratio compute path was not active; preserved Yahoo's direct metric.",
                 "confidence": "medium",
                 "is_approximation": False,
-                "validation_status": "FALLBACK",
-                "_inputs": {"current_ratio": yahoo.get("current_ratio")},
-                "_period": f"snapshot:{yahoo.get('financial_data_period_end') or 'mrq'}",
             }
 
-        financial_metrics_summary: dict[str, Any] = {
-            # Identification
-            "ticker":        raw.get("ticker"),
-            "company_name":  raw.get("yahoo_ratios", {}).get("company_name"),
-            "sector":        raw.get("yahoo_ratios", {}).get("sector"),
-            "industry":      raw.get("yahoo_ratios", {}).get("industry"),
-
-            # Market data
-            "current_price": raw.get("yahoo_ratios", {}).get("current_price"),
-            "market_cap":    raw.get("yahoo_ratios", {}).get("market_cap"),
-            "beta":          raw.get("yahoo_ratios", {}).get("beta"),
-            "52w_high":      raw.get("yahoo_ratios", {}).get("52w_high"),
-            "52w_low":       raw.get("yahoo_ratios", {}).get("52w_low"),
-
-            # Calculated ratios (verified)
-            "pe_ratio":      calc.get("pe", {}),
-            "forward_pe":    raw.get("yahoo_ratios", {}).get("forward_pe"),
-            "peg_ratio":     raw.get("yahoo_ratios", {}).get("peg_ratio"),
-            "roe":           calc.get("roe", {}),
-            "net_margin":    calc.get("net_margin", {}),
-            "de_ratio":      calc.get("de_ratio", {}),
-            "revenue_cagr":  calc.get("cagr", {}),
-            "forecast":      calc.get("forecast", {}),
+        financial_summary = {
+            "ticker": context.ticker,
+            "financial_features": feature_slot["values"],
+            "evidence_ids": feature_slot["evidence_ids"],
+            "missing": feature_slot["missing"], "degraded": feature_slot["degraded"],
+            "missing_flags": feature_slot["missing_flags"],
+            "degraded_flags": feature_slot["degraded_flags"],
+            "validation_passed": bool(state["is_complete"]),
+            "loop_iterations_used": int(state["loop_counter"]),
+            "analysis_intents": sorted(set(state.get("intents") or [])),
+            "implementation": _TRACE_IDENTITY,
+            "latency_ms": elapsed_latency_ms(run_started_at),
+            "company_name": yahoo.get("company_name"),
+            "sector": yahoo.get("sector"),
+            "industry": yahoo.get("industry"),
+            "current_price": yahoo.get("current_price"),
+            "market_cap": yahoo.get("market_cap"),
+            "beta": yahoo.get("beta"),
+            "52w_high": yahoo.get("52w_high"),
+            "52w_low": yahoo.get("52w_low"),
+            "forward_pe": yahoo.get("forward_pe"),
+            "peg_ratio": yahoo.get("peg_ratio"),
+            "pe_ratio": calc.get("pe", {}),
+            "roe": calc.get("roe", {}),
+            "net_margin": calc.get("net_margin", {}),
+            "de_ratio": calc.get("de_ratio", {}),
+            "revenue_cagr": calc.get("cagr", {}),
+            "forecast": calc.get("forecast", {}),
             "dcf_valuation": calc.get("dcf", {}),
             "valuation_input_assessments": (
                 calc.get("dcf", {}).get("base", {}).get("input_assessments", {})
@@ -1049,74 +1235,40 @@ class FinancialAnalystAgent:
             "dcf_monte_carlo": calc.get("dcf_monte_carlo", {}),
             "current_ratio": current_ratio_metric,
             "composite_score": calc.get("composite_score", {}),
-
-         
+            "earnings_quality": calc.get("earnings_quality", {}),
             "net_debt_to_ebitda": calc.get("net_debt_to_ebitda", {}),
-            "fcf_margin":         calc.get("fcf_margin", {}),
-            "fcf_yield":          calc.get("fcf_yield", {}),
-            "ocf_ratio":          calc.get("ocf_ratio", {}),
-            "reverse_dcf":        calc.get("reverse_dcf", {}),
-            "roic":               calc.get("roic", {}),
-            "roce":               calc.get("roce", {}),
-            "debt_ratio":         calc.get("debt_ratio", {}),
-            "equity_ratio":       calc.get("equity_ratio", {}),
-            "altman_z_score":     calc.get("altman_z_score", {}),
-
+            "fcf_margin": calc.get("fcf_margin", {}),
+            "fcf_yield": calc.get("fcf_yield", {}),
+            "ocf_ratio": calc.get("ocf_ratio", {}),
+            "reverse_dcf": calc.get("reverse_dcf", {}),
+            "roic": calc.get("roic", {}),
+            "roce": calc.get("roce", {}),
+            "debt_ratio": calc.get("debt_ratio", {}),
+            "equity_ratio": calc.get("equity_ratio", {}),
+            "altman_z_score": calc.get("altman_z_score", {}),
             "peer_comparison": raw.get("peer_comparison", {}),
-
-            
-            "annual_revenue_history": raw.get("revenue_growth", {}).get("annual_revenue", []),
-            "revenue_growth_ttm":     raw.get("revenue_growth", {}).get("revenue_growth_ttm"),
-
-            # SEC EDGAR
-            "xbrl_total_assets":      (
-                raw.get("xbrl_financials", {}).get("total_assets", [{}])[:1]
-            ),
-            "xbrl_total_liabilities": (
-                raw.get("xbrl_financials", {}).get("total_liabilities", [{}])[:1]
-            ),
-
             "capital_allocation": {
-                "operating_cash_flow": (
-                    raw.get("xbrl_financials", {}).get("operating_cash_flow_annual", [{}])[:1]
-                ),
-                "capex": (
-                    raw.get("xbrl_financials", {}).get("capex_annual", [{}])[:1]
-                ),
-                "dividends_paid": (
-                    raw.get("xbrl_financials", {}).get("dividends_paid_annual", [{}])[:1]
-                ),
-                "buybacks": (
-                    raw.get("xbrl_financials", {}).get("buybacks_annual", [{}])[:1]
-                ),
+                "operating_cash_flow": xbrl.get("operating_cash_flow_annual", [])[:1],
+                "capex": xbrl.get("capex_annual", [])[:1],
+                "dividends_paid": xbrl.get("dividends_paid_annual", [])[:1],
+                "buybacks": xbrl.get("buybacks_annual", [])[:1],
             },
-
-            "consistency_checks": consistency_checks,
-            "data_quality":       data_quality,
-            "financial_sanity":   financial_sanity,
-            "financial_facts":    financial_facts,
-
-            "loop_iterations_used":  state["loop_counter"],
-            "validation_passed":     state["is_complete"],
-            "extraction_errors":     raw.get("extraction_errors", []),
-            "analysis_intents":      state.get("intents", []),
-            "analysis_rationale":    state.get("rationale", ""),
+            "consistency_checks": build_consistency_checks(raw, calc),
+            "data_quality": build_data_quality_score(raw, calc),
+            "financial_sanity": financial_sanity,
+            "financial_facts": [],
+            "extraction_errors": list(raw.get("extraction_errors", [])),
         }
 
-        surface_calculated_ratios(financial_metrics_summary, calc)
-        financial_metrics_summary["sec_filing"] = self._trim_filing(raw.get("sec_filing", {}))
 
-      
-        financial_metrics_summary = sanitize_nans(financial_metrics_summary)
-
-        # Commit to the shared state contract
-        shared_state["financial_metrics_summary"] = financial_metrics_summary  # type: ignore[literal-required]
+        shared_state["financial_features"] = feature_slot  # type: ignore[literal-required]
+        shared_state["financial_metrics_summary"] = sanitize_nans(  # type: ignore[literal-required]
+            financial_summary
+        )
 
         log.info(
-            "FinancialAnalystAgent.run() complete — ticker=%s, score=%s, grade=%s",
-            financial_metrics_summary["ticker"],
-            calc.get("composite_score", {}).get("score"),
-            calc.get("composite_score", {}).get("grade"),
+            "FINANCIAL_RUN_COMPLETE evidence_count=%d missing=%s degraded=%s",
+            len(feature_slot["evidence_ids"]), feature_slot["missing"], feature_slot["degraded"],
         )
 
         return shared_state

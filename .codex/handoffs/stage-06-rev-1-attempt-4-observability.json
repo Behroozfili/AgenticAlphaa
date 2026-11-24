@@ -1,0 +1,181 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 4,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 117,
+  "status": "AUDITED",
+  "changed_files": [],
+  "draft_ready_artifact": ".codex/handoffs/stage-06-rev-1-attempt-4-draft-ready.json",
+  "draft_ready_sha256": "dcc03cfda49f68ede72d0afade0c089274a2eba1be4333acc241c5769a8bca71",
+  "prior_review_artifact": ".codex/handoffs/stage-06-rev-1-attempt-3-review.json",
+  "prior_review_sha256": "9b018cef21e036e03a34c7f362f876f10b9d761d2e244c36f7b9c2fb77e8de9a",
+  "requested_primary_changes": [],
+  "privacy_checks": [
+    {
+      "check": "The actual graph/executor path, with providers mocked but without mocking _graph.ainvoke, rejects provider-controlled fusion status and polarity.",
+      "status": "PASS",
+      "evidence": "The independent PRIVATE_SENTINEL counterexample passed. PRIVATE_SENTINEL was absent from sentiment_analysis_summary, the typed sentiment_features slot, lifecycle logs, progress events, trace serialization and Sentry calls. The returned Shared State has no persisted sentiment_polarity field outside the compact summary/typed slot."
+    },
+    {
+      "check": "Unknown fusion health remains fail-closed and distinct from selected-attempt health.",
+      "status": "PASS",
+      "evidence": "Injected fusion status PRIVATE_SENTINEL! canonicalized to UNKNOWN before executor State assignment, invalid fusion polarity canonicalized to null, fusion score/confidence were invalidated, selected attempt status was recorded separately as ERROR, fusion availability was false, fusion provenance was omitted and the typed slot was degraded with FUSION_STATUS_UNKNOWN and POLARITY_UNKNOWN."
+    },
+    {
+      "check": "All provider-controlled model statuses and polarity are finite-allowlist values before State or telemetry boundaries.",
+      "status": "PASS",
+      "evidence": "FinBERT, VADER, fusion and selected-attempt statuses use bounded ASCII allowlists; polarity is restricted to BULLISH, BEARISH or NEUTRAL. Unknown model health clears the corresponding payload contribution and cannot emit healthy provenance."
+    },
+    {
+      "check": "Queries, raw chunks, provider payloads, free-form errors, brain reasoning and original exceptions do not cross operational telemetry or compact Shared State.",
+      "status": "PASS",
+      "evidence": "Trace processors, lifecycle events and progress events emit only forecast identity, bounded counts/flags, fixed outcomes/error codes and verified model versions. MCP child failures replace the exception with SENTIMENT_TOOL_FAIL_CLOSED; compact_sentiment_summary omits raw evidence, duplicated metadata, attempts and brain_reasoning."
+    },
+    {
+      "check": "MCP dispatch requires ForecastContext and run_id before provider dispatch.",
+      "status": "PASS",
+      "evidence": "The missing-identity counterexample passed and proved the provider implementation was not called."
+    },
+    {
+      "check": "Point-in-time evidence selection rejects every independently future or invalid temporal field before document grouping.",
+      "status": "PASS",
+      "evidence": "The future-effective_from and same-URL past/future isolation counterexamples passed; future chunks cannot borrow an older sibling timestamp."
+    },
+    {
+      "check": "Immutable local model provenance is contributor-only.",
+      "status": "PASS",
+      "evidence": "FinBERT remains pinned to git revision 4556d13015211d73dccd3fdd39d39232506f3e43 with local_files_only loading; VADER retains its exact local lexicon SHA-256; fusion provenance is emitted only when fusion health and score are both valid."
+    }
+  ],
+  "latency_instrumentation_status": "PASS_EIGHT_OF_EIGHT_MEASURED_BOUNDARIES_ATTEMPT4_IDENTITY_CORRECT",
+  "attempt4_rework_audit": {
+    "finding": "REVIEW-06-A3-B-001",
+    "status": "RESOLVED_IN_DRAFT",
+    "provider_boundary_canonicalization": "PASS",
+    "real_graph_executor_counterexample": "PASS",
+    "original_fusion_status": "UNKNOWN",
+    "selected_attempt_status": "ERROR",
+    "fusion_available": false,
+    "fusion_provenance_emitted": false,
+    "invalid_fusion_polarity_persisted": false,
+    "typed_slot_degraded": true,
+    "private_marker_in_any_observed_sink": false
+  },
+  "preserved_contract_audit": {
+    "partial_aggregate_with_one_model_failure": "PASS",
+    "partial_aggregate_with_fusion_failure": "PASS",
+    "low_coverage_propagation": "PASS",
+    "fixed_7_14_30_day_windows": "PASS",
+    "independent_temporal_field_validation": "PASS",
+    "pre_grouping_future_chunk_filter": "PASS",
+    "mcp_forecast_identity_gate": "PASS",
+    "child_failure_sanitization": "PASS",
+    "compact_reference_only_state": "PASS",
+    "contributor_only_model_provenance": "PASS"
+  },
+  "instrumentation_audit": {
+    "required_lifecycle_boundaries": 8,
+    "required_boundaries": [
+      "whole_sentiment_run",
+      "brain_plan",
+      "point_in_time_retrieval",
+      "finbert_inference",
+      "vader_scoring",
+      "fear_greed_fusion",
+      "brain_analyze",
+      "feature_aggregation_and_pre_shared_state"
+    ],
+    "measured_boundary_coverage": "PASS_8_OF_8",
+    "attempt_identity": "PASS_ATTEMPT_4",
+    "implementation_version": "PASS_STAGE06_R1_A4",
+    "trace_processors_allowlisted": true,
+    "forecast_progress_contract_used": true,
+    "raw_exception_crosses_child_span": false,
+    "semantic_counts_present": true,
+    "degraded_flags_bounded": true,
+    "private_query_or_error_in_operational_telemetry": false,
+    "private_untrusted_status_or_polarity_in_typed_state": false,
+    "evidence": "The lifecycle matrix sentinel verified all eight boundaries emit finite non-negative monotonic latency_ms with forecast and Stage 06 revision 1 attempt 4 identity, semantic counts and bounded degradation metadata.",
+    "primary_reactivation_required": true
+  },
+  "source_integrity": {
+    "draft_source_hashes": "PASS_4_OF_4",
+    "dependency_handoff": {
+      "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+      "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+      "status": "MATCH"
+    },
+    "prior_review": "MATCH",
+    "compile": "PASS",
+    "diff_check": "PASS_WITH_LINE_ENDING_NOTICES_ONLY",
+    "stale_attempt_1_2_3_runtime_identity": "ABSENT",
+    "legacy_prompt_reference": "ABSENT",
+    "current_control_and_locks": "CONTROL_VALID"
+  },
+  "tests_run": [
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_sentiments_agent.py::TestRunFullPipeline::test_full_agent_private_statuses_and_polarity_never_cross_boundaries -q",
+      "exit_code": 0,
+      "result": "1 passed in 10.12s; actual graph/executor used with mocked providers and no _graph.ainvoke mock"
+    },
+    {
+      "command": "14 exact privacy/status/partial-aggregate/coverage/observability/temporal/MCP counterexamples",
+      "exit_code": 0,
+      "result": "14 passed in 14.48s"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/sentiment_test tests/unit_tests/test_sentiment_phase4.py tests/unit_tests/test_aspect_sentiment_phase6.py tests/unit_tests/test_agents/test_sentiments_agent.py tests/integration_test_2/test_sentiment_agent_only.py tests/integration_tests/test_integration_sentiment_agent.py -q -m not-live/not-slow/not-db",
+      "exit_code": 0,
+      "result": "175 passed, 5 deselected, 1 deprecation warning in 6.39s"
+    },
+    {
+      "command": "py_compile, git diff --check, source SHA-256 and stale identity/prompt scans",
+      "exit_code": 0,
+      "result": "PASS; 4/4 Attempt4 source hashes match draft-ready; LF/CRLF notices only"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "CONTROL VALID before observability artifact creation"
+    }
+  ],
+  "blocking_issues": [],
+  "non_blocking_findings": [
+    {
+      "id": "OBS-06-A4-NB-001",
+      "summary": "The immutable rejected Attempt 3 review artifact labels its Stage 05 dependency path as stage-05-rev-1-attempt-1-review.json while recording the Stage 05 handoff SHA-256.",
+      "disposition": "Non-blocking for Attempt 4: the active draft-ready artifact independently references the correct stage-05-rev-1-handoff.json path and its matching SHA-256. The prior rejected artifact was not modified."
+    }
+  ],
+  "stage_boundary": {
+    "feature_behavior_changed_by_observability": false,
+    "source_or_test_files_changed_by_observability": false,
+    "change_request_created": false,
+    "database_or_schema_change": false,
+    "downstream_stage_07_work_performed": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "Validation was offline with deterministic fixtures, mocked providers and existing local model assets.",
+    "Live providers, database-marked tests and external trace export were intentionally not exercised.",
+    "The observability pass did not modify feature behavior, tests, state or prior artifacts."
+  ],
+  "supersedes": ".codex/handoffs/stage-06-rev-1-attempt-3-observability.json",
+  "created_at": "2026-09-04T18:41:44.6771875Z"
+}

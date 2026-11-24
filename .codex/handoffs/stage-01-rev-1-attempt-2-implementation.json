@@ -1,0 +1,95 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "01",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "core",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "supersedes": ".codex/handoffs/stage-01-rev-1-attempt-1-implementation.json",
+  "changed_files": [
+    "core/forecast_contract.py",
+    "agents/state.py",
+    "core/error_handler.py",
+    "core/__init__.py",
+    "agents/__init__.py",
+    "tests/unit_tests/test_forecast_contract.py",
+    "tests/unit_tests/test_state_forecast_contract.py",
+    "tests/unit_tests/core_test/test_error_handler.py",
+    ".codex/handoffs/stage-01-rev-1-attempt-2-draft-ready.json",
+    ".codex/handoffs/stage-01-rev-1-attempt-2-implementation.md",
+    ".codex/handoffs/stage-01-rev-1-attempt-2-implementation.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-01-rev-1-attempt-2-draft-ready.json",
+  "observability_artifact": ".codex/handoffs/stage-01-rev-1-attempt-2-observability.json",
+  "observability_status": {
+    "status": "AUDITED",
+    "requested_primary_changes": [],
+    "change_request": null,
+    "changed_files": [],
+    "privacy": "ALLOWLIST_PASS",
+    "compatibility": "LEGACY_AND_ADDITIVE_PASS"
+  },
+  "review_rework_resolution": [
+    "XNYS 2021-12-31 is open and is the December month-end cutoff.",
+    "XNYS 2025-01-09 is closed and the 21st session after 2024-12-31 is 2025-02-03.",
+    "ForecastContext.from_dict requires every canonical field and validates serialized identity without LIVE defaults.",
+    "ForecastFeatureSlot recursively validates compact JSON-safe values while legacy State required keys remain compatible."
+  ],
+  "self_tests_run": [
+    {
+      "command": "pytest focused Stage01 plus observability tests",
+      "exit_code": 0,
+      "result": "93 passed"
+    },
+    {
+      "command": "exact calendar, strict reconstruction, JSON-safe State, privacy and legacy assertions",
+      "exit_code": 0,
+      "result": "ATTEMPT2_EXACT_PRIVACY_ASSERTIONS=PASS"
+    },
+    {
+      "command": "guarded pytest --collect-only -qq --disable-warnings tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1185 collected: 1134 unit, 51 integration; external_attempts=[]",
+      "network_mode": "LOCALHOST_ONLY_GUARD"
+    },
+    {
+      "command": "guarded pytest -q --disable-warnings --tb=no tests/unit_tests",
+      "exit_code": 1,
+      "result": "1096 passed, 38 known/downstream failed, 6 warnings; external_attempts=[]",
+      "network_mode": "LOCALHOST_ONLY_GUARD"
+    },
+    {
+      "command": "python -m py_compile locked Stage01 and observability modules",
+      "exit_code": 0,
+      "result": "PASS"
+    }
+  ],
+  "known_failures": [
+    {"owner": "financial", "responsible_stage": "05", "count": 28},
+    {"owner": "sentiment", "responsible_stage": "06", "count": 4},
+    {"owner": "integration", "responsible_stage": "08", "count": 1},
+    {"owner": "data_rag", "responsible_stage": "03", "count": 1},
+    {"owner": "explicit_recovery_or_retirement_decision", "responsible_stage": "00", "count": 4, "reason": "missing legacy Supabase migration"}
+  ],
+  "blocking_issues": [],
+  "known_limitations": [
+    "Calendar rules are versioned and bounded to 1998..2100; later exceptional closures require a calendar-version update.",
+    "Historical datasets, universe manifests, outcomes and model artifacts are later-stage work.",
+    "Database backup/restore evidence and the legacy migration retain their Stage 00 dispositions.",
+    "A downstream RAG fixture/import-order concern remains owned by Stage 03."
+  ],
+  "out_of_scope_findings": [
+    "Downstream RAG fixture/import-order behavior is outside Stage 01 and was not modified."
+  ],
+  "requested_changes": [],
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Restore only attempt 2 Core edits to the immutable rejected attempt 1 content.",
+    "Remove only the attempt 2 draft-ready and final implementation artifacts.",
+    "Preserve attempt 1 evidence, Stage 00 artifacts, Observability-owned files, state history, dependencies and product data."
+  ],
+  "implementation_ready": true,
+  "created_at": "2026-08-28T11:35:54.0170983Z"
+}

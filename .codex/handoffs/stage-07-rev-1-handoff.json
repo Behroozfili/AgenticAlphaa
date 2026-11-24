@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "07",
+  "stage_revision": 1,
+  "accepted_attempt": 4,
+  "primary_agent": "quant",
+  "implementation_status": "IMPLEMENTED",
+  "observability_status": "AUDITED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "draft_ready": ".codex/handoffs/stage-07-rev-1-attempt-4-draft-ready.json",
+
+    "observability": ".codex/handoffs/stage-07-rev-1-attempt-4-observability.json",
+    "implementation": ".codex/handoffs/stage-07-rev-1-attempt-4-implementation.json",
+    "qa": ".codex/handoffs/stage-07-rev-1-attempt-4-qa.json",
+    "review": ".codex/handoffs/stage-07-rev-1-attempt-4-review.json"
+  },
+  "implementation_markdown": ".codex/handoffs/stage-07-rev-1-attempt-4-implementation.md",
+  "artifact_sha256": {
+    "draft_ready": "3af823794c1eed6fda318b88826e654c9d92ec6d4e21b4f838f6cf1556a4ee4b",
+    "data_readiness": "c0c0813e7569158a36026293b12814b1972b819830f833173542ad8ba8d8543b",
+    "model_ready": "835eb5449c4ff89ca888112f8397d17224fc6dd93bf9d879a0ac876603fda500",
+    "observability": "573edf099991ee51160d59e0e24a92d533b230405d54a6d56f4236400fd6eed0",
+    "implementation": "5fc72223d42996c419643731d35a854b544a68772ee547c3a4b0d9d0df2bea09",
+    "implementation_markdown": "e2c42713c070ba4787d23d38e7bfe049bf5f44f35717bd07833cc5cedbbf51a0",
+    "qa": "a79c1b2e425f0a40a324bc8e82da51c42fcbac40b348e87ab88e9298e2d52361",
+    "review": "03ee655356df46ee96eaf687b831e1636f433420a4ec4a656f2fc5ad8871e1bf"
+  },
+  "retry_chain": [
+    {"attempt": 1, "terminal_gate": "QA", "result": "FAIL", "artifact": ".codex/handoffs/stage-07-rev-1-attempt-1-qa.json"},
+    {"attempt": 2, "terminal_gate": "REVIEW", "result": "REJECTED", "artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-review.json"},
+    {"attempt": 3, "terminal_gate": "QA", "result": "FAIL", "artifact": ".codex/handoffs/stage-07-rev-1-attempt-3-qa.json"},
+    {"attempt": 4, "terminal_gate": "REVIEW", "result": "APPROVED", "artifact": ".codex/handoffs/stage-07-rev-1-attempt-4-review.json"}
+  ],
+  "resolved_findings": [
+    "OBS-07-001",
+    "OBS-07-002",
+    "OBS-07-003",
+    "QA-07-001",
+    "REVIEW-07-A2-B-001",
+    "QA-07-A3-001"
+  ],
+  "non_blocking_findings": ["OBS-07-A4-NB-001", "REVIEW-07-A4-NB-001"],
+  "accepted_counts": {
+    "fixture_tickers": 1,
+    "monthly_cutoffs": 40,
+    "eligible_forecasts": 40,
+    "canonical_label_mismatches": 0,
+    "exact_21_session_targets": 40,
+    "measured_lifecycle_boundaries": 9,
+    "focused_stage07_tests_passed": 71,
+    "combined_contract_state_stage07_tests_passed": 121,
+    "collection_errors": 0,
+    "recorded_hashes_mismatched": 0
+  },
+  "delivered_contract": [
+    "Adjusted ticker and benchmark histories use exact point-in-time cutoffs, trading-calendar semantics and consistent corporate-action adjustment.",
+    "Feature snapshots stop at as_of, retain explicit missingness, and bind immutable dataset, feature, universe and evidence identities.",
+    "Labels use adjusted close from as_of through the exact 21st regular session after as_of; canonical excess return and direction fail closed when inconsistent.",
+    "DATA_READINESS must PASS before deterministic model fitting and binds the exact eligible-row content hash.",
+    "Imputation, scaling, feature selection and residual interval are fitted only on training rows; later rows and premature outcomes are rejected.",
+    "Deterministic logistic and ridge outputs remain the sole numeric forecast source and action_policy_v1 thresholds are unchanged.",
+    "MarketForecastService and nine payload-free measured lifecycle boundaries publish exact Stage07/rev1/attempt4/quant provenance."
+  ],
+  "reproducibility": {
+    "runtime_identity": "07/r1/a4/quant",
+    "implementation_version": "stage07-r1-a4",
+    "readiness_manifest_hash": "c594e6002196e123ca8f6bead7e233f7272376db84250af87c6174cfb93979b7",
+    "eligible_rows_sha256": "93b980674b6801db52eb08c8e6b5aa652f82bcc22be2887224d88d45454166e4",
+    "training_data_hash": "78af5fc9e5a1fcb7263601e65ead1732e83625cf3604cde46d2b3289f2691890",
+    "model_version": "logistic-ridge-21d-v1+sha256:73d858322007097b578ed1aaaab9146c18fd8b2cc729c64fe348a345f386583a",
+    "normal_reversed_exact": true
+  },
+  "source_sha256": {
+    "tools/__init__.py": "713aa79338fa9eca57e74cf94888753c0ebf8348748b69c3d9d5897c90813529",
+    "tools/market_tools/__init__.py": "d5bdb8b07a2491aeecdfe414f836123c8bfcfb2444ddaa72061d4027a0c9bcaa",
+    "tools/market_tools/market_data.py": "b0e360a9b6bc97427c8e74647fd69ff065a5635aca8a935ce3e3c8673a860630",
+    "tools/market_tools/feature_builder.py": "c95e6d569591606b1c3ff36afd8414b20c6a61e7f89a9ef40987f61310025d1f",
+    "tools/market_tools/historical_dataset_builder.py": "9e54de5ba43c9ce87f9c88a60c9189f633c470919de3e3c09d7f82ec1e837eff",
+    "tools/market_tools/forecast_model.py": "200231a42c985b812af12f5f4565171be7ed72a9728d3494ace67d939a62c84a",
+    "tools/market_tools/market_server.py": "7249ec02b782de2380b2c28bae82fcfd91c17fb84080d43941c3286f62d35d56",
+    "tests/fixtures/monthly_point_in_time_fixture.json": "cac1ee7e10a20c6986ad86ac2824ac9d3b4be4a3e03aafe6663f9824e7aef845",
+    "tests/unit_tests/market_test/__init__.py": "3c57dbafdd05661e2b11ef1c1bae6ff03cb34e6a5bc7f0d9596988c67af2f32b",
+    "tests/unit_tests/market_test/test_historical_dataset_builder.py": "f9c44cc7f07bec6752dc73b0e48175e89d7acb9e1c3aa6221bd4616f03783308",
+    "tests/unit_tests/market_test/test_market_server.py": "8da21eb372eaee8346e2035a6344c2913c9d22c014995c4653819fc343f886ff",
+    "tests/unit_tests/test_market_features_stage7.py": "70191c6688b26f5dcf62f6367cba2bca810afb398429cb5a3ab909d311ba1622"
+  },
+  "known_limitations": [
+    "The deterministic fixture is synthetic, single-ticker and 40-cutoff; evidence is PRELIMINARY engineering evidence and not investment-performance evidence.",
+    "Research/news, SEC filing and temporal Graph coverage remain UNVERIFIED_REFERENCE_ONLY in the fixture.",
+    "OBS-07-A4-NB-001 records one stale explanatory Attempt 3 phrase while immutable identities, hashes and behavior consistently identify Attempt 4.",
+    "Walk-forward performance metrics, baselines, transaction costs and ablations remain Stage 09 scope.",
+    "No network, external provider, trace service, database, migration, seed, deletion, deploy, commit or push operation was authorized or performed."
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_trace_provider_contacted": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deploy_commit_or_push": false
+  },
+  "next_stage": "08",
+  "next_stage_activated": false,
+  "supersedes": null,
+  "created_at": "2026-09-09T19:19:40.6264244Z"
+}

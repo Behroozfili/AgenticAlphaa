@@ -1,0 +1,89 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 165,
+  "status": "CHANGES_REQUESTED",
+  "target_agent": "core",
+  "requested_paths": [
+    "api/main.py",
+    "api/dependencies.py",
+    "api/routes/analyze.py",
+    "memory/manager_memory.py",
+    "main.py",
+    "core/observability.py",
+    "tests/unit_tests/api_test/test_api_main.py",
+    "tests/unit_tests/api_test/test_dependencies_api.py",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py",
+    "tests/unit_tests/test_memory/test_manager_memory.py",
+    "tests/unit_tests/test_root_main.py",
+    "tests/unit_tests/test_stage10a_runtime_foundation.py"
+  ],
+  "reason": "Stage 10A has a sound request-scoped Manager/memory and explicit-seed foundation, but the active API does not yet emit the required compact 10A/r1/a1/core lifecycle identity or per-request correlation. Existing registered paths also log or persist raw request/query/user/preference/exception values and enabled Sentry captures raw exception objects. The separately locked langsmith_trace.py now supplies an import-side-effect-free, closed-allowlist, monotonic-latency, failing-sink-isolated helper; Core must wire it at its call-sites and remove unsafe payload logging before final implementation/QA.",
+  "blocking": true,
+  "supplements_observability_artifact": {
+    "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json",
+    "sha256": "6952d6790995f426f5ace00dd323b2b96c317d7b35bd633cb74bc2b75816353c",
+    "disposition": "PRIMARY_FINAL_REQUIRED"
+  },
+  "requested_changes": [
+    {
+      "id": "OBS-10A-001",
+      "blocking": true,
+      "request": "Wire langsmith_trace.new_stage10a_run_id and emit_stage10a_event at API startup/shutdown, request started/completed/failed, Manager factory created/failed and Manager memory created/failed boundaries. Store only an injectable local sink and immutable clients/settings on app.state; the default sink must be None and must not contact any exporter. Assign exactly one opaque run_id to request.state before downstream execution and reuse it in all events for that request. Use identity stage=10A, stage_revision=1, attempt=1, agent=core and implementation_version=stage10a-r1-a1. Include only fields from STAGE10A_METADATA_FIELDS; include runtime/forecast versions and ticker/as_of/target/horizon/analysis_mode only when already available as canonical compact values. Measure completion/error latency from time.perf_counter; it must be finite and non-negative. Emit failure events before bare re-raise or safe response mapping. A raising sink must never change lifecycle, request, Manager/memory creation, error response or seed behavior. Add focused assertions for event names/order, one run_id per request, distinct concurrent request ids, exact identity, measured latency and failing-sink invariance."
+    },
+    {
+      "id": "OBS-10A-002",
+      "blocking": true,
+      "request": "Remove private/raw values from registered Stage 10A runtime logs and persistence without changing business routing. In api/main.py replace log.exception and raw sentry_sdk.capture_exception calls with the compact request event and stable error_code only. In api/routes/analyze.py remove req.user_id and req.query from START logging, do not create unconditional Sentry breadcrumbs, replace log.exception/str(exc) persistence with a stable payload-free error code, and preserve the existing public safe response contract. In memory/manager_memory.py never log task_query, preference values, memory values, user identity or exception text/stack; retain only stable operation/status/count fields. Add PRIVATE_SENTINEL tests using caplog, fake persistence and fake telemetry sink proving request/query/preferences/Manager state/memory values/credentials/exceptions/secrets/brain_reasoning/raw evidence are absent. Changes to api/routes/analyze.py are limited to privacy and observability call-sites; do not alter Stage 10B request schema, business routing, result mapping, persistence structure, progress or UI behavior."
+    },
+    {
+      "id": "OBS-10A-003",
+      "blocking": true,
+      "request": "Keep Sentry and LangSmith disabled unless the global OBSERVABILITY_ENABLED flag, the per-exporter flag and the corresponding credential are all present. Make optional exporter initializer failures non-fatal and payload-free: do not log exception text, credentials, DSNs or headers. Do not capture raw exception objects, request bodies or user state; at most export the same compact allowlisted event after explicit opt-in. Ensure Settings-provided credentials are honored without copying them into telemetry. Add offline mocks proving disabled startup does not call initializers, each incomplete gate remains disabled, initializer/sink failures do not fail startup or requests, and no external client/network is contacted. If core/observability.py is not reassigned to Core, the Orchestrator must grant an exact temporary lock or schedule a separate observability-owned repair before PRIMARY_FINAL."
+    },
+    {
+      "id": "OBS-10A-004",
+      "blocking": false,
+      "request": "At the repository CLI boundary, optionally emit seed.command.selected with a fresh opaque run_id only after the explicit seed-rag command is selected. Never emit ticker lists, credentials, archive contents or exception text. Preserve the default serve path and all existing tests proving it does not invoke seed. This event must not itself execute or contact seed, database, network or exporters."
+    }
+  ],
+  "evidence": [
+    "The active control tuple is Stage 10A revision 1 attempt 1 in OBSERVABILITY at control_revision 165; execution is enabled, observability_required=true, Stage 09 is CLOSED and Stage 10B is PENDING/NOT_STARTED.",
+    "The draft-ready artifact hash is exactly 10cb19dd94d64f18ba1e88c86a1b5fa5116c83f3ba8c3424575fc096c17b1a06; all 13 recorded source/test hashes match and the Stage 09 handoff hash matches 0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925.",
+    "api/main.py:68 and 76 only log startup/shutdown text; request_timing_middleware at 122-132 has no run_id/stage identity and does not emit a failure completion when call_next raises.",
+    "api/main.py:107-118 logs an unhandled exception with stack trace and sends the raw exception object to Sentry; api/main.py:83-90 also sends AlphaAgentError objects.",
+    "api/dependencies.py:24-32 and 52-79 create request-scoped memory/Manager instances but emit no correlated factory/memory lifecycle events.",
+    "api/routes/analyze.py:251-254 logs raw user id and query, 274-287 creates a Sentry breadcrumb without checking the Stage 10A feature gate, and 296-300 logs then persists raw exception text.",
+    "memory/manager_memory.py:122 logs the raw task query; line 370 logs preference values; lines 425 and 445 log exception text; ManagerMemory construction/session logs include user/session identity.",
+    "core/observability.py:218-220 and 256-258 log initializer exception text; api/main.py currently passes only app_env and later captures full exceptions.",
+    "langsmith_trace.py now has lazy explicit Client creation, immutable 10A/r1/a1/core identity, a closed event/metadata allowlist, opaque run-id generation, monotonic finite nonnegative latency and fully isolated injected sink failure; post-change SHA-256 is e348fae4ac31277fa8c1a2483a225797eb13dc3969b0d47c9dfbfad45043b691.",
+    "Independent PRIVATE_SENTINEL and always-raising sink probes passed without network/exporter/database access; the seven exact focused modules passed 149 tests and the legacy injected-client validation tests passed 4 tests.",
+    "Existing concurrency tests passed: each factory invocation creates distinct ManagerMemory, two request memories have distinct short/long/monthly stores, and factory fields retain no mutable Manager or memory instance.",
+    "Existing root CLI tests passed: serve/default paths never invoke run_rag_seed and seed-rag invokes only the explicitly selected fake seed in tests. No real seed or external system was contacted."
+  ],
+  "scope_constraints": [
+    "Do not change forecast contracts, formulas, numeric outputs, temporal behavior, Manager routing, request/response schemas, database schema, persistence structure, progress semantics or UI behavior.",
+    "Do not serialize raw request bodies/query text, user ids/preferences, Manager/Shared State, memory contents, credentials/tokens/headers/DSNs, exception text/stack traces, prompts, chain-of-thought/brain_reasoning, article chunks, filing text, evidence ids/content or duplicated tool payloads.",
+    "Do not enable Sentry or LangSmith by default and do not contact external telemetry, providers, network services or databases in tests.",
+    "Do not execute migrations or seed, install dependencies, delete data, deploy, commit, push or activate Stage 10B.",
+    "Do not modify langsmith_trace.py further unless the Orchestrator explicitly reactivates observability with the exact lock; consume its current safe helper from Core call-sites."
+  ],
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-12T09:47:16.3627664Z"
+}

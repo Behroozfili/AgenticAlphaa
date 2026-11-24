@@ -1,0 +1,49 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 147,
+  "target_agent": "integration",
+  "requested_paths": [
+    "agents/executor_helpers/monthly_forecast_helper.py",
+    "agents/manager_agent.py",
+    "tests/unit_tests/test_stage8_manager_integration.py"
+  ],
+  "reason": "Stage 08 revision 1 attempt 2 still emits and returns the attempt-1 runtime identity. STAGE08_IMPLEMENTATION_IDENTITY is attempt=1 with implementation_version=stage08-r1-a1, and both forecast_trace_metadata and publish_forecast calls explicitly pass attempt=1. The current focused tests assert that stale value. Consequently otherwise-safe trace, lifecycle, error and progress records from the active retry are attributed to the superseded attempt, contrary to the required current stage/revision/attempt identity.",
+  "blocking": true,
+  "requested_changes": [
+    {
+      "id": "OBS-08-003",
+      "blocking": true,
+      "request": "Update the Stage 08 implementation identity to attempt=2 and implementation_version=stage08-r1-a2 in agents/executor_helpers/monthly_forecast_helper.py. In agents/manager_agent.py, derive both trace and progress attempt identity from that single immutable identity instead of retaining literal attempt=1 values (or otherwise set both literals to attempt=2 without changing event payloads, lifecycle ordering, routing or numeric behavior). Update only the exact Stage 08 identity assertions in tests/unit_tests/test_stage8_manager_integration.py to require attempt 2 and stage08-r1-a2, while preserving the existing PRIVATE_SENTINEL redaction, payload-free lifecycle/error, measured non-negative latency and concurrent queue-isolation assertions. Re-run the focused offline suite and current-attempt identity counterprobe."
+    }
+  ],
+  "evidence": [
+    "The active control tuple is Stage 08 revision 1 attempt 2 at control_revision 147, and the matching draft-ready artifact also declares attempt 2.",
+    "Offline counterprobe returned active_attempt=2 but runtime_identity attempt=1 and implementation_version=stage08-r1-a1 (match=false).",
+    "agents/executor_helpers/monthly_forecast_helper.py defines STAGE08_IMPLEMENTATION_IDENTITY with attempt=1 and stage08-r1-a1; agents/manager_agent.py separately passes attempt=1 to forecast_trace_metadata and publish_forecast.",
+    "tests/unit_tests/test_stage8_manager_integration.py currently asserts attempt 1 for trace metadata and lifecycle events, so the green focused suite does not enforce current-attempt attribution.",
+    "The offline focused Stage 08/Manager suite otherwise passed 67 tests, including exact Quant provenance preservation/fail-closed counterexamples, trace redaction, measured lifecycle/error telemetry, numeric/action immutability and two-session queue isolation."
+  ],
+  "scope_constraints": [
+    "Do not change Quant numeric values, action policy, provenance validation, routing, lifecycle event shape/order, privacy allowlists, concurrency behavior, contracts, API/runtime, persistence, migrations or Stage 09.",
+    "Do not rewrite or delete prior-attempt artifacts."
+  ],
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-11T09:48:24.1559085Z"
+}

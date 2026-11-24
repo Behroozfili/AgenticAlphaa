@@ -1,0 +1,351 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "execution_phase": "QA",
+  "control_revision": 173,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "qa_status": "PASS",
+  "implementation_artifact": ".codex/handoffs/stage-10A-rev-1-attempt-2-implementation.json",
+  "implementation_sha256": "b69556d7481c27ca172028921cc8e239691bfd6aa570a86658cbfa8164b23ae6",
+  "implementation_markdown": ".codex/handoffs/stage-10A-rev-1-attempt-2-implementation.md",
+  "implementation_markdown_sha256": "5e78528df589e7a64b9e335c99ef523bc34d85350073f84c957a79295570fada",
+  "validated_input_artifacts": [
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-draft-ready.json",
+      "sha256": "9c6cd944b8858297b79f914580abd52cb9840a79b118610a67958861c96300c5",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-observability.json",
+      "sha256": "56a491e16ba387a51f127e75996e94eb76471041dab85eaabf235de347aea3b1",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-2-implementation.json",
+      "sha256": "b69556d7481c27ca172028921cc8e239691bfd6aa570a86658cbfa8164b23ae6",
+      "identity_match": true,
+      "schema_valid": true
+    }
+  ],
+  "control_and_lock_validation": {
+    "execution_enabled": true,
+    "active_tuple": "10A/r1/a2/QA",
+    "allowed_support_agents": ["qa"],
+    "qa_artifact_lock_owner": "qa",
+    "dependencies_closed": ["09"],
+    "stage10a_status": "ACTIVE",
+    "stage10a_phase": "QA",
+    "stage10b_status": "PENDING",
+    "stage10b_phase": "NOT_STARTED",
+    "stage10b_activated": false,
+    "result": "PASS"
+  },
+  "dependency_handoff_validation": {
+    "stage": "09",
+    "path": ".codex/handoffs/stage-09-rev-1-handoff.json",
+    "expected_sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+    "actual_sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+    "state_status": "CLOSED",
+    "result": "PASS"
+  },
+  "attempt_1_immutability": {
+    "artifacts_checked": 8,
+    "sha256_matches": 8,
+    "mismatches": 0,
+    "artifacts": [
+      {
+        "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-draft-ready.json",
+        "sha256": "10cb19dd94d64f18ba1e88c86a1b5fa5116c83f3ba8c3424575fc096c17b1a06"
+      },
+      {
+        "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json",
+        "sha256": "6952d6790995f426f5ace00dd323b2b96c317d7b35bd633cb74bc2b75816353c"
+      },
+      {
+        "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json",
+        "sha256": "5293a8b273d7330ca11af9491cf9402a22a5a56ea630f8e1f5646805447a05f5"
+      },
+      {
+        "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-2.json",
+        "sha256": "fa5a7f59fb8553138e72e691061fbb6418ad7abdd875b65d9424ddbdacca7895"
+      },
+      {
+        "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.md",
+        "sha256": "2e8f4da71959373a0a70dae039ebcbc5c9072059ce4aaf91f9f7049cb4f4b72e"
+      },
+      {
+        "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.json",
+        "sha256": "f30f3e154a2e8e977e1a97b44bb95f61b60c960873869d901f621f256cd63ae7"
+      },
+      {
+        "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-qa.json",
+        "sha256": "5fcc4ebda0e6f3da92dd272270076c30857d5090b3c3a48e6062cd34b2fcd04e"
+      },
+      {
+        "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-review.json",
+        "sha256": "d8f4a9bababc4232b41ad86173e27fafb51f9fffc739a8714018eb014529237c"
+      }
+    ],
+    "status": "PASS"
+  },
+  "source_hash_and_lock_validation": {
+    "implementation_recorded_paths_checked": 16,
+    "observability_owned_paths_checked": 4,
+    "current_sha256_matches": 20,
+    "current_sha256_mismatches": 0,
+    "changed_path_lock_issues": 0,
+    "implementation_markdown_hash_match": true,
+    "status": "PASS"
+  },
+  "tests_run": [
+    {
+      "command": ".venv/Scripts/python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent qa, plus schema/identity checks for current draft-ready, observability and implementation",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 173; all three current JSON artifacts schema-valid with exact 10A/r1/a2 identities and owners",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": "forced-offline localhost-only DNS/socket-guarded pytest over ten exact Stage10A API/config/dependency/exception/analyze/memory/root/runtime/observability modules",
+      "exit_code": 0,
+      "passed": 214,
+      "failed": 0,
+      "duration_seconds": 22.76,
+      "external_attempts": [],
+      "result": "PASS; QA_EXTERNAL_ATTEMPTS=[]",
+      "network_mode": "FORCED_OFFLINE_LOCALHOST_ONLY_GUARD"
+    },
+    {
+      "command": "Independent fully-enabled PRIVATE_SENTINEL exporter and local lifecycle sink probe",
+      "exit_code": 0,
+      "result": "PASS: zero Sentry init/capture/message/breadcrumb calls, zero LangSmith Client calls, zero socket calls, tracing environment forced inactive, two payload-safe local events, raising sink nonfatal, identity 10A/r1/a2/core and finite nonnegative latency",
+      "network_mode": "FORCED_OFFLINE_ALL_EXPORTERS_AND_SOCKET_MOCKED"
+    },
+    {
+      "command": "Independent Analyze route probe with app-state Manager, factory trap, custom status, Supabase mock and private sentinel",
+      "exit_code": 0,
+      "result": "PASS: exact request.app.state.manager_agent used; factory rebind unused; legacy_custom_status preserved in response and persistence; Manager arguments, 7-field request schema, 16-field response schema, 14 persistence keys and progress session id preserved; logs and persistence payload-safe",
+      "network_mode": "OFFLINE_ALL_CLIENTS_MOCKED"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider <Stage01 Forecast/State + Stage08 Manager/integration + Stage09 walk-forward/metrics/leakage/CLI modules> -q with forced-offline environment",
+      "exit_code": 0,
+      "passed": 140,
+      "failed": 0,
+      "duration_seconds": 47.47,
+      "result": "PASS",
+      "network_mode": "FORCED_OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 LANGCHAIN_TRACING_V2=false LANGSMITH_TRACING=false pytest --collect-only -q",
+      "exit_code": 0,
+      "collected": 1446,
+      "collection_errors": 0,
+      "duration_seconds": 24.84,
+      "result": "PASS; no HF request warning in the current accepted collection",
+      "network_mode": "FORCED_OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": "Independent FastAPI TestClient smoke with Supabase, Neo4j and exporters mocked",
+      "exit_code": 0,
+      "result": "PASS: /health exact response; six ordered startup/request/shutdown events; identity 10A/r1/a2/core; one opaque request run id; finite latency; zero exporter calls; no mutable Manager singleton; driver closed once",
+      "network_mode": "OFFLINE_ALL_EXTERNAL_CLIENTS_MOCKED"
+    },
+    {
+      "command": "SHA-256 reconciliation, Attempt-1 immutability audit, Stage09 dependency hash, scoped git diff --check, privacy callsite scan and route behavior guard scan",
+      "exit_code": 0,
+      "result": "PASS: 20 current source/test/Markdown hashes and 8 immutable Attempt-1 artifact hashes matched; zero lock, hash or whitespace issues; route has exact app-state Manager resolution and unnormalized status flow",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "gate_results": {
+    "review_10a_001": "PASS_RESOLVED_FAIL_CLOSED",
+    "full_opt_in_sentry_init": "PASS_ZERO_CALLS",
+    "full_opt_in_sentry_capture": "PASS_ZERO_CALLS",
+    "full_opt_in_langsmith_client": "PASS_ZERO_CALLS",
+    "full_opt_in_socket_or_network": "PASS_ZERO_CALLS",
+    "langsmith_tracing_environment_activation": "PASS_FALSE_AND_CREDENTIAL_REMOVED",
+    "external_validation_client": "PASS_FAIL_CLOSED_UNLESS_FAKE_INJECTED",
+    "local_lifecycle_sink": "PASS_PAYLOAD_SAFE_AND_NONFATAL",
+    "raising_local_sink": "PASS_ISOLATED",
+    "runtime_identity": "PASS_10A_R1_A2_CORE",
+    "finite_nonnegative_latency": "PASS",
+    "private_sentinel_external_export": "PASS_ABSENT",
+    "private_sentinel_local_telemetry": "PASS_ABSENT",
+    "review_10a_002": "PASS_RESOLVED",
+    "analyze_manager_resolution": "PASS_EXACT_REQUEST_APP_STATE_MANAGER_AGENT",
+    "analyze_route_manager_rebinding": "PASS_NONE",
+    "analyze_execution_status_flow": "PASS_UNNORMALIZED",
+    "analyze_request_schema": "PASS_UNCHANGED",
+    "analyze_response_schema": "PASS_UNCHANGED",
+    "analyze_manager_arguments": "PASS_UNCHANGED",
+    "analyze_result_mapping": "PASS_UNCHANGED",
+    "analyze_persistence_key_structure": "PASS_UNCHANGED_14_KEYS",
+    "analyze_progress_behavior": "PASS_UNCHANGED_SESSION_ID",
+    "analyze_privacy_sanitation": "PASS",
+    "analyze_safe_failure_error": "PASS_STABLE_CODE_NO_PRIVATE_EXCEPTION",
+    "live_historical_settings": "PASS",
+    "canonical_forecast_context": "PASS_UTC_21_TRADING_SESSIONS_VERSIONED",
+    "safe_temporal_version_exceptions": "PASS",
+    "stateless_manager_factory": "PASS",
+    "fresh_manager_per_factory_invocation": "PASS",
+    "fresh_manager_memory_per_request_or_invocation": "PASS",
+    "monthly_memory_key": "PASS_TICKER_UTC_AS_OF_HORIZON_ANALYSIS_MODE_SCHEMA_VERSION",
+    "legacy_monthly_merge": "PASS_NONE",
+    "concurrent_request_isolation": "PASS_ZERO_CROSSTALK",
+    "mutable_manager_singleton": "PASS_ABSENT",
+    "automatic_seed": "PASS_ABSENT",
+    "explicit_seed_command": "PASS_MOCK_ONLY",
+    "safe_app_smoke": "PASS",
+    "stage01_regression": "PASS",
+    "stage08_regression": "PASS",
+    "stage09_regression": "PASS",
+    "full_collection": "PASS_ZERO_ERRORS",
+    "attempt_1_immutability": "PASS",
+    "stage09_dependency": "PASS_CLOSED_HASH_MATCH",
+    "stage10b_unchanged": "PASS_PENDING_NOT_STARTED"
+  },
+  "review_finding_report": {
+    "REVIEW-10A-001": {
+      "status": "PASS_RESOLVED",
+      "disposition": "External exporters remain fail-closed even under complete opt-in settings and credentials because request-reachable legacy trace/capture paths remain unaudited.",
+      "sentry_init_calls": 0,
+      "sentry_capture_calls": 0,
+      "langsmith_client_calls": 0,
+      "socket_calls": 0,
+      "guarded_suite_external_attempts": 0,
+      "tracing_environment_active": false,
+      "local_telemetry_available": true,
+      "local_telemetry_payload_safe": true,
+      "local_sink_failure_nonfatal": true
+    },
+    "REVIEW-10A-002": {
+      "status": "PASS_RESOLVED",
+      "manager_resolution": "request.app.state.manager_agent",
+      "route_level_factory_rebind": false,
+      "execution_status_normalized": false,
+      "privacy_only_persistence_values": true,
+      "request_schema_changed": false,
+      "response_schema_changed": false,
+      "manager_run_arguments_changed": false,
+      "result_mapping_changed": false,
+      "persistence_key_structure_changed": false,
+      "progress_session_behavior_changed": false
+    },
+    "OBS-10A-A2-001": {
+      "status": "PASS_RESOLVED",
+      "stale_attempt_1_runtime_identity_assertions": 0,
+      "expected_identity": "10A/r1/a2/core",
+      "expected_implementation_version": "stage10a-r1-a2"
+    }
+  },
+  "request_isolation_report": {
+    "status": "PASS",
+    "application_state_manager_is_stateless_factory_alias": true,
+    "factory_retains_mutable_manager": false,
+    "factory_retains_mutable_memory": false,
+    "manager_created_per_invocation": true,
+    "memory_created_per_request_or_invocation": true,
+    "concurrent_request_crosstalk": false,
+    "monthly_natural_key": [
+      "ticker",
+      "UTC as_of",
+      "horizon",
+      "analysis_mode",
+      "schema_version"
+    ],
+    "legacy_and_monthly_values_merged": false
+  },
+  "observability_report": {
+    "status": "PASS",
+    "runtime_identity": "10A/r1/a2/core",
+    "implementation_version": "stage10a-r1-a2",
+    "external_sentry": "FAIL_CLOSED_DISABLED",
+    "external_langsmith": "FAIL_CLOSED_DISABLED",
+    "required_event_boundaries": [
+      "api.startup",
+      "api.shutdown",
+      "api.request",
+      "manager.factory",
+      "manager.memory"
+    ],
+    "opaque_request_correlation": true,
+    "finite_nonnegative_latency": true,
+    "closed_metadata_allowlist": true,
+    "private_sentinel_absent": true,
+    "sink_failure_isolated": true,
+    "external_trace_provider_contacted_in_current_accepted_evidence": false
+  },
+  "route_privacy_and_compatibility_report": {
+    "status": "PASS",
+    "pre_exception_manager_resolution_restored": true,
+    "pre_exception_status_flow_restored": true,
+    "privacy_sanitation_retained": true,
+    "raw_request_query_logged": false,
+    "raw_user_or_preferences_logged": false,
+    "raw_exception_or_stack_logged": false,
+    "raw_private_payload_persisted": false,
+    "successful_public_response_mapping_preserved": true,
+    "failure_response_contains_private_exception": false
+  },
+  "startup_and_seed_report": {
+    "status": "PASS",
+    "default_cli_action": "serve",
+    "main_action": "serve",
+    "automatic_seed": false,
+    "explicit_seed_action": "seed-rag",
+    "explicit_seed_test_used_mock": true,
+    "real_seed_executed": false
+  },
+  "regression_report": {
+    "status": "PASS",
+    "guarded_focused_stage10a": {
+      "passed": 214,
+      "failed": 0,
+      "external_attempts": 0
+    },
+    "stage01_stage08_stage09_related": {
+      "passed": 140,
+      "failed": 0
+    },
+    "full_forced_offline_collection": {
+      "collected": 1446,
+      "errors": 0,
+      "hf_request_warning": false
+    }
+  },
+  "operational_evidence_note": {
+    "historical_unverified_warning": "An earlier Observability-pass collection emitted an HF Hub unauthenticated-request warning while cached weights loaded. Whether that earlier process made actual external contact was not verified and this QA does not claim it was zero.",
+    "acceptance_basis": "Only current forced-offline collection, the current localhost-only guarded focused suite, current mocked smoke paths and current independent zero-call probes are used for this PASS.",
+    "global_zero_contact_claim_for_earlier_process": false
+  },
+  "qa_scope_notes": [
+    "Persistence idempotency, versioned monthly persistence, progress/job wiring and end-to-end UI behavior remain Stage 10B responsibilities and are not claimed by this Stage 10A PASS.",
+    "The user-authorized analyze route privacy sanitation remains limited to payload-safe logging, stable error persistence and redacted private persistence values; pre-exception Manager resolution and status flow are restored.",
+    "External Sentry and LangSmith export remain intentionally unavailable until every request-reachable legacy trace and exception capture path is independently proven payload-safe."
+  ],
+  "blocking_findings": [],
+  "blocking_issues": [],
+  "candidate_downstream_stages_affected": [],
+  "environment_blockers": [],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN_UNAUTHORIZED",
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED_IN_CURRENT_ACCEPTED_EVIDENCE",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "dependency_changes": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-13T08:25:27.5074062Z"
+}

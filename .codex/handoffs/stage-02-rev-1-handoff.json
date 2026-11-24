@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "02",
+  "stage_revision": 1,
+  "accepted_attempt": 3,
+  "primary_agent": "data_rag",
+  "implementation_status": "IMPLEMENTED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "draft_ready": null,
+    "implementation": ".codex/handoffs/stage-02-rev-1-attempt-3-implementation.json",
+    "observability": null,
+    "qa": ".codex/handoffs/stage-02-rev-1-attempt-3-qa.json",
+    "review": ".codex/handoffs/stage-02-rev-1-attempt-3-review.json"
+  },
+  "implementation_markdown": ".codex/handoffs/stage-02-rev-1-attempt-3-implementation.md",
+  "milestone_artifact": ".codex/handoffs/stage-02-rev-1-attempt-3-milestone-SCHEMA_CONTRACT_FROZEN.json",
+  "milestones": {
+    "SCHEMA_CONTRACT_FROZEN": "PASS"
+  },
+  "retry_chain": [
+    {
+      "attempt": 1,
+      "terminal_gate": "QA",
+      "result": "FAIL",
+      "artifact": ".codex/handoffs/stage-02-rev-1-attempt-1-qa.json"
+    },
+    {
+      "attempt": 2,
+      "terminal_gate": "REVIEW",
+      "result": "REJECTED",
+      "artifact": ".codex/handoffs/stage-02-rev-1-attempt-2-review.json"
+    },
+    {
+      "attempt": 3,
+      "terminal_gate": "REVIEW",
+      "result": "APPROVED",
+      "artifact": ".codex/handoffs/stage-02-rev-1-attempt-3-review.json"
+    }
+  ],
+  "resolved_findings": [
+    "STAGE02-RLS-VIEW-001",
+    "STAGE02-RECONCILIATION-HASH-002",
+    "STAGE02-NEO4J-RECONCILIATION-003"
+  ],
+  "accepted_counts": {
+    "focused_passed": 109,
+    "collected_total": 1201,
+    "unit_collected": 1150,
+    "integration_collected": 51,
+    "unit_passed": 1112,
+    "known_failures": 38,
+    "stage_02_regressions": 0
+  },
+  "known_limitations": [
+    "External Supabase/Neo4j application, live RLS/RPC execution, reconciliation, and route switching require separate authorization and were not run.",
+    "An authorized apply must verify target PostgreSQL/Supabase/pgvector/Neo4j capabilities before route switching.",
+    "The Neo4j migration runner must SHA-256 the returned canonical digest input.",
+    "The legacy missing Supabase migration retains its Stage 00 disposition.",
+    "Temporal ingestion and traversal remain Stage 03/04A work."
+  ],
+  "rollback": {
+    "documented_in": ".codex/handoffs/stage-02-rev-1-attempt-3-implementation.json",
+    "summary": "Operational rollback restores only previous route pointers and preserves V2/legacy rows; workspace rollback removes only Stage 02 files/artifacts when explicitly authorized."
+  },
+  "operational_safety": {
+    "migration_application": false,
+    "external_database_writes": false,
+    "live_reconciliation": false,
+    "route_switch": false,
+    "legacy_deletion": false,
+    "network_used": false,
+    "deploy_commit_or_push": false
+  },
+  "next_stage": "03",
+  "next_stage_activated": false,
+  "supersedes": null,
+  "created_at": "2026-08-28T19:18:59.9113939Z"
+}

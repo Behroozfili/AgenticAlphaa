@@ -1,0 +1,213 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "reviewer",
+  "status": "REVIEW_REJECTED",
+  "review_status": "REJECTED",
+  "execution_phase": "REVIEW",
+  "control_revision": 169,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "changed_files": [
+    ".codex/handoffs/stage-10A-rev-1-attempt-1-review.json"
+  ],
+  "artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-draft-ready.json",
+      "sha256": "10cb19dd94d64f18ba1e88c86a1b5fa5116c83f3ba8c3424575fc096c17b1a06",
+      "identity_valid": true,
+      "schema_valid": true,
+      "ready_for_observability": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json",
+      "sha256": "6952d6790995f426f5ace00dd323b2b96c317d7b35bd633cb74bc2b75816353c",
+      "identity_valid": true,
+      "schema_valid": true,
+      "status": "CHANGES_REQUESTED"
+    },
+    "change_requests": [
+      {
+        "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json",
+        "sha256": "5293a8b273d7330ca11af9491cf9402a22a5a56ea630f8e1f5646805447a05f5",
+        "identity_valid": true,
+        "schema_valid": true,
+        "blocking": true
+      },
+      {
+        "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-2.json",
+        "sha256": "fa5a7f59fb8553138e72e691061fbb6418ad7abdd875b65d9424ddbdacca7895",
+        "identity_valid": true,
+        "schema_valid": true,
+        "blocking": true
+      }
+    ],
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.md",
+      "sha256": "2e8f4da71959373a0a70dae039ebcbc5c9072059ce4aaf91f9f7049cb4f4b72e"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.json",
+      "sha256": "f30f3e154a2e8e977e1a97b44bb95f61b60c960873869d901f621f256cd63ae7",
+      "identity_valid": true,
+      "schema_valid": true,
+      "implementation_ready": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-qa.json",
+      "sha256": "5fcc4ebda0e6f3da92dd272270076c30857d5090b3c3a48e6062cd34b2fcd04e",
+      "identity_valid": true,
+      "schema_valid": true,
+      "qa_status": "PASS"
+    },
+    "dependency_handoffs": [
+      {
+        "stage": "09",
+        "path": ".codex/handoffs/stage-09-rev-1-handoff.json",
+        "sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+        "state_status": "CLOSED"
+      }
+    ]
+  },
+  "blocking_findings": [
+    {
+      "id": "REVIEW-10A-001",
+      "severity": "BLOCKING",
+      "summary": "The optional Sentry and LangSmith exporters are triple-gated but are not payload-safe after opt-in.",
+      "evidence": [
+        "core/observability.py enables LANGCHAIN_TRACING_V2 globally when the three LangSmith gates pass.",
+        "agents/manager_agent.py has seven active @traceable Manager graph nodes at lines 948, 969, 1010, 1028, 1076, 1133 and 1254 without process_inputs/process_outputs allowlists; their g argument and returned dictionaries contain Shared State, task query, preferences, reasoning, evidence and result payloads.",
+        "core/error_handler.py:68 sends the original exception object with sentry_sdk.capture_exception(exc), and the request Manager path calls capture_exception on original exceptions at agents/manager_agent.py:424, 561, 764, 868, 1200, 1246 and 1274.",
+        "The Stage 10A local lifecycle helper is allowlisted, but init_langsmith/init_sentry activate these separate pre-existing export paths. Therefore PRIVATE_SENTINEL coverage limited to the local sink and initializer failures does not prove exporter payload safety, and OBS-10A-002/003 are not fully resolved."
+      ],
+      "contract_violation": "The Stage 10A contract and CR1 require optional exporters to remain payload-safe and forbid raw query, user/preferences, Manager/Shared State, exception objects/text/stacks, reasoning and raw evidence from export."
+    },
+    {
+      "id": "REVIEW-10A-002",
+      "severity": "BLOCKING",
+      "summary": "The user-authorized analyze route exception exceeded its privacy/observability-only scope.",
+      "evidence": [
+        "The draft-ready artifact did not include api/routes/analyze.py; the later user authorization and ENTER_PRIMARY_FINAL transition limited this path to privacy/observability call-sites with business_contract_change=false.",
+        "The route diff imports get_request_manager and replaces request.app.state.manager_agent with get_request_manager(request, memory). This changes runtime Manager resolution and request binding, not a logging, telemetry or redaction call-site.",
+        "The route diff also adds a new persistence-status normalization branch. This is outside the authorized privacy/observability correction even if current known statuses make it normally inert.",
+        "The implementation and QA artifacts state that analyze business routing/Manager behavior is unchanged, which is contradicted by the recorded diff."
+      ],
+      "contract_violation": "Every changed path must stay within the exact lock authorization. Stage 10B route behavior remained unauthorized, and the narrow route exception did not authorize Manager resolution or status-flow edits."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "OBS-10A-004",
+      "severity": "NON_BLOCKING",
+      "summary": "The optional seed.command.selected event was not added.",
+      "assessment": "This remains honest and non-blocking because normal serve/default startup never seeds and seed-rag remains the only explicit seed command."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [
+    {
+      "id": "SCOPE-10A-001",
+      "path": "api/routes/analyze.py",
+      "owner": "core",
+      "assessment": "The path had a valid exact lock, but get_request_manager(request, memory) and the new status normalization exceeded the user-authorized privacy/observability-only purpose of that lock."
+    }
+  ],
+  "required_rework": [
+    {
+      "finding": "REVIEW-10A-001",
+      "required": "Keep external exporters disabled until every request-reachable trace/capture path is payload-safe, or perform an explicitly locked audit and repair of all such paths. LangSmith traces must use closed process_inputs/process_outputs allowlists and Sentry must never capture original exception objects or request-derived scalar payloads. Add offline enabled-exporter PRIVATE_SENTINEL countertests proving Manager node inputs/outputs, exceptions, logs and breadcrumbs contain only compact allowlisted metadata and that exporter/client failures remain non-fatal."
+    },
+    {
+      "finding": "REVIEW-10A-002",
+      "required": "Either revert the analyze route Manager-resolution and status-normalization edits while retaining the authorized privacy/observability sanitation, or obtain explicit authorization for those exact behavior changes and revalidate them in a new attempt. The next implementation and QA artifacts must describe the route diff accurately."
+    }
+  ],
+  "review_blockers": [],
+  "resolved_findings": [
+    {
+      "id": "OBS-10A-001",
+      "status": "PASS_RESOLVED",
+      "evidence": "Local API startup/shutdown/request and request-scoped Manager/memory events use immutable 10A/r1/a1/core identity, one opaque UUID4-hex request id, measured finite non-negative latency, a closed local metadata allowlist and isolated sink failure."
+    },
+    {
+      "id": "OBS-10A-002",
+      "status": "PARTIAL_BLOCKING",
+      "evidence": "The changed API route and memory logs/persistence remove raw request and exception values, but enabled Sentry still receives original exceptions from request-reachable Manager paths and enabled LangSmith can trace raw Manager graph state."
+    },
+    {
+      "id": "OBS-10A-003",
+      "status": "PARTIAL_BLOCKING",
+      "evidence": "All three activation gates and non-fatal initializer handling are present, but successful activation exposes separate non-allowlisted exporter call-sites, so payload safety is not established."
+    }
+  ],
+  "contract_audit": {
+    "scope_and_ownership": "FAIL: all recorded files have exact owners, but the user-authorized api/routes/analyze.py exception was exceeded by Manager-resolution and status-flow edits. No test deletion or downstream file implementation was found.",
+    "artifact_integrity": "PASS: control revision 169 is ACTIVE/REVIEW for 10A/r1/a1 with reviewer support; observability_required=true; the exact matching draft-ready, observability, two change requests, implementation MD/JSON and QA PASS artifacts exist and validate; all recorded hashes match.",
+    "dependency_and_downstream": "PASS: Stage 09 is CLOSED and its handoff hash matches. Stage 10B remains PENDING/NOT_STARTED revision 0 attempt 0 and was not activated.",
+    "temporal_safety": "PASS: Settings builds the canonical ForecastContext, historical mode selects its distinct dataset version, UTC parsing is reused for monthly memory keys, and temporal/data/version exceptions map to stable responses without turning invalid timestamps into now. No historical current-data fallback or SEC behavior was introduced.",
+    "versioning_and_reproducibility": "PASS: runtime, schema, dataset, feature, model and backtest identities are explicit; LIVE and HISTORICAL_BACKTEST defaults are distinct; the accepted Stage 09 handoff is unchanged.",
+    "financial_and_numeric_integrity": "PASS: no DCF/WACC, nine-intent mapper, monthly model, action-policy or deterministic Quant path was changed. DCF remains long-term valuation context rather than the 21-session forecast.",
+    "request_and_memory_isolation": "PASS_FOR_IMPLEMENTATION_BUT_SCOPE_FAIL_ON_ROUTE: ManagerAgentFactory is frozen/stateless, mutable Manager and ManagerMemory instances are created per request, and monthly memory uses exactly ticker/UTC as_of/horizon/analysis_mode/schema_version without legacy merge. Binding the route to get_request_manager nevertheless exceeded its narrow authorization.",
+    "api_runtime_and_seed": "PASS: lifecycle clients and route skeletons are present; no mutable Manager singleton is stored; normal startup does not auto-seed; seed-rag is explicit; temporal/version errors are sanitized.",
+    "observability_and_data_hygiene": "FAIL: local 10A lifecycle telemetry is safe, but successful Sentry/LangSmith opt-in activates original-exception and unsanitized Manager graph tracing paths. The claimed payload-safe exporter contract is therefore false.",
+    "regression": "PASS_AS_QA_EVIDENCE: matching QA reports 206 focused tests, 206 guarded focused tests with zero external attempts, 104 Stage01/08/09 regressions and 1438 collected tests with zero errors. Those tests do not cover successful exporter activation across request-reachable Manager decorators/capture sites.",
+    "operational_safety": "PASS: rollback is documented; no network/provider/exporter contact, external database mutation, migration, seed, dependency change, deletion, deployment, commit or push is recorded."
+  },
+  "tests_and_checks": [
+    {
+      "command": "Official control/lock/artifact validation for draft-ready, observability, CR1, CR2, implementation and QA",
+      "result": "PASS: CONTROL VALID six times at control_revision 169; all six artifacts have exact 10A/r1/a1 identity and satisfy artifact.schema.json."
+    },
+    {
+      "command": "Independent SHA-256 reconciliation",
+      "result": "PASS: all 16 implementation-recorded source/MD hashes match; all current chain hashes and the Stage 09 dependency handoff hash match; QA hash is 5fcc4ebda0e6f3da92dd272270076c30857d5090b3c3a48e6062cd34b2fcd04e."
+    },
+    {
+      "command": "Independent analyze route diff audit",
+      "result": "FAIL_SCOPE: request.app.state.manager_agent was replaced by get_request_manager(request, memory), and a status-normalization branch was added beyond privacy/observability-only authorization. Request/response schemas, Manager.run arguments, result mapping, persistence row keys and progress session path otherwise remain structurally unchanged."
+    },
+    {
+      "command": "Independent enabled-exporter static path audit",
+      "result": "FAIL_PRIVACY: LangSmith is globally enabled while seven Manager graph @traceable nodes lack input/output allowlists; Sentry's active helper sends original exception objects and is called from request-reachable Manager paths."
+    },
+    {
+      "command": "Matching QA execution evidence (not rerun broadly by Reviewer)",
+      "result": "PASS: QA records 206 focused, 206 guarded, 104 proportional regression tests and 1438 collected with zero failures/errors or external attempts."
+    }
+  ],
+  "source_integrity": {
+    "implementation_source_hashes_checked": 16,
+    "implementation_source_hash_mismatches": 0,
+    "current_chain_hash_mismatches": 0,
+    "dependency_handoff_hash_mismatches": 0,
+    "all_changed_paths_have_explicit_lock_owner": true,
+    "authorized_scope_compliant": false,
+    "runtime_identity": "10A/r1/a1/core",
+    "implementation_version": "stage10a-r1-a1"
+  },
+  "external_execution": {
+    "network_access_by_review": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "dependency_changes": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "stage10b_work": "NOT_RUN"
+  },
+  "downstream_gate": {
+    "stage10a_closure": "NOT_ELIGIBLE_RETRY_REQUIRED",
+    "recommended_next_action": "Orchestrator should keep Stage 10A active and start revision 1 attempt 2 with exact locks/authorization for the required exporter-safety and route-scope rework.",
+    "stage10b_status": "PENDING",
+    "stage10b_phase": "NOT_STARTED",
+    "stage10b_activation": "FORBIDDEN_UNTIL_STAGE10A_APPROVED_AND_CLOSED"
+  },
+  "supersedes": null,
+  "created_at": "2026-09-12T21:24:44.5008914Z"
+}

@@ -1,0 +1,48 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "00",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "core",
+  "status": "IMPLEMENTED",
+  "execution_mode": "IMPLEMENTATION",
+  "changed_files": [
+    "pytest.ini",
+    ".codex/baseline-manifest.json",
+    ".codex/handoffs/stage-00-rev-1-attempt-2-implementation.md",
+    ".codex/handoffs/stage-00-rev-1-attempt-2-implementation.json",
+    ".codex/handoffs/stage-00-rev-1-attempt-2-milestone-BASELINE_READY.json"
+  ],
+  "self_tests_run": [
+    {"command": ".venv/Scripts/python.exe -m pytest --trace-config --collect-only -q tests/unit_tests/test_supabase_phase5_migration.py", "exit_code": 0, "result": "langsmith_plugin absent; no network/socket/connection/HTTP error", "network_mode": "FORCED_OFFLINE", "socket_monkeypatch": false},
+    {"command": ".venv/Scripts/python.exe -m pytest --collect-only -qq --disable-warnings tests/unit_tests tests/integration_tests", "exit_code": 0, "duration_seconds": 17.55, "result": "1136 collected: 1085 unit, 51 integration", "network_mode": "FORCED_OFFLINE", "socket_monkeypatch": false},
+    {"command": ".venv/Scripts/python.exe -m pytest -q --disable-warnings tests/unit_tests", "exit_code": 1, "duration_seconds": 31.74, "result": "1045 passed, 40 pre-existing failures, 35 warnings; no teardown/network error", "network_mode": "FORCED_OFFLINE", "socket_monkeypatch": false},
+    {"command": ".venv/Scripts/python.exe -m pytest -q --disable-warnings tests/unit_tests/test_supabase_phase5_migration.py", "exit_code": 1, "duration_seconds": 0.15, "result": "4 preserved FileNotFoundError failures", "network_mode": "FORCED_OFFLINE", "socket_monkeypatch": false},
+    {"command": "uv lock --check --offline", "exit_code": 0, "result": "PASS; 210 packages resolved"}
+  ],
+  "qa_findings_resolved": [
+    {"id": "STAGE00-OFFLINE-RUNNER-001", "resolution": "Disabled pytest plugin auto-load with -p no:langsmith_plugin and revalidated without QA socket monkeypatch."}
+  ],
+  "contract_diff": ["Runner-only plugin isolation; no product or test contract changes."],
+  "data_counts": {"unit_collected": 1085, "integration_collected": 51, "total_collected": 1136, "unit_passed": 1045, "unit_failed_pre_existing": 40},
+  "leakage_report": {"status": "NOT_APPLICABLE_STAGE_00", "historical_dataset": "NOT_AVAILABLE"},
+  "latency_delta": {"attempt_1_unit_seconds": 68.29, "attempt_2_unit_seconds": 31.74},
+  "blocking_issues": [],
+  "known_limitations": [
+    {"issue": "Legacy supabase_phase5_provenance_migration.sql absent", "status": "BLOCKED_PRE_EXISTING", "disposition": "NO_VALID_RETARGET"},
+    {"issue": "Supabase/Neo4j/backup/restore evidence", "status": "NOT_AVAILABLE_NOT_RUN"},
+    {"issue": "Offline unit baseline", "status": "CAPTURED_WITH_40_PRE_EXISTING_FAILURES"}
+  ],
+  "out_of_scope_findings": [],
+  "requested_changes": [],
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Reverse only the -p no:langsmith_plugin addition and attempt-2 baseline evidence fields.",
+    "Remove only the three attempt-2 core artifacts.",
+    "Preserve attempt-1 artifacts, state, QA evidence, product files, and dfc.md."
+  ],
+  "supersedes": ".codex/handoffs/stage-00-rev-1-attempt-1-implementation.json",
+  "implementation_ready": true,
+  "created_at": "2026-08-27T15:06:02.9607081Z"
+}

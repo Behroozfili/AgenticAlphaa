@@ -18,6 +18,19 @@ log = logging.getLogger("core.error_handler")
 
 T = TypeVar("T")
 
+
+class TemporalLeakageError(ValueError):
+    """Evidence timestamp is later than the forecast cutoff."""
+
+
+class DataUnavailableAsOfError(LookupError):
+    """Required point-in-time data or calendar evidence is unavailable."""
+
+
+class VersionMismatchError(ValueError):
+    """Versioned inputs do not match the active forecast contract."""
+
+
 _SCALARS = (str, int, float, bool, type(None))
 _MAX_ITEMS = 10
 _MAX_LEN = 100
@@ -94,23 +107,10 @@ def _safe_extra(kwargs: dict) -> dict:
         try:
             if isinstance(v, _SCALARS):
                 safe[k] = v
-            elif isinstance(v, (list, tuple, set)):
-                items = [str(item)[:_MAX_LEN] for item in list(v)[:_MAX_ITEMS]]
-                if len(v) > _MAX_ITEMS:
-                    items.append(f"...(+{len(v) - _MAX_ITEMS} more)")
-                safe[k] = items
-            elif isinstance(v, dict):
-                out = {}
-                for i, (dk, dv) in enumerate(v.items()):
-                    if i >= _MAX_ITEMS:
-                        out["..."] = f"(+{len(v) - _MAX_ITEMS} more)"
-                        break
-                    out[str(dk)] = str(dv)[:_MAX_LEN]
-                safe[k] = out
             else:
-                safe[k] = f"<{type(v).__name__}: {str(v)[:_MAX_LEN]}>"
+                continue
         except Exception:
-            safe[k] = f"<{type(v).__name__} (unstringifiable)>"
+            continue
     return safe
 
 

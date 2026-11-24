@@ -8,7 +8,11 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 import torch
-from transformers import BertTokenizer, BertForSequenceClassification
+from transformers import (
+    BertForSequenceClassification,
+    BertTokenizer,
+    __version__ as TRANSFORMERS_VERSION,
+)
 import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
@@ -23,6 +27,15 @@ _MODEL:     Optional[BertForSequenceClassification] = None
 _DEVICE:    Optional[str]                          = None
 
 MODEL_NAME = "ProsusAI/finbert"
+# Immutable revision already present in the approved local Hugging Face cache.
+# Loading remains local-only, so execution can neither resolve a mutable branch
+# nor contact the network.
+FINBERT_MODEL_REVISION = "4556d13015211d73dccd3fdd39d39232506f3e43"
+MODEL_REVISION = FINBERT_MODEL_REVISION
+FINBERT_MODEL_VERSION = (
+    f"{MODEL_NAME}@git-revision:{FINBERT_MODEL_REVISION}:"
+    f"transformers-{TRANSFORMERS_VERSION}"
+)
 
 def reset_finbert() -> None:
     """
@@ -99,6 +112,10 @@ class FinBertResult:
     skipped_chunks: int                  = 0
     status:         str                  = "VALID"
     polarity:       str | None           = None
+    model_version:  str                  = FINBERT_MODEL_VERSION
+    batch_size:     int                  = 16
+    max_length:     int                  = 512
+    deterministic:  bool                 = True
 
 
 # ---------------------------------------------------------------------------
@@ -172,6 +189,10 @@ class FinBertSentimentAnalyzer:
         batch_size: int = 16,
         max_length: int = 512,
     ) -> None:
+        if not isinstance(batch_size, int) or isinstance(batch_size, bool) or batch_size <= 0:
+            raise ValueError("batch_size must be a positive integer")
+        if not isinstance(max_length, int) or isinstance(max_length, bool) or not 1 <= max_length <= 512:
+            raise ValueError("max_length must be an integer in [1, 512]")
         self.batch_size = batch_size
         self.max_length = max_length
         self._load_model()
@@ -216,7 +237,9 @@ class FinBertSentimentAnalyzer:
 
         if not valid:
             logger.warning("FinBertSentimentAnalyzer: all %d texts were empty.", len(texts))
-            return self._empty_result(skipped=len(texts))
+            return self._empty_result(
+                skipped=len(texts), batch_size=self.batch_size, max_length=self.max_length,
+            )
 
         chunk_scores: list[ChunkSentiment] = []
 
@@ -254,6 +277,10 @@ class FinBertSentimentAnalyzer:
             skipped_chunks = skipped,
             status         = "VALID",
             polarity       = corpus_label.upper(),
+            model_version  = FINBERT_MODEL_VERSION,
+            batch_size     = self.batch_size,
+            max_length     = self.max_length,
+            deterministic  = True,
         )
         logger.info(
             "FinBERT analysis complete: %d chunks | %s (bull=%.3f bear=%.3f neu=%.3f)",
@@ -336,10 +363,14 @@ class FinBertSentimentAnalyzer:
 
             logger.info("Loading ProsusAI/finbert (first time; this may take a moment)...")
             _DEVICE    = _select_device()
-            _TOKENIZER = BertTokenizer.from_pretrained(MODEL_NAME)
+            _TOKENIZER = BertTokenizer.from_pretrained(
+                MODEL_NAME, revision=MODEL_REVISION, local_files_only=True,
+            )
 
             try:
-                _MODEL = BertForSequenceClassification.from_pretrained(MODEL_NAME)
+                _MODEL = BertForSequenceClassification.from_pretrained(
+                    MODEL_NAME, revision=MODEL_REVISION, local_files_only=True,
+                )
                 _MODEL.to(_DEVICE)
                 _MODEL.eval()
                 logger.info("FinBERT loaded on %s.", _DEVICE)
@@ -350,7 +381,9 @@ class FinBertSentimentAnalyzer:
                         _DEVICE, exc,
                     )
                     _DEVICE = "cpu"
-                    _MODEL  = BertForSequenceClassification.from_pretrained(MODEL_NAME)
+                    _MODEL  = BertForSequenceClassification.from_pretrained(
+                        MODEL_NAME, revision=MODEL_REVISION, local_files_only=True,
+                    )
                     _MODEL.to("cpu")
                     _MODEL.eval()
                     logger.info("FinBERT loaded on CPU (fallback).")
@@ -384,7 +417,9 @@ class FinBertSentimentAnalyzer:
         return max(scores, key=scores.__getitem__)
 
     @staticmethod
-    def _empty_result(skipped: int = 0) -> FinBertResult:
+    def _empty_result(
+        skipped: int = 0, *, batch_size: int = 16, max_length: int = 512,
+    ) -> FinBertResult:
         """
         Return a neutral zero-score FinBertResult when no valid text is available.
 
@@ -408,4 +443,8 @@ class FinBertSentimentAnalyzer:
             skipped_chunks = skipped,
             status         = "NO_DATA",
             polarity       = None,
+            model_version  = FINBERT_MODEL_VERSION,
+            batch_size     = batch_size,
+            max_length     = max_length,
+            deterministic  = True,
         )

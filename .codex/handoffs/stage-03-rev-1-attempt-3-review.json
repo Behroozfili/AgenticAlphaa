@@ -1,0 +1,110 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "reviewer",
+  "status": "REJECTED",
+  "review_status": "REJECTED",
+  "blocking_findings": [
+    {
+      "id": "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+      "finding": "Attempt 3 preserves same-content dataset/retrieval/effective observations in AlphaProcessor, but those rows cannot coexist under the frozen Stage 02 V2 schema. The new chunk_id is evidence-scoped and differs, while alpha_documents_v2_document_identity remains unique on canonical_source_id, content_hash, document_version, chunk_index, chunk_hash and embedding_version, excluding evidence_id, dataset_version and observation times. AlphaVectorStore upserts only on chunk_id. Two same-content retrieval observations therefore produce two chunk/evidence IDs but the same frozen document-identity key, causing a unique-constraint conflict rather than preserving both observations. The deterministic offline reproduction returned 2 chunks, 2 chunk IDs and 2 evidence IDs but only 1 distinct frozen document-identity tuple.",
+      "required_change": "Reconcile the accepted Stage 02 storage contract with immutable evidence observations before Stage 03 can close. Use an authorized new schema/control revision or normalized evidence model that allows dataset/retrieval/effective observations to coexist without overwriting, then make the V2 adapter target the correct conflict key. Add an offline contract test that maps same-content distinct dataset/retrieval/effective observations through embedder and _to_v2_row and proves every generated row satisfies all primary/unique identities. Do not apply migrations without separate authorization."
+    },
+    {
+      "id": "STAGE03-TICKER-MATERIALIZATION-007",
+      "finding": "Historical ticker scope and snapshot identity are not enforced end to end. JsonArchiveProvider ignores the tickers/boundaries passed by AlphaLoader, and AlphaLoader trusts the provider instead of rejecting documents whose ticker is outside the requested set. An offline reproduction requesting only NVDA returned both NVDA and AMD. In addition, processor document/evidence/chunk IDs omit ticker and the materialization fingerprint hashes only those IDs, so a same-content observation reassigned between two requested tickers can retain the same fingerprint while Vector's already-written ticker and Graph's retried RawDocument ticker diverge. Multi-ticker copies of the same evidence are also treated as exact duplicates and one ticker association is lost.",
+      "required_change": "Enforce requested ticker membership in the historical loader independently of provider behavior and define a frozen, storage-compatible representation for multi-ticker evidence. Bind the materialization fingerprint to every Vector/Graph-relevant association and metadata field, including ticker, or to a canonical full record manifest hash. Add tests for an archive containing requested and unrequested tickers, one source associated with multiple requested tickers, and ticker/metadata changes during Graph resume."
+    },
+    {
+      "id": "STAGE03-PREMATERIALIZATION-RESUME-008",
+      "finding": "Checkpoint retry is poisoned by failures that occur before materialization identity exists. Missing credentials and load/process failures save a current-attempt manifest with request_fingerprint but no materialization_fingerprint. On the next run, any loaded manifest is unconditionally required to have a materialization fingerprint after reprocessing, so the retry returns INGESTION_RESUME_FINGERPRINT_MISSING even when vector status is failed/pending and no completed work is being reused. This is fail-closed but not resumable and requires manual checkpoint deletion rather than a safe retry.",
+      "required_change": "Differentiate incomplete pre-materialization checkpoints from completed Vector checkpoints. Permit a safe current-request retry when no completed work can be reused, while continuing to reject missing/mismatched identity for completed Vector/Graph state. Add exact tests for missing-credential, transient load and transient process failure followed by a successful same-checkpoint retry."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "PREEXISTING-LOCK-STATE-001",
+      "finding": "Global --check-locks remains invalid for agents/state.py: current SHA-256 193ab2216400868061db707d2f0b5ba093efec179caafd4401afeba2155a2c3a differs from the accepted Stage 01 hash 130eb1c13f928a0e53e255efd9892e9e409aa0785a55474fc34f8ae0a07164d3 and the current bytes have no valid owner attribution. Stage 03 did not modify or claim this path, so it is not a Stage 03 behavioral rejection reason. It remains an independent Orchestrator closure blocker until an authorized owner/control revision reconciles it."
+    },
+    {
+      "id": "STAGE03-LIVE-V2-NOT-RUN",
+      "finding": "V2 behavior remains deterministic offline fixture/mock validation because Stage 02 migrations and reconciliation were not applied and external database/provider execution was not authorized. No live V2 correctness or production-latency claim is approved."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    "Resolve the cross-stage V2 identity conflict so preserved dataset/retrieval/effective evidence observations can actually coexist in storage; retain immutable prior migration/artifact history and do not apply any migration without separate authorization.",
+    "Enforce historical ticker scope independently of provider behavior and include all Vector/Graph-relevant ticker associations and metadata in the canonical materialization identity.",
+    "Make pre-materialization failed checkpoints safely retryable without weakening fingerprint checks for completed Vector or Graph work.",
+    "Repeat the full Draft-ready -> Observability -> Primary-final -> QA chain in a new immutable attempt, preserving the resolved archive injection, no-live-fallback, stage03-r1-a3-style provenance update, privacy allowlist, temporal filters, legacy default and fixture compatibility."
+  ],
+  "review_blockers": [
+    "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+    "STAGE03-TICKER-MATERIALIZATION-007",
+    "STAGE03-PREMATERIALIZATION-RESUME-008"
+  ],
+  "evidence": [
+    {
+      "check": "artifact_identity_phase_and_required_chain",
+      "status": "PASS",
+      "detail": "State is ACTIVE/REVIEW for Stage 03 revision 1 attempt 3. Matching draft-ready, required observability, implementation JSON/MD and QA artifacts exist; QA is PASS; all four input artifacts and control validate locally; the review path is locked to reviewer."
+    },
+    {
+      "check": "attempt_history_source_audit_and_immutability",
+      "status": "PASS",
+      "detail": "Attempt 2 remains REVIEW REJECTED. Independent SHA-256 verification matched all five Attempt 1 artifacts, all six Attempt 2 artifacts, and all six Attempt 3 retry source/test hashes recorded by Observability. No prior artifact was overwritten."
+    },
+    {
+      "check": "former_historical_provider_blocker",
+      "status": "PASS_WITH_NEW_TICKER_BLOCKER",
+      "detail": "run_ingestion_pipeline and rag.seed now expose/inject a stable archive provider; the CLI supplies a content-addressed local JSON provider; complete bounds and V2 are required; live yfinance/Reddit fallback remains disabled. The independently rerun archive-to-V2 regression passed, but STAGE03-TICKER-MATERIALIZATION-007 shows that the configured provider/loader does not enforce the requested ticker set."
+    },
+    {
+      "check": "former_checkpoint_snapshot_blocker",
+      "status": "PASS_WITH_NEW_IDENTITY_AND_RESUME_BLOCKERS",
+      "detail": "Provider ID, content IDs, embedding model/version/cache schema and adapter change counterexamples now fail closed before Vector reuse or Graph retry; all four independently rerun tests passed. Exact materialization is still incomplete because ticker/metadata are absent from identity, and pre-materialization failed checkpoints cannot retry safely."
+    },
+    {
+      "check": "former_revision_dedupe_blocker",
+      "status": "FAIL_AT_STORAGE_BOUNDARY",
+      "detail": "Processor now emits distinct evidence/chunk IDs for same-content document versions, datasets, retrieval times and effective observations, and exact evidence duplicates only are suppressed. The three independently rerun reviewer nodes passed. However dataset/retrieval/effective variants share the frozen alpha_documents_v2_document_identity unique tuple and cannot coexist through the actual V2 adapter/schema."
+    },
+    {
+      "check": "former_observability_attempt_identity_blocker",
+      "status": "PASS",
+      "detail": "Runtime telemetry is stage=03, stage_revision=1, attempt=3, agent=data_rag with contract_version stage03-r1-a3. The allowlist, monotonic latency, compact hashed provider/snapshot identities, counts/status/degraded fields and deterministic sanitized INGESTION_* error codes remain intact."
+    },
+    {
+      "check": "temporal_safety_retrieval_and_quarantine",
+      "status": "PASS",
+      "detail": "Historical mode requires normalized start/end/as_of and V2; invalid or unknown required evidence time is quarantined rather than mapped to now. Ticker/dataset/as_of/availability/effective interval checks remain before freshness ranking, late retrieval is excluded, historical freshness uses as_of, and legacy historical retrieval fails closed."
+    },
+    {
+      "check": "fixture_startup_legacy_and_regression",
+      "status": "PASS",
+      "detail": "Legacy remains the runtime default; V2 is opt-in; main startup does not auto-seed; the four legacy narrative cases and four temporal fixture rows coexist. QA reports 216 focused Stage 03 passes, 8 reviewer counterexample passes, 10 telemetry/privacy/seed passes, 16 narrative passes, 109 Stage 01-02 regressions and 1231 collected tests with zero collection errors. Those tests do not exercise the frozen V2 unique constraint, unrequested archive ticker, ticker-only resume mutation or pre-materialization retry."
+    },
+    {
+      "check": "scope_ownership_and_downstream_boundary",
+      "status": "PASS",
+      "detail": "Attempt 3 retry changes are confined to six exact data_rag-locked product/test paths plus revisioned artifacts. No graph_store/hybrid_rag, Research, Financial, Sentiment, Quant, API, dependency or migration path changed prematurely. Stage 04A must remain inactive because the reviewed shared Vector/Graph identity and resume base is not yet sound."
+    },
+    {
+      "check": "financial_numeric_scientific_and_storage_hygiene",
+      "status": "NOT_APPLICABLE_UNCHANGED",
+      "detail": "DCF/WACC, all nine financial intents/mappers, deterministic Quant source-of-truth, monthly target/provider/universe/action policy, forecast persistence and walk-forward methodology were not modified. Checkpoints/telemetry persist compact hashes, counts, statuses and sanitized codes only; no CoT, brain_reasoning, secret, raw chunk, full filing copy or duplicated analysis payload was added there."
+    },
+    {
+      "check": "rollback_and_operational_safety",
+      "status": "PASS",
+      "detail": "Rollback is documented and keeps legacy as default. No network acquisition, external DB read/write, migration apply, reconciliation, seed/backfill, route switch, legacy deletion, deploy, commit or push is evidenced. No operational rollback is currently required."
+    }
+  ],
+  "rollback_reviewed": true,
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-2-review.json",
+  "created_at": "2026-08-30T11:55:09.3777908Z"
+}

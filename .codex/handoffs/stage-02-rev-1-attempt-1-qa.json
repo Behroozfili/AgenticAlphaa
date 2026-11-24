@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "02",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "status": "FAIL",
+  "qa_status": "FAIL",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_control_locks_and_artifacts",
+      "exit_code": 0,
+      "result": "PASS; matching milestone and final implementation artifacts validate, ownership is exact, SCHEMA_CONTRACT_FROZEN is PASS, and CONTROL VALID."
+    },
+    {
+      "check": "focused_stage01_stage02_regression",
+      "command": "forced-offline focused Stage 01 plus Stage 02 pytest",
+      "exit_code": 0,
+      "result": "106 passed in 2.54s"
+    },
+    {
+      "check": "full_unit_regression",
+      "command": "forced-offline pytest -q --disable-warnings --tb=no tests/unit_tests",
+      "exit_code": 1,
+      "result": "1109 passed, exactly 38 documented downstream/legacy failures, 6 warnings; zero Stage 02 test failures."
+    },
+    {
+      "check": "full_collection",
+      "command": "forced-offline pytest --collect-only tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1198 collected: 1147 unit and 51 integration"
+    },
+    {
+      "check": "rls_rpc_effective_access_review",
+      "exit_code": 1,
+      "result": "FAIL; alpha_documents_v2_eligible does not explicitly use security_invoker and effective RPC/table/view access depends on environment default ACLs."
+    }
+  ],
+  "blocking_issues": [
+    {
+      "id": "STAGE02-RLS-VIEW-001",
+      "finding": "The eligible-document view can execute with owner semantics on supported PostgreSQL versions unless security_invoker is explicit, and the migration does not grant the intended read privileges explicitly. This can bypass the intended row policy or make the SECURITY INVOKER RPC fail under authenticated/service roles depending on default ACLs.",
+      "required_change": "Define alpha_documents_v2_eligible WITH (security_invoker = true), add explicit least-privilege SELECT grants needed by the RPC/read path, add regression assertions for both, and rerun Stage 02 gates. Do not broaden write privileges or change production route pointers.",
+      "paths": [
+        "database/supabase/001_alpha_documents_v2.sql",
+        "database/supabase/002_forecast_tables.sql",
+        "database/supabase/003_analysis_versioning.sql",
+        "tests/unit_tests/test_database_v2_migrations.py"
+      ]
+    }
+  ],
+  "environment_blockers": [],
+  "known_failure_separation": {
+    "financial_stage05": 28,
+    "sentiment_stage06": 4,
+    "integration_stage08": 1,
+    "data_rag_stage03": 1,
+    "legacy_migration_stage00": 4,
+    "stage02_regressions": 0
+  },
+  "external_database_execution": "NOT_RUN_UNAUTHORIZED",
+  "external_network_connections_completed": 0,
+  "supersedes": null,
+  "created_at": "2026-08-28T19:01:00.2298747Z"
+}

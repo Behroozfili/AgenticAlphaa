@@ -1,0 +1,168 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 4,
+  "agent": "sentiment",
+  "status": "IMPLEMENTED",
+  "execution_phase": "PRIMARY_FINAL",
+  "control_revision": 118,
+  "implementation_mode": "REAL_EXECUTOR_FUSION_HEALTH_AND_PRIVACY_REMEDIATION",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-05-rev-1-handoff.json",
+  "dependency_handoff_sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+  "prior_review": ".codex/handoffs/stage-06-rev-1-attempt-3-review.json",
+  "prior_review_sha256": "9b018cef21e036e03a34c7f362f876f10b9d761d2e244c36f7b9c2fb77e8de9a",
+  "draft_ready_artifact": ".codex/handoffs/stage-06-rev-1-attempt-4-draft-ready.json",
+  "draft_ready_sha256": "dcc03cfda49f68ede72d0afade0c089274a2eba1be4333acc241c5769a8bca71",
+  "observability_artifact": ".codex/handoffs/stage-06-rev-1-attempt-4-observability.json",
+  "observability_sha256": "5ce285c68f8dee3bd821456f614527750f060193020b5c9f5d5b094ebe642af4",
+  "observability_status": "AUDITED_NO_CHANGES_REQUESTED",
+  "implementation_md": ".codex/handoffs/stage-06-rev-1-attempt-4-implementation.md",
+  "implementation_md_sha256": "2aed5b34284c97eec45dd5de24cbacd3aa2d9514d8f703e035e70eba00c3716a",
+  "changed_files": [
+    "agents/executor_helpers/sentiment_helper.py",
+    "agents/sentiment_agent.py",
+    "tests/unit_tests/test_sentiment_phase4.py",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py",
+    ".codex/handoffs/stage-06-rev-1-attempt-4-implementation.md",
+    ".codex/handoffs/stage-06-rev-1-attempt-4-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "REVIEW-06-A3-B-001",
+      "status": "RESOLVED",
+      "resolution": "The actual MCP-to-executor path canonicalizes provider model status and polarity before State assignment. Original fusion health stays distinct from selected-attempt health, unknown fusion health cannot become VALID or emit provenance, invalid polarity stays None, and the real graph/executor PRIVATE_SENTINEL counterexample is payload-free and degraded."
+    }
+  ],
+  "executor_contract": {
+    "provider_boundary_canonicalization": true,
+    "fusion_health_field": "fear_greed_result.status",
+    "selected_attempt_health_field": "fear_greed_result.attempt_status",
+    "fusion_health_overwritten_by_attempt_health": false,
+    "unknown_fusion_status": "UNKNOWN",
+    "unknown_fusion_available": false,
+    "unknown_fusion_provenance_emitted": false,
+    "unknown_fusion_score_retained": false,
+    "invalid_fusion_polarity": null,
+    "invalid_polarity_in_compact_summary": false,
+    "real_graph_executor_sentinel": true,
+    "graph_ainvoke_mocked_in_sentinel": false
+  },
+  "privacy_verification": {
+    "private_marker": "PRIVATE_SENTINEL",
+    "typed_slot_contains_marker": false,
+    "compact_summary_contains_marker": false,
+    "logs_contain_marker": false,
+    "progress_contains_marker": false,
+    "trace_contains_marker": false,
+    "sentry_serialization_contains_marker": false,
+    "slot_degraded": true,
+    "fusion_status": "UNKNOWN",
+    "selected_attempt_status": "ERROR"
+  },
+  "implementation_identity": {
+    "single_source": "agents/executor_helpers/sentiment_helper.py::SENTIMENT_IMPLEMENTATION_IDENTITY",
+    "stage": "06",
+    "stage_revision": 1,
+    "attempt": 4,
+    "agent": "sentiment",
+    "implementation_version": "stage06-r1-a4"
+  },
+  "preserved_contracts": {
+    "findings": [
+      "REVIEW-06-A2-B-001", "OBS-06-A3-001", "REVIEW-06-B-001",
+      "REVIEW-06-B-002", "REVIEW-06-B-003", "OBS-06-001",
+      "OBS-06-002", "OBS-06-003", "OBS-06-004"
+    ],
+    "measured_lifecycle_boundaries": 8,
+    "fixed_windows_calendar_days": [7, 14, 30],
+    "contributor_only_immutable_model_provenance": true,
+    "per_field_temporal_validation": true,
+    "future_filter_before_grouping": true,
+    "mcp_forecast_identity_required": true,
+    "reference_only_shared_state": true
+  },
+  "source_sha256": {
+    "agents/executor_helpers/sentiment_helper.py": "8e88a4869b6602ecc3446b95085a8b170d63b4812a5256f85571e4932a304a80",
+    "agents/sentiment_agent.py": "0f23c3d006a7aeba9aaab4ad361652e42f8ed7b31042fa9b2825e71cd27e0734",
+    "tests/unit_tests/test_sentiment_phase4.py": "4ccf5eee7ce5b50117e4337029937bc344735a8a37e831faef867e6fb8e8c9ad",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py": "bff9e61eeab01284277adfd79d43943791eab1dc491081e03cd2fc87735b840c"
+  },
+  "final_self_tests": [
+    {
+      "command": "14 exact real-executor/privacy/status/partial-aggregate/coverage/temporal/MCP/identity counterexamples",
+      "exit_code": 0,
+      "result": "14 passed in 13.02s; includes real graph/executor PRIVATE_SENTINEL and attempt4/stage06-r1-a4 lifecycle identity"
+    },
+    {
+      "command": "authoritative marker-correct complete offline Stage06 suite: -m not-live/not-slow/not-db",
+      "exit_code": 0,
+      "result": "175 passed, 5 deselected, 1 deprecation warning in 6.11s"
+    },
+    {
+      "command": "source/artifact SHA-256, stale identity and official control/lock validation",
+      "exit_code": 0,
+      "result": "PASS; 4/4 source hashes match draft; dependency, prior review, draft and observability hashes match; CONTROL VALID"
+    }
+  ],
+  "self_tests_run": [
+    {
+      "command": "Attempt4 sensitive counterexamples",
+      "exit_code": 0,
+      "result": "14 passed"
+    },
+    {
+      "command": "marker-correct offline Stage06 suite",
+      "exit_code": 0,
+      "result": "175 passed, 5 deselected"
+    }
+  ],
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "database_reads": false,
+    "database_writes": false,
+    "legacy_data_deleted": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the four Attempt4 source/test paths to their recorded Attempt3 hashes while retaining all immutable audit artifacts.",
+    "attempt3_source_sha256": {
+      "agents/executor_helpers/sentiment_helper.py": "273e50ec89aa78a72f49e8a28f7929153036dd872531d5e0b22027e6eab4087d",
+      "agents/sentiment_agent.py": "b2babc90a29426dc860fc704cda3c7139327a9eca2c34fab470a7aedc913afa8",
+      "tests/unit_tests/test_sentiment_phase4.py": "4ccf5eee7ce5b50117e4337029937bc344735a8a37e831faef867e6fb8e8c9ad",
+      "tests/unit_tests/test_agents/test_sentiments_agent.py": "87a0cf8ccf29cd9352473fe5b92848b88a077a3ec98058bdd4971b26e7454a61"
+    },
+    "data_loss_risk": "NONE"
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage07_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "activated": false
+  },
+  "blocking_issues": [],
+  "limitations": [
+    "Validation is offline with deterministic fixtures, mocked providers and existing local model assets.",
+    "Live providers, database-marked tests and external trace export were intentionally not exercised.",
+    "The transformers WordPiece deprecation warning is non-blocking."
+  ],
+  "implementation_ready": true,
+  "supersedes": ".codex/handoffs/stage-06-rev-1-attempt-3-implementation.json",
+  "created_at": "2026-09-04T18:46:42.5091883Z"
+}

@@ -1,0 +1,159 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "03",
+  "stage_revision": 2,
+  "attempt": 1,
+  "agent": "reviewer",
+  "status": "APPROVED",
+  "review_status": "APPROVED",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "id": "STAGE03-MIGRATION004-SQL-CHANNEL-009",
+      "finding": "Migration 004 is explicitly authorized for the configured remote development Supabase target but remains AUTHORIZED_BUT_NOT_EXECUTABLE and NOT_RUN because no safe SQL URL/password, authenticated linked Supabase CLI or management SQL channel is available. Deterministic fixture/mock and static SQL-contract evidence supports Stage 03 acceptance, but live DDL, reconciliation, database correctness and latency remain unverified."
+    },
+    {
+      "id": "STAGE03-LIVE-V2-NOT-RUN",
+      "finding": "The runtime remains on the legacy adapter by default. Approval covers the offline V2 contract and does not claim that migration 004 was applied, that live V2 rows were reconciled, or that production reads were switched."
+    },
+    {
+      "id": "PREEXISTING-AGENTS-STATE-QUARANTINE-001",
+      "finding": "agents/state.py remains outside Stage 03 under the separate core quarantine lock. Stage 03 did not modify, claim or accept that path; current control and global lock validation pass with that attribution represented in state."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [],
+  "review_blockers": [],
+  "input_artifacts": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-03-rev-2-attempt-1-draft-ready.json",
+      "sha256": "379aff76ab967c17e532bd5a19fe642d735dab50702b1a94cf8962e117d9dbbb",
+      "ready_for_observability": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-03-rev-2-attempt-1-observability.json",
+      "sha256": "f473ef7c8fef9536fa231e5e46fb6d6f1b1064455e3de02c001e1b441e9a2221",
+      "status": "AUDITED",
+      "requested_primary_changes": []
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-03-rev-2-attempt-1-implementation.json",
+      "sha256": "aeb357b688c594bbe1169183f83395a50edc14940b586496f6f98577062c066a",
+      "markdown_path": ".codex/handoffs/stage-03-rev-2-attempt-1-implementation.md",
+      "markdown_sha256": "be50f856392017731adaf562f9056f55cfb0b0d61a32867e389697e8e6bde746",
+      "status": "IMPLEMENTED",
+      "implementation_ready": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-03-rev-2-attempt-1-qa.json",
+      "sha256": "5c910832d3bb78d197dcf63acdf4fb4531fcd32d156086c06108044a43c74958",
+      "qa_status": "PASS"
+    },
+    "dependency_handoff": {
+      "path": ".codex/handoffs/stage-02-rev-2-handoff.json",
+      "sha256": "ebdbaf4d75807cabdad4e726114fdcc26e6c997ad05bcdc6603aadab9b97603e",
+      "status": "CLOSED",
+      "review_status": "APPROVED"
+    }
+  },
+  "resolved_findings": [
+    {
+      "id": "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+      "status": "RESOLVED",
+      "detail": "The accepted Stage 02 revision-2 migration replaces the over-restrictive revision-1 identities with evidence-scoped document/evidence/chunk identities. AlphaVectorStore.V2_CONFLICT_TARGET exactly matches alpha_documents_v2_document_evidence_chunk_identity, and processor-to-row regressions prove same-content dataset, retrieval and effective-time observations remain distinct under both revision-2 unique constraints."
+    },
+    {
+      "id": "STAGE03-TICKER-MATERIALIZATION-007",
+      "status": "RESOLVED",
+      "detail": "AlphaLoader independently quarantines provider rows outside the normalized requested ticker set; JsonArchiveProvider also filters defensively. Evidence identity binds normalized ticker plus the complete metadata association, while full RawDocument and processed-record manifest hashes make ticker or metadata mutation fail closed before completed Vector reuse or Graph retry. Multi-ticker evidence associations coexist."
+    },
+    {
+      "id": "STAGE03-PREMATERIALIZATION-RESUME-008",
+      "status": "RESOLVED",
+      "detail": "A matching-request checkpoint without materialization identity may retry only while neither Vector nor Graph has completed work. Missing-credential and transient load/process failures recover without manual deletion; completed Vector or Graph state without a complete exact fingerprint still fails closed."
+    }
+  ],
+  "evidence": [
+    {
+      "check": "artifact_identity_phase_and_required_chain",
+      "status": "PASS",
+      "detail": "Control revision 66 is ACTIVE/REVIEW for Stage 03 revision 2 attempt 1 with execution enabled and reviewer as the only support agent. Matching immutable draft-ready, required observability, PRIMARY_FINAL implementation and QA artifacts exist; Observability is AUDITED with no requested changes and QA is PASS. All recorded input hashes match current bytes."
+    },
+    {
+      "check": "control_locks_scope_and_ownership",
+      "status": "PASS",
+      "detail": "validate_refactor_control.py --check-control --check-locks against the QA artifact returned CONTROL VALID. Revision-2 changes and current artifacts have exact data_rag/observability/qa/reviewer ownership. No Research, Financial, Sentiment, Quant, Manager, API, dependency, graph_store, hybrid_rag or Stage 04A implementation path was changed by this revision."
+    },
+    {
+      "check": "temporal_safety_and_no_future_leakage",
+      "status": "PASS",
+      "detail": "Historical execution requires complete normalized start/end/as_of bounds, an injected reproducible archive provider and the V2 adapter; there is no live fallback. Invalid or unknown required evidence time is quarantined rather than mapped to now. Provider output is ticker-scoped independently, and retrieval enforces ticker, dataset, availability/filed time and effective interval before ranking. The previously approved Stage 03 temporal boundary behavior remains unchanged by revision 2."
+    },
+    {
+      "check": "versioning_reproducibility_and_resume",
+      "status": "PASS",
+      "detail": "Request identity binds the stage03-r2-a1 control identity, normalized ticker/bounds/dataset, provider hash and adapter. Materialization additionally binds embedding model/version/cache schema, immutable document/evidence/chunk identities, full RawDocument records and processed records. Mismatched current bytes cannot reuse completed Vector work or continue Graph retry."
+    },
+    {
+      "check": "storage_identity_and_stage02_revision2_compatibility",
+      "status": "PASS",
+      "detail": "Migration 004 SHA-256 fced2fc6fcca6ef6bda11b887746b03a1fa98d7eaaa4b717a5c7dfb7c646f481 matches accepted Stage 02 revision 2 history. Forward and rollback SQL are additive/idempotent and fail closed on unexpected schema or rollback collisions without deleting or rewriting rows. V2 upsert uses the exact accepted conflict columns."
+    },
+    {
+      "check": "observability_privacy_and_data_hygiene",
+      "status": "PASS",
+      "detail": "Telemetry provenance is stage03-r2-a1 and emits allowlisted identifiers, hashes, counts, statuses, degradation and non-negative monotonic latency only. Checkpoints store compact identity and status data. No chain-of-thought, brain_reasoning, raw evidence text, URL/provider payload, full filing, secret, credential, token, header or untrusted exception message is persisted in observability data."
+    },
+    {
+      "check": "independent_regression_execution",
+      "status": "PASS",
+      "detail": "Reviewer independently ran the complete Stage 03 owner plus migration-contract offline gate: 245 passed in 52.15s with zero failures. QA additionally reports 12/12 exact blocker counterexamples, 112/112 accepted Stage 01-02 regressions, and 1246 collected tests with zero collection errors."
+    },
+    {
+      "check": "legacy_default_startup_and_operational_safety",
+      "status": "PASS",
+      "detail": "Legacy Vector remains the explicit runtime default and startup does not auto-seed. No external migration, database read/write, reconciliation, seed/backfill, legacy deletion, route switch, deployment, commit or push was performed. Rollback is documented; no operational rollback is required because no external mutation occurred."
+    },
+    {
+      "check": "financial_numeric_scientific_and_contract_integrity",
+      "status": "NOT_APPLICABLE_UNCHANGED",
+      "detail": "Revision 2 does not modify DCF/WACC, the nine financial intents/mappers, deterministic Quant outputs, forecast targets/horizons, universe/action policy, model or prompt identities, forecast persistence, walk-forward folds, baselines, ablations or investment-performance reporting. Existing accepted contracts are preserved rather than redefined."
+    },
+    {
+      "check": "stage04A_inactive_gate",
+      "status": "PASS",
+      "detail": "Stage 04A remains PENDING/NOT_STARTED at revision 0 attempt 0 and was neither activated nor reviewed. This approval is limited to Stage 03 and does not authorize downstream execution."
+    }
+  ],
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact .codex/handoffs/stage-03-rev-2-attempt-1-qa.json",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_embedding_manager.py tests/unit_tests/test_rag/test_ingestion.py tests/unit_tests/test_rag/test_loader.py tests/unit_tests/test_rag/test_processor.py tests/unit_tests/test_rag/test_retriever.py tests/unit_tests/test_rag/test_vectore_store.py tests/unit_tests/test_rag/test_pipline_rag.py tests/unit_tests/test_root_main.py tests/unit_tests/test_database_v2_migrations.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "245 passed in 52.15s"
+    }
+  ],
+  "operational_safety": {
+    "migration004_authorized": true,
+    "migration004_executable": false,
+    "migration004_applied": false,
+    "migration_operation_attempted": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "seed_or_backfill_executed": false,
+    "legacy_data_deleted": false,
+    "production_route_switched": false,
+    "stage04A_activated": false,
+    "deploy_commit_or_push": false
+  },
+  "rollback_reviewed": true,
+  "approval_scope": "Stage 03 revision 2 attempt 1 offline temporal Vector/RAG contract only; excludes live migration/reconciliation claims and all Stage 04A work.",
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-3-review.json",
+  "created_at": "2026-08-31T09:09:53.5023646Z"
+}

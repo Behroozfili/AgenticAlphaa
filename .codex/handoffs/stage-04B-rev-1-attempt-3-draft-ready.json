@@ -1,0 +1,153 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "04B",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "research",
+  "execution_phase": "PRIMARY_DRAFT",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-04A-rev-1-handoff.json",
+  "dependency_handoff_sha256": "c8e2bd6da7095e5d23447bfb8c3900402a34b11fea19c4ae40714dd48ed4e3",
+  "supersedes": ".codex/handoffs/stage-04B-rev-1-attempt-2-draft-ready.json",
+  "trigger_review": ".codex/handoffs/stage-04B-rev-1-attempt-2-review.json",
+  "trigger_review_sha256": "22b7e1c79b8d4f9d8aae9be0a12301cca0bdd5b02bd67a3944076d22b0789fda",
+  "changed_files": [
+    "tools/research_tools/__init__.py",
+    "tools/research_tools/context_synthesizer.py",
+    "agents/research_agent.py",
+    "tests/unit_tests/test_agents/test_research_agent.py",
+    ".codex/handoffs/stage-04B-rev-1-attempt-3-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "resolved_findings": [{
+    "id": "REVIEW-04B-001",
+    "status": "RESOLVED_IN_DRAFT",
+    "resolution": "All Stage04B runtime trace, lifecycle, progress and Sentry metadata now derives from the single immutable implementation identity stage04b-r1-a3 and truthfully reports stage=04B, stage_revision=1, attempt=3 and agent=research. Agent, synthesis, provider, SEC, Vector, Graph, Hybrid, comprehensive-analysis and both leakage-gate sentinels retain compact privacy-safe metadata."
+  }],
+  "implementation_identity": {
+    "version": "stage04b-r1-a3",
+    "stage": "04B",
+    "stage_revision": 1,
+    "attempt": 3,
+    "agent": "research",
+    "single_source": "tools/research_tools/__init__.py::RESEARCH_IMPLEMENTATION_IDENTITY",
+    "circular_imports": false
+  },
+  "source_sha256": {
+    "tools/research_tools/__init__.py": "f915117969f3372c641ee2a110cb2407dbffb06f768f5295d8ae7da5842eaa08",
+    "tools/research_tools/research_server.py": "5aced92c330415ca2d658ec82aa5c1e2f9c258b16d753f1874df344892908579",
+    "tools/research_tools/news_search.py": "109aa3dfb278604f30042d9cfe2d2ff019596befde96191d92a41e026a5c9877",
+    "tools/research_tools/sec_edgar.py": "1f704ce85b02f9974cfe2f6d5858735e82f7b815130786da27ae4d9c8452ff59",
+    "tools/research_tools/tavily_search.py": "3c40e9638aa23f1c1544e715cdb3760c32b83eafffe790cbeff8b130c11350e1",
+    "tools/research_tools/comprehensive_analysis.py": "292cf821290032f8f54fcfa0c148eb8070e6abf7f0797009a4e2189cc38b8046",
+    "tools/research_tools/context_synthesizer.py": "0fa356d16517c55251e7f39863e06c144d1e49506988ef4ed01db03a835c0289",
+    "agents/research_agent.py": "100090c1ab7c10458bb5db9364454bc2853d350de7ac4ab72058fdc4c81a56cd",
+    "agents/executor_helpers/search_executor_helpers.py": "9ae3b32f7ea7913bc597d32ea20c30a2cf6ade30ea1bafb5ddd1da51cea9b17d",
+    "agents/prompts/prompt_research_agent.py": "ce7e2b03d38e80a93d1da8e4e33245bae3418aba7b6308f11a5a63c056acada7",
+    "agents/prompts/__init__.py": "0f5b66c87c4e60dec7c67267e12a13b983cea56b3cb1007e2484d2bbf38944a2",
+    "tests/unit_tests/test_agents/test_search_executor_helpers.py": "956f2fd202f60b478d7a631e56c808d02d62c0a7c7c2cdf9247e0423923e28b3",
+    "tests/unit_tests/test_agents/test_research_agent.py": "1905570cf42d7234aa41bde5830dbb2a52dd338d7e712dcf9d06a08409a891b8",
+    "tests/unit_tests/search_test/test_tavily_search.py": "83251090d48a23d420f2b77384212de7b37e485f61520e7ed475ec9c06836bcd",
+    "tests/unit_tests/search_test/test_search_sec_edgar.py": "fd9bf2fba97102de7b5b1e70524914c45076dcc219db3135398ddcf2bf7d7b78",
+    "tests/unit_tests/search_test/test_news_search.py": "b6a24b0d43f9707ad7723cbef197b2f3f1f2aab245132fb73bb38368febefd7a",
+    "tests/unit_tests/search_test/test_search_server.py": "29434950869c6f1c33cf31163f471af87a6967c32be3130c47661a11b532fabd",
+    "tests/integration_test_2/test_research_agent_only.py": "9c9ffe9ebb6a3622bc957c1dc77ee009ad99761b949a10f233b6ba26b71aa506",
+    "tests/integration_tests/test_integration_search_agent.py": "f311591429b546d21e4f938a0014a3f7adda76f862bc3452a5bb6156613bb256",
+    "tests/fixtures/stage4b_research_point_in_time.json": "eb6e64300e625d6c7f640ce02c49013b2b3ab022b0521e0dbc862b0f7a609f17"
+  },
+  "draft_self_tests": [
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_research_agent.py -q",
+      "exit_code": 0,
+      "result": "46 passed in 3.38s after the synthesis output allowlist correction",
+      "network_mode": "OFFLINE_MOCKS"
+    },
+    {
+      "command": "five exact REVIEW-04B-001 sentinels after final progress and Sentry assertions",
+      "exit_code": 0,
+      "result": "5 passed in 5.10s",
+      "network_mode": "OFFLINE_MOCKS"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_search_executor_helpers.py tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/search_test/test_tavily_search.py tests/unit_tests/search_test/test_news_search.py tests/unit_tests/search_test/test_search_sec_edgar.py tests/unit_tests/search_test/test_search_server.py -q",
+      "exit_code": 0,
+      "result": "121 passed in 78.82s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_rag -q",
+      "exit_code": 0,
+      "result": "333 passed in 105.83s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_research_agent_only.py",
+      "exit_code": 0,
+      "result": "1313 tests collected in 14.83s; zero collection errors; integration tests collected only and not executed"
+    },
+    {
+      "command": "scoped compileall; git diff --check; control/lock validation; static privacy, attempt1 metadata and old-prompt scans; SHA-256 verification",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; zero runtime attempt=1 metadata; zero privacy or old prompt matches; line-ending notices only"
+    }
+  ],
+  "contract_preserved": {
+    "forecast_context_and_run_identity_required": true,
+    "historical_provider_allowlist_fail_closed": true,
+    "current_web_as_historical_fallback": false,
+    "sec_filed_at_not_after_as_of": true,
+    "future_unknown_rejected_before_synthesis_and_state": true,
+    "deterministic_evidence_and_citation_version_identity": true,
+    "vector_graph_hybrid_degradation": true,
+    "reference_only_state": true,
+    "stable_privacy_safe_errors": true,
+    "raw_query_plan_arguments_exception_url_evidence_citation_synthesis_rejection_in_metadata": false
+  },
+  "prior_attempt_artifact_immutability": {
+    "status": "PASS",
+    "attempt1_modified": false,
+    "attempt2_modified": false,
+    "attempt1_draft_sha256": "1a1c585620b89810533c8e89520001a5e3fb58a0a83bcf8927651634998f45f9",
+    "attempt1_observability_sha256": "0014612f1a1bf736a0b9b42e09a7573e0dc20c2445e8c3e4a05cba58d72f48d8",
+    "attempt1_implementation_json_sha256": "0af0f3e55511db380a7b9ff3b47d524fb705eef50495d2f8a20dafc64136fe8b",
+    "attempt1_implementation_md_sha256": "1050da5f558e15091ec3012626ac8fb534852544b18718ea8147c17d1fa713d1",
+    "attempt1_qa_sha256": "861856bbc7b8c5c95cec4b1c5aaee34efcecde464838f55c49e950be5d28b64b",
+    "attempt2_draft_sha256": "0d159dc3bad94068a22f8a7ec0b0e93dcb89f9e05fed60fcdfafeef6106b7ce3",
+    "attempt2_observability_sha256": "ef761d3048f2dfff4ece394f0caddf0be369136ff82d82380b06f0d57e48aff9",
+    "attempt2_implementation_json_sha256": "89b600a3425fd394ab704ba3d64711623561319d4b01e3abae207e2869f1bf0d",
+    "attempt2_implementation_md_sha256": "4beb996858ed3660c71119f3bccfbd147cb01822d68b5581ffa2068f8f301896",
+    "attempt2_qa_sha256": "fd65241e6be8f07738b47dec9de78c5e3390f963862f2df3ead91d2ec0f5f2cf",
+    "attempt2_review_sha256": "22b7e1c79b8d4f9d8aae9be0a12301cca0bdd5b02bd67a3944076d22b0789fda"
+  },
+  "operational_incident_retained": {
+    "type": "ACCIDENTAL_READ_ONLY_LEGACY_LIVE_TEST",
+    "disclosed_reads": ["News", "SEC"],
+    "stopped_immediately": true,
+    "external_writes": false,
+    "attempt3_rerun": false,
+    "rerun_forbidden": true,
+    "used_as_attempt3_evidence": false
+  },
+  "external_execution": {
+    "network_access_by_attempt3": false,
+    "database_reads": false,
+    "database_writes": false,
+    "live_provider_tests": "NOT_RUN_AND_RERUN_FORBIDDEN",
+    "archive_download": "NOT_RUN",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage05_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "created_at": "2026-09-01T18:47:49.2761981Z"
+}

@@ -1,121 +1,128 @@
-"""
-tools/research_tools/context_synthesizer.py
+"""Privacy-safe point-in-time synthesis for Stage 04B research evidence."""
+from __future__ import annotations
 
-"""
+import json
 import logging
+import time
+from typing import Any, Mapping
 
 from langsmith import traceable
-import asyncio
+
+from core.forecast_contract import ForecastContext
+from core.observability import elapsed_latency_ms
+from tools.research_tools import (
+    compact_lifecycle, eligible_evidence, research_implementation_identity,
+    research_trace_metadata, require_research_context,
+)
 
 logger = logging.getLogger(__name__)
-
 _SOURCE_PRIORITY = {
-    "sec_edgar_filing":  1,
-    "sec_edgar_search":  1,
-    "company_filing":    1,
-    "regulatory":        2,
-    "rag_vector_search": 3,
-    "rag_graph_traverse": 3,
-    "rag_hybrid_query":  3,
-    "news_search":       4,
-    "tavily_search":     5,
+    "sec_edgar_filing": 1, "sec_edgar_search": 1, "company_filing": 1,
+    "regulatory": 2, "rag_vector_search": 3, "rag_graph_traverse": 3,
+    "rag_hybrid_query": 3, "news_search": 4, "tavily_search": 5,
 }
-_DEFAULT_PRIORITY = 3  # untagged chunks: treat as unknown-but-not-lowest
-
+_DEFAULT_PRIORITY = 3
+_MAX_SYNTHESIS_INPUT_CHARS = 24_000
+_MAX_SYNTHESIS_SUMMARY_CHARS = 6_000
+_SYNTHESIS_MARKER = '[SYNTHESIZED RESEARCH SUMMARY]'
 _SYNTHESIS_SYSTEM_PROMPT = (
-    "You are a Senior Financial Intelligence Analyst. Summarize the raw "
-    "research chunks below (SEC filings, news, search results) into a "
-    "dense, factual executive summary for a downstream Manager agent.\n\n"
-    "Source priority -- SEMANTIC, not absolute. Chunks are labeled with "
-    "their source and grouped with higher-priority sources first:\n"
-    "  1. SEC filings (10-K, 10-Q, 8-K) / official company filings\n"
-    "  2. Regulatory sources\n"
-    "  3. RAG / knowledge-base retrieval\n"
-    "  4. News\n"
-    "  5. General web search (Tavily)\n"
-    "This ordering reflects evidentiary weight for FINANCIAL FUNDAMENTALS "
-    "(revenue, margins, debt, legally-disclosed risk factors, litigation) "
-    "-- SEC filings are audited/legally mandated, so they lead there. It "
-    "does NOT mean SEC always overrides other sources: filings lag real "
-    "events by weeks, so for recent events, announcements, leadership "
-    "changes, or new deals/contracts, NEWS is the authoritative source "
-    "even though it's ranked lower above -- a filing's silence on "
-    "something recent means \"not yet filed,\" not \"didn't happen.\"\n\n"
-    "Rules:\n"
-    "1. Preserve every specific number, date, and named entity you see — "
-    "do not round, approximate, or drop a figure to save space. If you "
-    "are not sure a number carries over exactly, quote it verbatim rather "
-    "than paraphrasing it.\n"
-    "2. Group by theme (financial results, risk factors, competitive "
-    "position, sentiment/market reaction) rather than by source.\n"
-    "3. When sources conflict or give different figures for the same "
-    "thing, do not silently pick one — state both and label what kind of "
-    "claim each is (e.g. \"SEC-reported revenue: $220B\" vs \"Analyst "
-    "(news) estimate: $230B\"). A reported/audited figure and a forecast/"
-    "expectation are different kinds of claims, not competing answers to "
-    "the same question — never merge them into one number.\n"
-    "4. Do not add analysis, opinions, or conclusions not present in the "
-    "source chunks — this is a compression of what's there, not a new "
-    "interpretation.\n"
-    "5. No conversational preamble, no meta-commentary about the task "
-    "itself — output only the summary content."
+    "Summarize the supplied financial evidence into a dense factual executive summary. "
+    "Preserve exact figures and dates, group by theme, identify conflicts, and add no unsupported claims."
+)
+_SYNTHESIS_SYSTEM_PROMPT += (
+    ' Every factual claim must include one or more inline [evidence_id] citations '
+    'using only the supplied IDs.'
 )
 
 
-def _normalize_chunk(chunk) -> tuple[str | None, str]:
-    if isinstance(chunk, dict):
-        return chunk.get("source"), str(chunk.get("text", ""))
+def _normalize_chunk(chunk: Any) -> tuple[str | None, str]:
+    if isinstance(chunk, Mapping):
+        compact = {key: chunk.get(key) for key in (
+            "evidence_id", "source", "provider", "ticker", "timestamp",
+            "dataset_version", "citation", "title", "kind",
+        )}
+        return chunk.get("source"), json.dumps(compact, sort_keys=True, default=str)
     return None, str(chunk)
 
 
-def _order_and_label_chunks(chunks: list) -> str:
-    normalized = [_normalize_chunk(c) for c in chunks]
-    ordered = sorted(
-        enumerate(normalized),
-        key=lambda item: (_SOURCE_PRIORITY.get(item[1][0], _DEFAULT_PRIORITY), item[0]),
-    )
-    parts = []
-    for _, (source, text) in ordered:
-        label = f"[SOURCE: {source}]\n" if source else ""
-        parts.append(f"{label}{text}")
-    return "\n\n---\n\n".join(parts)
-
-
-@traceable(name="research.context_synthesizer", run_type="llm")
-async def synthesize_research_context(
-    chunks: list,
-    task_query: str,
-    llm_client,
-    model: str = "claude-haiku-4-5",
-    max_tokens: int = 2048,
-) -> str | None:
-   
-    if not chunks:
-        return None
-
-    combined_raw_text = _order_and_label_chunks(chunks)
-    user_content = (
-        f"ORIGINAL RESEARCH QUERY:\n{task_query}\n\n"
-        f"RAW RETRIEVED CHUNKS (ordered by source priority, see system "
-        f"prompt):\n{combined_raw_text}\n\n"
-        "Generate the synthesized executive research summary now."
+def _order_and_label_chunks(chunks: list[Any]) -> str:
+    normalized = [_normalize_chunk(chunk) for chunk in chunks]
+    ordered = sorted(enumerate(normalized), key=lambda item: (
+        _SOURCE_PRIORITY.get(item[1][0], _DEFAULT_PRIORITY), item[0]
+    ))
+    return "\n\n---\n\n".join(
+        f"[SOURCE: {source}]\n{text}" if source else text
+        for _, (source, text) in ordered
     )
 
+
+def _synthesis_trace_inputs(inputs: Mapping[str, Any]) -> dict[str, Any]:
     try:
-        
-        response = await asyncio.to_thread(
-            llm_client.messages.create,
-            model=model,
-            max_tokens=max_tokens,
-            temperature=0,  # deterministic — see module docstring point 2
-            system=_SYNTHESIS_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_content}],
-        )
-        summary_text = response.content[0].text.strip()
-        return f"[SYNTHESIZED RESEARCH SUMMARY — see raw chunks above for exact source figures]\n{summary_text}"
-    except Exception as exc:
-        logger.warning(
-            "synthesize_research_context: synthesis failed (%s) — skipping, "
-            "raw chunks remain available so no data is lost.", exc,
-        )
-        return None
+        context, run_id = require_research_context(inputs.get("forecast_context"), inputs.get("run_id"))
+        metadata = research_trace_metadata(context, run_id)
+    except (TypeError, ValueError):
+        metadata = research_implementation_identity()
+    chunks = inputs.get("chunks")
+    return {**metadata, "operation": "research_synthesis", "input_reference_count": len(chunks) if isinstance(chunks, list) else 0}
+
+
+def _synthesis_trace_outputs(outputs: Any) -> dict[str, Any]:
+    payload = outputs if isinstance(outputs, Mapping) else {}
+    telemetry = payload.get("telemetry") if isinstance(payload.get("telemetry"), Mapping) else {}
+    return {key: telemetry.get(key) for key in (
+        "stage", "stage_revision", "attempt", "agent", "implementation_version",
+        "run_id", "ticker", "as_of",
+        "dataset_version", "analysis_mode", "operation", "provider", "outcome",
+        "latency_ms", "input_count", "result_count", "evidence_count", "citation_count",
+        "quarantine_count", "rejection_counts", "degraded",
+    ) if telemetry.get(key) is not None}
+
+
+@traceable(
+    name="research.context_synthesizer", run_type="chain",
+    metadata=research_implementation_identity(),
+    process_inputs=_synthesis_trace_inputs, process_outputs=_synthesis_trace_outputs,
+)
+async def synthesize_research_context(
+    chunks: list[Any], task_query: str, llm_client, model: str = "claude-haiku-4-5",
+    max_tokens: int = 2048,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict[str, Any]:
+    started_at = time.perf_counter()
+    context, run_identity = require_research_context(forecast_context, run_id)
+    candidates = [chunk for chunk in chunks if isinstance(chunk, Mapping) and chunk.get("evidence_id")]
+    eligible, rejected = eligible_evidence(
+        candidates, context=context, run_id=run_identity,
+        source="research_synthesis", historical=False,
+    )
+    payload: dict[str, Any] = {
+        "kind": "research_synthesis", "summary_generated": False,
+        "evidence_ids": [item["evidence_id"] for item in eligible],
+        "quarantined": rejected, "missing": not eligible,
+        "degraded": bool(rejected) or not eligible,
+        "dataset_version": context.dataset_version, "run_id": run_identity,
+        "status": "OK" if eligible else "DATA_UNAVAILABLE",
+    }
+    if eligible:
+        digest_parts = []
+        for item in eligible:
+            excerpt = str(item.get('content_excerpt') or '').strip()
+            if excerpt:
+                digest_parts.append(
+                    f"[{item['evidence_id']}] {item.get('source')} "
+                    f"{item.get('timestamp')}\n{excerpt}"
+                )
+        if digest_parts:
+            evidence_line = 'EVIDENCE_IDS: ' + ', '.join(payload['evidence_ids'])
+            prefix = f'{_SYNTHESIS_MARKER}\n{evidence_line}\n'
+            digest = '\n\n'.join(digest_parts)
+            payload['summary'] = prefix + digest[:max(
+                0, _MAX_SYNTHESIS_SUMMARY_CHARS - len(prefix)
+            )]
+            payload['summary_generated'] = True
+    payload["telemetry"] = compact_lifecycle(
+        context=context, run_id=run_identity, operation="research_synthesis",
+        latency_ms=elapsed_latency_ms(started_at), payload=payload, input_count=len(candidates),
+    )
+    return payload

@@ -1,0 +1,279 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "qa",
+  "execution_phase": "QA",
+  "control_revision": 168,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "qa_status": "PASS",
+  "implementation_artifact": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.json",
+  "implementation_sha256": "f30f3e154a2e8e977e1a97b44bb95f61b60c960873869d901f621f256cd63ae7",
+  "implementation_markdown": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.md",
+  "implementation_markdown_sha256": "2e8f4da71959373a0a70dae039ebcbc5c9072059ce4aaf91f9f7049cb4f4b72e",
+  "validated_input_artifacts": [
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-draft-ready.json",
+      "sha256": "10cb19dd94d64f18ba1e88c86a1b5fa5116c83f3ba8c3424575fc096c17b1a06",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json",
+      "sha256": "6952d6790995f426f5ace00dd323b2b96c317d7b35bd633cb74bc2b75816353c",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json",
+      "sha256": "5293a8b273d7330ca11af9491cf9402a22a5a56ea630f8e1f5646805447a05f5",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-2.json",
+      "sha256": "fa5a7f59fb8553138e72e691061fbb6418ad7abdd875b65d9424ddbdacca7895",
+      "identity_match": true,
+      "schema_valid": true
+    },
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.json",
+      "sha256": "f30f3e154a2e8e977e1a97b44bb95f61b60c960873869d901f621f256cd63ae7",
+      "identity_match": true,
+      "schema_valid": true
+    }
+  ],
+  "control_and_lock_validation": {
+    "execution_enabled": true,
+    "active_tuple": "10A/r1/a1/QA",
+    "allowed_support_agents": ["qa"],
+    "qa_artifact_lock_owner": "qa",
+    "dependencies_closed": ["09"],
+    "stage10a_status": "ACTIVE",
+    "stage10a_phase": "QA",
+    "stage10b_status": "PENDING",
+    "stage10b_phase": "NOT_STARTED",
+    "stage10b_activated": false,
+    "result": "PASS"
+  },
+  "dependency_handoff_validation": {
+    "stage": "09",
+    "path": ".codex/handoffs/stage-09-rev-1-handoff.json",
+    "expected_sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+    "actual_sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+    "state_status": "CLOSED",
+    "result": "PASS"
+  },
+  "source_hash_and_lock_validation": {
+    "implementation_recorded_paths_checked": 16,
+    "observability_owned_sources_checked": 2,
+    "workflow_and_dependency_artifacts_checked": 7,
+    "recorded_unique_paths_checked": 24,
+    "sha256_mismatches": 0,
+    "changed_path_lock_issues": 0,
+    "implementation_markdown_hash_match": true,
+    "status": "PASS"
+  },
+  "tests_run": [
+    {
+      "command": ".venv/Scripts/python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent qa, plus schema/identity validation of draft-ready, observability, two change requests and implementation",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 168; all five JSON input artifacts are schema-valid with exact 10A/r1/a1 identity and correct owner",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider <nine exact Stage10A API/config/dependency/exception/analyze/memory/root/runtime/observability modules> -q",
+      "exit_code": 0,
+      "passed": 206,
+      "failed": 0,
+      "duration_seconds": 19.78,
+      "result": "PASS",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": "localhost-only DNS/socket-guarded pytest over the same nine exact Stage10A modules",
+      "exit_code": 0,
+      "passed": 206,
+      "failed": 0,
+      "duration_seconds": 12.33,
+      "external_attempts": [],
+      "result": "PASS; QA_EXTERNAL_ATTEMPTS=[]",
+      "network_mode": "LOCALHOST_ONLY_GUARD"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider <Stage01 State contract + Stage08 Manager/integration + Stage09 walk-forward/metrics/leakage/CLI modules> -q",
+      "exit_code": 0,
+      "passed": 104,
+      "failed": 0,
+      "duration_seconds": 25.87,
+      "result": "PASS",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B -m pytest -p no:cacheprovider --collect-only -q",
+      "exit_code": 0,
+      "collected": 1438,
+      "collection_errors": 0,
+      "duration_seconds": 17.17,
+      "result": "PASS",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": "Independent FastAPI TestClient smoke with Supabase, Neo4j and optional exporters mocked",
+      "exit_code": 0,
+      "result": "PASS: health returned the exact runtime version; startup/request/shutdown emitted six correctly ordered events; Sentry and LangSmith initializers were not called; Neo4j closed once",
+      "network_mode": "OFFLINE_ALL_EXTERNAL_CLIENTS_MOCKED"
+    },
+    {
+      "command": "Static privacy scan, analyze route diff audit, git diff --check and SHA-256 reconciliation",
+      "exit_code": 0,
+      "result": "PASS: no raw query/user/preference/credential/exception logging or exporter capture in the Stage10A runtime path; analyze schemas, Manager arguments, response mapping, persistence row keys and progress session behavior are preserved; zero hash or whitespace mismatches",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "gate_results": {
+    "live_mode_settings": "PASS",
+    "historical_backtest_mode_settings": "PASS",
+    "live_historical_dataset_version_selection": "PASS_DISTINCT_DEFAULTS_AND_MODE_MAPPING",
+    "canonical_forecast_context": "PASS_UTC_21_TRADING_SESSIONS_AND_VERSIONED",
+    "temporal_exception_sanitization": "PASS",
+    "version_exception_sanitization": "PASS",
+    "optional_observability_default": "PASS_DISABLED",
+    "sentry_three_gate_policy": "PASS",
+    "langsmith_three_gate_policy": "PASS",
+    "disabled_or_incomplete_exporter_client_initialization": "PASS_ZERO_CALLS",
+    "initializer_failure_nonfatal_and_payload_free": "PASS",
+    "stateless_manager_factory": "PASS",
+    "fresh_manager_per_request": "PASS",
+    "fresh_manager_memory_per_request": "PASS",
+    "monthly_memory_key_exact": "PASS_TICKER_UTC_AS_OF_HORIZON_ANALYSIS_MODE_SCHEMA_VERSION",
+    "legacy_monthly_merge": "PASS_NONE",
+    "concurrent_request_isolation": "PASS_ZERO_CROSSTALK",
+    "runtime_identity": "PASS_10A_R1_A1_CORE",
+    "startup_lifecycle_events": "PASS_ORDERED",
+    "shutdown_lifecycle_events": "PASS_ORDERED",
+    "request_lifecycle_events": "PASS_ORDERED",
+    "factory_memory_lifecycle_events": "PASS_ORDERED",
+    "one_opaque_run_id_per_request": "PASS_UUID4_HEX_32",
+    "concurrent_run_ids": "PASS_DISTINCT_AND_CORRELATED",
+    "finite_nonnegative_latency": "PASS",
+    "raising_sink_isolation": "PASS",
+    "private_sentinel_logs": "PASS_ABSENT",
+    "private_sentinel_telemetry": "PASS_ABSENT",
+    "private_sentinel_persistence": "PASS_ABSENT",
+    "private_sentinel_failure_errors": "PASS_ABSENT",
+    "analyze_request_schema": "PASS_UNCHANGED",
+    "analyze_response_schema": "PASS_UNCHANGED",
+    "analyze_business_routing_and_manager_arguments": "PASS_UNCHANGED",
+    "analyze_result_mapping": "PASS_UNCHANGED",
+    "analyze_persistence_structure": "PASS_SAME_ROW_KEYS_WITH_PRIVACY_SAFE_VALUES",
+    "analyze_progress_behavior": "PASS_UNCHANGED_SESSION_ID_PATH",
+    "root_default_and_serve_auto_seed": "PASS_NEVER_SEEDS",
+    "explicit_seed_command_selection": "PASS_MOCK_ONLY",
+    "real_seed_execution": "NOT_RUN",
+    "safe_app_smoke": "PASS",
+    "stage01_regression": "PASS",
+    "stage08_regression": "PASS",
+    "stage09_regression": "PASS",
+    "full_collection": "PASS_ZERO_ERRORS",
+    "stage10b_unchanged": "PASS_PENDING_NOT_STARTED"
+  },
+  "request_isolation_report": {
+    "status": "PASS",
+    "application_state_mutable_manager_singleton": false,
+    "application_state_factory_is_stateless": true,
+    "manager_instances_created_per_request": true,
+    "memory_instances_created_per_request": true,
+    "shared_lifecycle_objects": [
+      "Supabase client",
+      "Neo4j driver",
+      "immutable runtime settings",
+      "optional injected local event sink"
+    ],
+    "concurrent_request_crosstalk": false,
+    "monthly_natural_key": [
+      "ticker",
+      "UTC as_of",
+      "horizon",
+      "analysis_mode",
+      "schema_version"
+    ],
+    "legacy_and_monthly_values_merged": false
+  },
+  "observability_report": {
+    "status": "PASS",
+    "resolved_findings": ["OBS-10A-001", "OBS-10A-002", "OBS-10A-003"],
+    "non_blocking_finding_preserved": "OBS-10A-004",
+    "runtime_identity": "10A/r1/a1/core",
+    "implementation_version": "stage10a-r1-a1",
+    "required_event_boundaries": [
+      "api.startup",
+      "api.shutdown",
+      "api.request",
+      "manager.factory",
+      "manager.memory"
+    ],
+    "ordered_lifecycle": true,
+    "opaque_request_correlation": true,
+    "finite_nonnegative_latency": true,
+    "closed_metadata_allowlist": true,
+    "private_sentinel_absent": true,
+    "sink_failure_isolated": true,
+    "exporters_disabled_by_default": true,
+    "external_trace_provider_contacted": false
+  },
+  "privacy_and_contract_report": {
+    "status": "PASS",
+    "raw_request_query_logged": false,
+    "raw_user_or_preferences_logged": false,
+    "raw_exception_or_stack_logged": false,
+    "credentials_or_dsn_logged": false,
+    "raw_private_payload_persisted": false,
+    "persistence_key_shape_changed": false,
+    "public_success_response_mapping_changed": false,
+    "failure_response_contains_private_exception": false,
+    "note": "Successful public responses intentionally retain the established Manager result mapping; private payload removal applies to logs, telemetry, persistence and failure/error surfaces."
+  },
+  "startup_and_seed_report": {
+    "status": "PASS",
+    "default_cli_action": "serve",
+    "main_action": "serve",
+    "automatic_seed": false,
+    "explicit_seed_action": "seed-rag",
+    "explicit_seed_test_used_mock": true,
+    "real_seed_executed": false
+  },
+  "regression_report": {
+    "status": "PASS",
+    "focused_stage10a": {"passed": 206, "failed": 0},
+    "guarded_focused_stage10a": {"passed": 206, "failed": 0, "external_attempts": 0},
+    "stage01_stage08_stage09_related": {"passed": 104, "failed": 0},
+    "full_collection": {"collected": 1438, "errors": 0}
+  },
+  "qa_scope_notes": [
+    "Persistence idempotency, versioned monthly persistence, progress/job wiring and end-to-end UI behavior remain Stage 10B responsibilities and are not claimed as implemented by this PASS.",
+    "The user-authorized api/routes/analyze.py exception was audited only for privacy/observability behavior and preservation of its existing public schema, routing, mapping, row-key structure and progress-session path.",
+    "A reserved observability test lock exists for tests/unit_tests/test_stage10a_observability.py, but no implementation artifact claims that path as changed; the nine actual locked/recorded focused modules provide the required coverage."
+  ],
+  "blocking_findings": [],
+  "blocking_issues": [],
+  "candidate_downstream_stages_affected": [],
+  "environment_blockers": [],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN_UNAUTHORIZED",
+    "live_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "dependency_changes": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "created_at": "2026-09-12T21:13:43.7526628Z"
+}

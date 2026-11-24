@@ -1,0 +1,152 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "data_rag",
+  "status": "IMPLEMENTED",
+  "execution_phase": "PRIMARY_FINAL",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-03-rev-2-handoff.json",
+  "dependency_handoff_sha256": "19a684a9f65c7e348f758725280497195a7daaa381c3dded794eab66e04a3a2a",
+  "draft_ready_artifact": ".codex/handoffs/stage-04A-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "5e287a091d583b62d667b599f74877d3ab4b43a7bc020383554c1706c9d982d3",
+  "observability_artifact": ".codex/handoffs/stage-04A-rev-1-attempt-1-observability.json",
+  "observability_sha256": "c85cd69662e64ef429953f368c7227bcd47ff3f56e5737ce114c65fdb40a04c9",
+  "observability_status": "AUDITED_WITH_PRIMARY_CHANGES_APPLIED",
+  "changed_files": [
+    "rag/graph_store.py",
+    "rag/hybrid_rag.py",
+    "tests/unit_tests/test_rag/test_graph_store.py",
+    "tests/unit_tests/test_rag/test_hybried.py",
+    ".codex/handoffs/stage-04A-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-04A-rev-1-attempt-1-implementation.json"
+  ],
+  "revalidated_unchanged_files": [
+    "rag/__init__.py",
+    "tests/fixtures/stage4a_temporal_graph_hybrid.json"
+  ],
+  "resolved_observability_findings": [
+    {
+      "id": "OBS-04A-001",
+      "status": "RESOLVED",
+      "resolution": "All three LangSmith retriever spans use deterministic process_inputs/process_outputs allowlists, compact ForecastContext/version and stage identity, and handled-exception policy. Query text, full context/state, chunks, citations, URLs, titles, headers, backend payloads and error strings are excluded from processed traces."
+    },
+    {
+      "id": "OBS-04A-002",
+      "status": "RESOLVED",
+      "resolution": "Monotonic measured Vector, Graph, RRF/fusion and overall Hybrid latency plus result/evidence/citation/degradation counts are emitted in compact telemetry. Graph extraction/upsert records measured latency, document/entity/relation/skipped/failure counts and deterministic lifecycle state. Retrieval resume is not applicable; Graph write recovery is caller retry over deterministic MERGE identities; partial writes raise sanitized GraphUpsertError after recording failed/degraded lifecycle."
+    },
+    {
+      "id": "OBS-04A-003",
+      "status": "RESOLVED",
+      "resolution": "Backend exception text and private source URLs no longer enter failure results, logs or Sentry values. Stable VECTOR_RETRIEVAL_FAILED, GRAPH_TRAVERSAL_FAILED, GRAPH_EXTRACTION_FAILED and GRAPH_UPSERT_FAILED codes replace untrusted strings; Sentry receives stable capture_message values only."
+    }
+  ],
+  "implementation_contract": {
+    "graph": "Immutable Stage-03 document/chunk/evidence identities and deterministic relation observation identities preserve every temporal version; unknown required time remains quarantined.",
+    "retrieval": "One ForecastContext constrains Vector and Graph before ranking/traversal; temporal Graph never falls back to unbounded legacy on error.",
+    "fusion": "Vector, Graph and RRF preserve shared citations and expose hybrid, vector_only, graph_only or unavailable degradation.",
+    "privacy": "Trace processors and lifecycle telemetry are count/code/version only; sentinel tests reject query, evidence, URL, secret and exception leakage.",
+    "legacy": "Legacy callers without ForecastContext remain supported; no legacy route, namespace or data was removed."
+  },
+  "final_self_tests": [
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py --tb=short",
+      "exit_code": 0,
+      "result": "65 passed in 19.35s"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag tests/unit_tests/test_stage3_narrative_stability.py --tb=short",
+      "exit_code": 0,
+      "result": "321 passed in 52.76s"
+    },
+    {
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1265 tests collected in 16.24s; zero collection errors"
+    },
+    {
+      "command": "python -m py_compile scoped source/tests; git diff --check scoped files; validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; line-ending notices only"
+    },
+    {
+      "command": "static scan for str(exc), capture_exception, exception interpolation and source-url exception logging",
+      "exit_code": 0,
+      "result": "PASS_ZERO_MATCHES"
+    }
+  ],
+  "self_tests_run": [
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py --tb=short",
+      "exit_code": 0,
+      "result": "65 passed in 19.35s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag tests/unit_tests/test_stage3_narrative_stability.py --tb=short",
+      "exit_code": 0,
+      "result": "321 passed in 52.76s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "pytest --collect-only -q tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1265 tests collected; zero collection errors"
+    },
+    {
+      "command": "compile, scoped diff, privacy scan, control/artifact/lock validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; static privacy scan zero matches"
+    }
+  ],
+  "source_sha256": {
+    "rag/graph_store.py": "a7d3692958d364f4a7d2e6b43ce19a955e3bf4c12fb548bedf5954a6aec9c29a",
+    "rag/hybrid_rag.py": "38e86c9239e3fc1404160a21ce7f63cc3e1ecbb6b460f55c5bf8460f77d7a070",
+    "rag/__init__.py": "8e626b80cd9fa25d9fcb4ebb05f9f5049b33384f2b7c1fd6ca6fecfa92a375c1",
+    "tests/unit_tests/test_rag/test_graph_store.py": "84a4d041dec49b5aa1987a343cb25a52f5fad87022b6dd75e21f6acde954ad1e",
+    "tests/unit_tests/test_rag/test_hybried.py": "4e6a8089a94194f7a7d1d9bc8fc34ec221a9a9f28fc30e7d536b9e35e18c5369",
+    "tests/fixtures/stage4a_temporal_graph_hybrid.json": "f4371765140cae52600e1165e253499006dadccf89aed421523fd9a77f49d83b"
+  },
+  "leakage_and_privacy_result": {
+    "status": "PASS",
+    "temporal": "Future, unknown, quarantined, wrong-ticker and wrong-dataset observations are ineligible before traversal/ranking.",
+    "trace": "Sentinel query/evidence/private-URL/secret/exception content is absent from processed inputs/outputs.",
+    "failure": "Sentinel provider content is absent from results, logs and Sentry capture values."
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "external_counts": "NOT_AVAILABLE_NO_EXTERNAL_READ",
+    "legacy_data_deleted": false,
+    "route_switched": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the prior Stage04A source bytes; legacy namespace/data and route remain untouched.",
+    "graph_write_recovery": "Caller may retry the identical batch because all V2 document, chunk, evidence, entity and relation-observation writes use deterministic MERGE identities.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_access": "NOT_RUN",
+    "database_reads": "NOT_RUN",
+    "database_writes": "NOT_RUN",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "blocking_issues": [],
+  "limitations": [
+    "Temporal V2 behavior remains deterministic fixture/mock validated; no Neo4j migration, reconciliation, external count or production latency benchmark was authorized or attempted.",
+    "Legacy calls without ForecastContext remain legacy-compatible and are not represented as point-in-time safe.",
+    "Runtime graph extraction retains its existing configured Anthropic dependency; all verification was offline.",
+    "Stage04B remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "implementation_ready": true,
+  "created_at": "2026-08-31T15:40:10.2881759Z"
+}

@@ -14,12 +14,21 @@ consumption by the Financial Analyst Agent or MCP server.
 """
 
 import math
-from datetime import datetime, timezone
+import time
+from datetime import date, datetime, timedelta, timezone
+from collections.abc import Mapping
 
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
 from typing import Any
+
+from core.forecast_contract import AnalysisMode, ForecastContext
+from tools.financial_tools import (
+    deterministic_financial_reference, financial_lifecycle_event,
+    historical_current_data_unavailable,
+    require_financial_context,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +122,12 @@ def _safe_period_end(value: Any) -> str | None:
 # Public API
 # ---------------------------------------------------------------------------
 
-def get_price_history(ticker: str, period: str = "1y") -> dict:
+def get_price_history(
+    ticker: str, period: str = "1y", *, start: str | None = None,
+    end: str | None = None, as_of: str | None = None,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict:
     """
     Retrieve historical OHLCV price data for a given ticker.
 
@@ -143,44 +157,105 @@ def get_price_history(ticker: str, period: str = "1y") -> dict:
     >>> result["ticker"]
     'NVDA'
     """
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    started_at = time.perf_counter()
+
+    def finish(result: dict[str, Any], outcome: str, error_code: str | None = None) -> dict[str, Any]:
+        records = result.get("records") if isinstance(result.get("records"), list) else []
+        missing = not bool(records)
+        financial_lifecycle_event(
+            context=context, run_id=identity, boundary="yahoo_adjusted_history",
+            started_at=started_at, outcome=outcome,
+            counts={
+                "result_count": len(records), "eligible_count": len(records),
+                "missing_count": 1 if missing else 0,
+            },
+            missing=missing, degraded=missing, error_code=error_code,
+        )
+        return result
+
+    cutoff = context.as_of.date()  # type: ignore[union-attr]
+    requested_as_of = date.fromisoformat(as_of[:10]) if as_of else cutoff
+    if requested_as_of != cutoff:
+        raise ValueError("as_of must equal ForecastContext.as_of")
+    requested_start = date.fromisoformat(start[:10]) if start else cutoff - timedelta(days=context.lookback_days)
+    requested_end = date.fromisoformat(end[:10]) if end else cutoff
+    if requested_start > requested_end:
+        raise ValueError("start must be on or before end")
+    if requested_end > cutoff:
+        raise ValueError("end must be on or before ForecastContext.as_of")
     try:
         stock = yf.Ticker(ticker)
-        hist = stock.history(period=period)
+        # yfinance's end is exclusive. Request one extra calendar day, while
+        # validating every returned row against the inclusive exact boundary.
+        hist = stock.history(
+            start=requested_start.isoformat(),
+            end=(requested_end + timedelta(days=1)).isoformat(),
+            auto_adjust=True, actions=False,
+        )
 
         if hist.empty:
-            return {"ticker": ticker, "period": period, "records": [],
-                    "start_date": None, "end_date": None,
-                    "error": "No data returned for this ticker/period."}
+            return finish({"ticker": ticker, "period": period, "records": [],
+                           "start_date": None, "end_date": None,
+                           "error": "No data returned for this ticker/period."}, "unavailable")
 
         records = []
-        for date, row in hist.iterrows():
+        for observed_date, row in hist.iterrows():
             records.append({
-                "date":   date.strftime("%Y-%m-%d"),
+                "date":   observed_date.strftime("%Y-%m-%d"),
                 "open":   round(float(row["Open"]),   4),
                 "high":   round(float(row["High"]),   4),
                 "low":    round(float(row["Low"]),    4),
                 "close":  round(float(row["Close"]),  4),
+                "adjusted_close": round(float(row["Close"]), 4),
                 "volume": int(row["Volume"]),
             })
 
-        return {
+        records = [row for row in records if requested_start.isoformat() <= row["date"] <= requested_end.isoformat()]
+        if not records:
+            return finish({
+                "ticker": ticker.upper(), "period": period, "records": [],
+                "start_date": requested_start.isoformat(), "end_date": requested_end.isoformat(),
+                "as_of": context.to_dict()["as_of"], "adjustment_mode": "auto_adjust_total_return",
+                "dataset_version": context.dataset_version, "run_id": identity,
+                "status": "DATA_UNAVAILABLE", "missing": True,
+                "error": "No adjusted data returned inside the exact requested boundary.",
+            }, "unavailable")
+
+        return finish({
             "ticker":     ticker.upper(),
             "period":     period,
             "records":    records,
             "start_date": records[0]["date"],
             "end_date":   records[-1]["date"],
+            "requested_start": requested_start.isoformat(),
+            "requested_end": requested_end.isoformat(),
+            "as_of": context.to_dict()["as_of"],
+            "adjustment_mode": "auto_adjust_total_return",
+            "provider": "yahoo_finance", "dataset_version": context.dataset_version,
+            "run_id": identity, "missing": False,
+            "evidence_id": deterministic_financial_reference(
+                provider="yahoo_adjusted_history", ticker=context.ticker,
+                period_end=requested_end.isoformat(), filed_at=requested_end.isoformat(),
+                dataset_version=context.dataset_version,
+            ),
             "error":      None,
-        }
+        }, "success")
 
-    except Exception as exc:
-        return {
+    except Exception:
+        return finish({
             "ticker": ticker, "period": period, "records": [],
             "start_date": None, "end_date": None,
-            "error": str(exc),
-        }
+            "error_code": "YAHOO_ADJUSTED_HISTORY_UNAVAILABLE",
+            "error": "Yahoo adjusted history is unavailable.",
+        }, "fail_closed", "YAHOO_ADJUSTED_HISTORY_UNAVAILABLE")
 
 
-def get_financial_ratios(ticker: str) -> dict:
+def get_financial_ratios(
+    ticker: str,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict:
     """
     Retrieve key financial ratios and valuation metrics for a ticker.
 
@@ -231,12 +306,18 @@ def get_financial_ratios(ticker: str) -> dict:
     >>> ratios["pe_ratio"]
     28.5
     """
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    if context.analysis_mode is AnalysisMode.HISTORICAL_BACKTEST:
+        return historical_current_data_unavailable(
+            context=context, run_id=identity, provider="yahoo_info",
+            fields=["current_price", "market_cap", "valuation_ratios", "ttm_metrics"],
+        )
     try:
         info = yf.Ticker(ticker).info
         yahoo_de_pct = _safe_float(info.get("debtToEquity"))
         lease_liabilities = info.get("capitalLeaseObligations")
         if not lease_liabilities:
-            balance_sheet_snapshot = get_balance_sheet_snapshot(ticker)
+            balance_sheet_snapshot = get_balance_sheet_snapshot(ticker, context, identity)
             lease_liabilities = (
                 info.get("capitalLeaseObligations")
                 or balance_sheet_snapshot.get("capital_lease_obligations")
@@ -286,11 +367,13 @@ def get_financial_ratios(ticker: str) -> dict:
             "minority_interest":     _safe_get(info, "minorityInterest"),
             "interest_expense":      _safe_get(info, "interestExpense"),
             "effective_tax_rate":    _safe_get(info, "effectiveTaxRate"),
+            "as_of": context.to_dict()["as_of"], "dataset_version": context.dataset_version,
+            "run_id": identity, "provider": "yahoo_info", "current_fallback_used": False,
             "error":            None,
         }
 
-    except Exception as exc:
-        return {"ticker": ticker, "error": str(exc)}
+    except Exception:
+        return {"ticker": ticker, "error_code": "YAHOO_CURRENT_SNAPSHOT_UNAVAILABLE", "error": "Yahoo current snapshot is unavailable."}
 
 
 def _first_available_row(df, candidates: list[str]) -> float | None:
@@ -315,7 +398,11 @@ def _first_available_row(df, candidates: list[str]) -> float | None:
     return None
 
 
-def get_balance_sheet_snapshot(ticker: str) -> dict:
+def get_balance_sheet_snapshot(
+    ticker: str,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict:
     """
     Retrieve a single most-recent-period snapshot of balance-sheet and
     EBIT figures needed for the "Phase 2" ratios in
@@ -366,6 +453,12 @@ def get_balance_sheet_snapshot(ticker: str) -> dict:
     >>> snap["total_assets"]
     620000000000.0
     """
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    if context.analysis_mode is AnalysisMode.HISTORICAL_BACKTEST:
+        return historical_current_data_unavailable(
+            context=context, run_id=identity, provider="yahoo_balance_sheet_current",
+            fields=["balance_sheet_snapshot", "ebit_snapshot"],
+        )
     try:
         stock = yf.Ticker(ticker)
         bs = stock.balance_sheet
@@ -411,11 +504,13 @@ def get_balance_sheet_snapshot(ticker: str) -> dict:
             "retained_earnings":   retained_earnings,
             "capital_lease_obligations": capital_lease_obligations,
             "ebit":                ebit,
-            "error":               None,
+            "as_of": context.to_dict()["as_of"], "dataset_version": context.dataset_version,
+            "run_id": identity, "provider": "yahoo_balance_sheet_current",
+            "current_fallback_used": False, "error": None,
         }
 
-    except Exception as exc:
-        return {"ticker": ticker, "error": str(exc)}
+    except Exception:
+        return {"ticker": ticker, "error_code": "YAHOO_BALANCE_SHEET_UNAVAILABLE", "error": "Yahoo balance-sheet snapshot is unavailable."}
 
 
 def _fiscal_quarter_label(period_end_year: int, period_end_month: int, fye_month: int | None) -> str:
@@ -451,7 +546,11 @@ def _fiscal_quarter_label(period_end_year: int, period_end_month: int, fye_month
     return f"FY{fiscal_year}-Q{fiscal_quarter}"
 
 
-def get_revenue_growth(ticker: str) -> dict:
+def get_revenue_growth(
+    ticker: str,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict:
     """
     Retrieve annual and quarterly revenue / earnings growth metrics.
 
@@ -480,6 +579,12 @@ def get_revenue_growth(ticker: str) -> dict:
     Growth values are expressed as decimals (e.g. 1.22 = +122% growth).
     None is returned for periods where prior-year data is unavailable.
     """
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    if context.analysis_mode is AnalysisMode.HISTORICAL_BACKTEST:
+        return historical_current_data_unavailable(
+            context=context, run_id=identity, provider="yahoo_statements_current",
+            fields=["annual_revenue", "quarterly_revenue", "annual_net_income", "quarterly_net_income"],
+        )
     try:
         stock    = yf.Ticker(ticker)
         info     = stock.info
@@ -642,14 +747,20 @@ def get_revenue_growth(ticker: str) -> dict:
             # NOT guarantee the year labels are correct, only that they're
             # internally consistent (~1 year apart, no gaps/duplicates).
             "year_labeling_warnings":    year_labeling_warnings,
-            "error":                     None,
+            "as_of": context.to_dict()["as_of"], "dataset_version": context.dataset_version,
+            "run_id": identity, "provider": "yahoo_statements_current",
+            "current_fallback_used": False, "error": None,
         }
 
-    except Exception as exc:
-        return {"ticker": ticker, "error": str(exc)}
+    except Exception:
+        return {"ticker": ticker, "error_code": "YAHOO_GROWTH_DATA_UNAVAILABLE", "error": "Yahoo growth data is unavailable."}
 
 
-def get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
+def get_peer_comparison(
+    ticker: str, peers: list[str] | None = None,
+    forecast_context: ForecastContext | Mapping[str, Any] | None = None,
+    run_id: str | None = None,
+) -> dict:
     """
     Compare a stock's key financial ratios against a list of peer companies.
 
@@ -682,9 +793,15 @@ def get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
     Rate limits from Yahoo Finance may cause failures for large peer lists.
     Recommended maximum: 10 peers per call.
     """
+    context, identity = require_financial_context(forecast_context, run_id, ticker=ticker)
+    if context.analysis_mode is AnalysisMode.HISTORICAL_BACKTEST:
+        return historical_current_data_unavailable(
+            context=context, run_id=identity, provider="yahoo_peer_current",
+            fields=["peer_comparison"],
+        )
     try:
         # Fetch primary ticker ratios
-        primary_ratios = get_financial_ratios(ticker)
+        primary_ratios = get_financial_ratios(ticker, context, identity)
         if primary_ratios.get("error"):
             return {"primary": primary_ratios, "peers": [], "summary": {}, "error": primary_ratios["error"]}
 
@@ -705,7 +822,11 @@ def get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
         # Yahoo's rate limits (see the 10-peer recommendation above).
         if peers:
             with ThreadPoolExecutor(max_workers=min(5, len(peers))) as pool:
-                peer_ratios = list(pool.map(get_financial_ratios, peers))
+                peer_ratios = list(pool.map(
+                    lambda peer: get_financial_ratios(peer, {
+                        **context.to_dict(), "ticker": str(peer).upper(),
+                    }, identity), peers,
+                ))
         else:
             peer_ratios = []
 
@@ -768,8 +889,10 @@ def get_peer_comparison(ticker: str, peers: list[str] | None = None) -> dict:
             "peers":   peer_ratios,
             "summary": summary,
             "growth_adjusted_comparison": growth_adjusted_comparison,
-            "error":   None,
+            "as_of": context.to_dict()["as_of"], "dataset_version": context.dataset_version,
+            "run_id": identity, "provider": "yahoo_peer_current",
+            "current_fallback_used": False, "error": None,
         }
 
-    except Exception as exc:
-        return {"primary": {}, "peers": [], "summary": {}, "error": str(exc)}
+    except Exception:
+        return {"primary": {}, "peers": [], "summary": {}, "error_code": "YAHOO_PEER_DATA_UNAVAILABLE", "error": "Yahoo peer data is unavailable."}

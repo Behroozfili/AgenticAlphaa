@@ -1,0 +1,44 @@
+{
+  "schema_version": "stage04b-research-fixture-v1",
+  "forecast_context": {
+    "ticker": "MSFT",
+    "as_of": "2024-01-31T21:00:00Z",
+    "target": "2024-03-01",
+    "horizon_trading_days": 21,
+    "lookback_days": 365,
+    "benchmark": "SPY",
+    "analysis_mode": "HISTORICAL_BACKTEST",
+    "schema_version": "forecast-schema-v1",
+    "dataset_version": "research-archive-v1",
+    "feature_version": "research-features-v1",
+    "model_version": "model-v1",
+    "calendar_version": "XNYS-regular-v1",
+    "label": "forward_21d_excess_return"
+  },
+  "run_id": "stage04b-fixture-run",
+  "eligible_archive": {
+    "provider": "gdelt_archive",
+    "ticker": "MSFT",
+    "dataset_version": "research-archive-v1",
+    "published_at": "2024-01-15T12:00:00Z",
+    "url": "https://archive.example/msft-eligible",
+    "title": "Eligible catalyst",
+    "kind": "catalyst"
+  },
+  "future_archive": {
+    "provider": "gdelt_archive",
+    "ticker": "MSFT",
+    "dataset_version": "research-archive-v1",
+    "published_at": "2024-02-01T12:00:00Z",
+    "url": "https://archive.example/msft-future",
+    "title": "Future evidence"
+  },
+  "current_web_record": {
+    "provider": "tavily_live",
+    "ticker": "MSFT",
+    "dataset_version": "research-archive-v1",
+    "published_at": "2024-01-15T12:00:00Z",
+    "url": "https://current.example/msft",
+    "title": "Current web cannot represent history"
+  }
+}

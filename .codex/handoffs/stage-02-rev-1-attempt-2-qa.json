@@ -1,0 +1,66 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "02",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "status": "PASS",
+  "qa_status": "PASS",
+  "tests_run": [
+    {
+      "check": "qa_preconditions_artifacts_milestone_control_and_locks",
+      "exit_code": 0,
+      "result": "PASS; matching Attempt 2 milestone and implementation artifacts validate, SCHEMA_CONTRACT_FROZEN is PASS, Attempt 1 evidence remains present, and CONTROL VALID."
+    },
+    {
+      "check": "focused_stage01_stage02_regression",
+      "command": "forced-offline focused Stage 01 plus Stage 02 pytest",
+      "exit_code": 0,
+      "result": "107 passed in 2.53s"
+    },
+    {
+      "check": "full_collection",
+      "command": "forced-offline pytest --collect-only -q --disable-warnings tests/unit_tests tests/integration_tests",
+      "exit_code": 0,
+      "result": "1199 collected in 10.13s: 1148 unit and 51 integration"
+    },
+    {
+      "check": "full_unit_regression",
+      "command": "forced-offline pytest -q --disable-warnings --tb=no tests/unit_tests",
+      "exit_code": 1,
+      "result": "PASS_KNOWN_FAILURE_SEPARATION; 1110 passed, exactly 38 documented downstream/legacy failures, 6 warnings in 25.30s, and zero Stage 02 failures."
+    },
+    {
+      "check": "attempt1_rls_finding_resolution",
+      "exit_code": 0,
+      "result": "PASS; security_invoker is explicit on sensitive V2 views, SELECT grants are explicit and least-privilege, no write/ALL grant exists, and RLS plus temporal RPC filters remain intact."
+    },
+    {
+      "check": "additive_safety_diff_and_ownership",
+      "exit_code": 0,
+      "result": "PASS; diff-check clean, no destructive schema/data statement or write grant found, exact ownership valid, and prior Attempt 1 artifacts remain present."
+    }
+  ],
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "resolved_findings": [
+    "STAGE02-RLS-VIEW-001"
+  ],
+  "known_failure_separation": {
+    "financial_stage05": 28,
+    "sentiment_stage06": 4,
+    "integration_stage08": 1,
+    "data_rag_stage03": 1,
+    "legacy_migration_stage00": 4,
+    "stage02_regressions": 0
+  },
+  "live_database_gate": {
+    "status": "NOT_RUN_REQUIRES_SEPARATE_AUTHORIZATION",
+    "reason_not_blocking": "The canonical Stage 02 gate explicitly permits offline syntax/contract verification while empty-database or staging application, reconciliation, and route switching require separate user authorization. No live execution claim is made."
+  },
+  "external_database_execution": "NOT_RUN_UNAUTHORIZED",
+  "external_network_connections_completed": 0,
+  "supersedes": ".codex/handoffs/stage-02-rev-1-attempt-1-qa.json",
+  "created_at": "2026-08-28T19:07:00.0643220Z"
+}

@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 4,
+  "agent": "sentiment",
+  "status": "DRAFT_READY",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 116,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-05-rev-1-handoff.json",
+  "dependency_handoff_sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+  "prior_review": ".codex/handoffs/stage-06-rev-1-attempt-3-review.json",
+  "prior_review_sha256": "9b018cef21e036e03a34c7f362f876f10b9d761d2e244c36f7b9c2fb77e8de9a",
+  "changed_files": [
+    "agents/executor_helpers/sentiment_helper.py",
+    "agents/sentiment_agent.py",
+    "tests/unit_tests/test_sentiment_phase4.py",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py",
+    ".codex/handoffs/stage-06-rev-1-attempt-4-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "resolved_review_findings": [
+    {
+      "id": "REVIEW-06-A3-B-001",
+      "status": "RESOLVED_IN_DRAFT",
+      "resolution": "Provider model status and polarity are canonicalized in the MCP boundary before executor State assignment. Unknown/overlong/malformed model health becomes fixed UNKNOWN and cannot carry stale chunks, fusion score, polarity or model provenance. The original canonical fusion health remains in fear_greed_result.status; selected-attempt health is stored separately in fear_greed_result.attempt_status and the attempt record. Invalid fusion polarity remains None with a fixed flag and cannot reach sentiment_polarity or the compact summary."
+    }
+  ],
+  "real_executor_counterexample": {
+    "graph_mocked": false,
+    "providers_mocked": true,
+    "temporally_valid_documents": 3,
+    "injected_fusion_status": "PRIVATE_SENTINEL!",
+    "injected_fusion_polarity": "PRIVATE_SENTINEL",
+    "compact_summary_contains_marker": false,
+    "typed_slot_contains_marker": false,
+    "logs_progress_trace_sentry_contain_marker": false,
+    "fusion_status": "UNKNOWN",
+    "selected_attempt_status": "ERROR",
+    "fusion_available": false,
+    "fusion_provenance_emitted": false,
+    "slot_degraded": true
+  },
+  "implementation_identity": {
+    "stage": "06",
+    "stage_revision": 1,
+    "attempt": 4,
+    "agent": "sentiment",
+    "implementation_version": "stage06-r1-a4"
+  },
+  "preserved_contracts": [
+    "REVIEW-06-A2-B-001",
+    "OBS-06-A3-001",
+    "REVIEW-06-B-001",
+    "REVIEW-06-B-002",
+    "REVIEW-06-B-003",
+    "OBS-06-001",
+    "OBS-06-002",
+    "OBS-06-003",
+    "OBS-06-004",
+    "fixed 7/14/30 calendar-day windows",
+    "contributor-only immutable model provenance",
+    "compact reference-only Shared State",
+    "eight measured payload-free lifecycle boundaries"
+  ],
+  "draft_self_tests": [
+    {
+      "command": "real graph/executor and direct-helper PRIVATE_SENTINEL counterexamples",
+      "exit_code": 0,
+      "result": "2 passed; marker absent from typed slot, compact summary, logs, progress, trace and Sentry; fusion remained UNKNOWN/unavailable without provenance"
+    },
+    {
+      "command": "complete Attempt4 privacy/status/partial/coverage/temporal/MCP/observability counterexample set",
+      "exit_code": 0,
+      "result": "14 passed"
+    },
+    {
+      "command": "both complete locked helper/agent test files",
+      "exit_code": 0,
+      "result": "53 passed"
+    },
+    {
+      "command": "marker-correct complete offline Stage06 suite: -m not-live/not-slow/not-db",
+      "exit_code": 0,
+      "result": "175 passed, 5 deselected, 1 deprecation warning"
+    },
+    {
+      "command": "full repository pytest collection",
+      "exit_code": 0,
+      "result": "1293 tests collected; zero collection errors"
+    },
+    {
+      "command": "py_compile, diff, stale identity and official control/lock validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; line-ending notices only; no Attempt3 runtime identity remained"
+    }
+  ],
+  "source_sha256": {
+    "agents/executor_helpers/sentiment_helper.py": "8e88a4869b6602ecc3446b95085a8b170d63b4812a5256f85571e4932a304a80",
+    "agents/sentiment_agent.py": "0f23c3d006a7aeba9aaab4ad361652e42f8ed7b31042fa9b2825e71cd27e0734",
+    "tests/unit_tests/test_sentiment_phase4.py": "4ccf5eee7ce5b50117e4337029937bc344735a8a37e831faef867e6fb8e8c9ad",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py": "bff9e61eeab01284277adfd79d43943791eab1dc491081e03cd2fc87735b840c"
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "database_reads": false,
+    "database_writes": false,
+    "legacy_data_deleted": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the four Attempt4 source/test paths to their recorded Attempt3 hashes while retaining all prior immutable artifacts.",
+    "attempt3_source_sha256": {
+      "agents/executor_helpers/sentiment_helper.py": "273e50ec89aa78a72f49e8a28f7929153036dd872531d5e0b22027e6eab4087d",
+      "agents/sentiment_agent.py": "b2babc90a29426dc860fc704cda3c7139327a9eca2c34fab470a7aedc913afa8",
+      "tests/unit_tests/test_sentiment_phase4.py": "4ccf5eee7ce5b50117e4337029937bc344735a8a37e831faef867e6fb8e8c9ad",
+      "tests/unit_tests/test_agents/test_sentiments_agent.py": "87a0cf8ccf29cd9352473fe5b92848b88a077a3ec98058bdd4971b26e7454a61"
+    },
+    "data_loss_risk": "NONE"
+  },
+  "external_execution": {
+    "network_access": false,
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "Validation is offline with deterministic fixtures, mocked providers and existing local model assets.",
+    "Live providers, database-marked tests and external trace export were intentionally not exercised.",
+    "Attempts 1-3 artifacts remain immutable and Stage07 remains PENDING/NOT_STARTED."
+  ],
+  "supersedes": ".codex/handoffs/stage-06-rev-1-attempt-3-draft-ready.json",
+  "created_at": "2026-09-04T18:32:29.2164361Z"
+}

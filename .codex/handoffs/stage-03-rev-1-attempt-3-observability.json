@@ -1,0 +1,157 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "03",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [
+    ".codex/handoffs/stage-03-rev-1-attempt-3-observability.json"
+  ],
+  "requested_primary_changes": [],
+  "privacy_checks": [
+    {
+      "check": "Stage 03 telemetry provenance matches the active implementation identity.",
+      "status": "PASS",
+      "evidence": "rag/ingestion.py defines stage=03, stage_revision=1, attempt=3, agent=data_rag and contract_version=stage03-r1-a3; the focused telemetry regression asserts attempt 3 on every emitted lifecycle payload."
+    },
+    {
+      "check": "Lifecycle telemetry remains compact, allowlisted, measured, and status-aware.",
+      "status": "PASS",
+      "evidence": "_emit filters every payload through _TELEMETRY_ALLOWED_FIELDS and records non-negative monotonic latency_ms plus compact counts, status, degraded, Vector/Graph status, run/version/adapter/embedding identity, provider hash, and snapshot fingerprint fields."
+    },
+    {
+      "check": "Archive-provider configuration and identity do not emit or persist secrets, paths, raw provider IDs, URLs, or archive contents.",
+      "status": "PASS",
+      "evidence": "Historical providers require a stable identity, but only its SHA-256 provider_identity_hash enters request identity, telemetry, and checkpoint state. JsonArchiveProvider derives provider_id from archive bytes, exposes no logging call, and ingestion sanitizes config failures before capture or emission."
+    },
+    {
+      "check": "Adapter, embedding, request, and materialization fingerprints expose no raw evidence payload.",
+      "status": "PASS",
+      "evidence": "Adapter identity is limited to schema/table/RPC; embedding identity is limited to validated model/version/cache-schema strings; persisted materialization state contains SHA-256 values over ordered canonical document/evidence/chunk IDs, counts, boundaries, and status only. No document text, chunk text, title, URL, prompt, headers, credentials, provider payload, or raw tool result is serialized into IngestionManifest."
+    },
+    {
+      "check": "Fail-closed checkpoint mismatch and resume outcomes are observable without leaking mismatch values.",
+      "status": "PASS",
+      "evidence": "Request mismatches produce sanitized INGESTION_RESUME_SNAPSHOT_MISMATCH on checkpoint.failure and pipeline.failure; materialization mismatches produce resume.failure and pipeline.failure with status=failed, degraded=true, stage statuses, counts, and only the candidate snapshot hash. Exact matches emit checkpoint.load=resumed, vector.resume or resume.skip."
+    },
+    {
+      "check": "Untrusted exception text remains absent from checkpoint, telemetry, capture payloads, and CLI-visible manifest state.",
+      "status": "PASS",
+      "evidence": "StageStatus accepts deterministic INGESTION_* codes only, _capture_sanitized reports RuntimeError(error_code), and the secret/raw-payload/private-URL sentinel regression passed."
+    },
+    {
+      "check": "Same-content revisions, dataset versions, retrieval times, and effective observations do not broaden observability persistence.",
+      "status": "PASS",
+      "evidence": "AlphaProcessor preserves distinct canonical evidence/chunk IDs while the checkpoint/materialization layer observes only ordered hashes and counts. Raw canonical Vector evidence remains in the product data path and is not copied into telemetry, checkpoint, or this artifact."
+    },
+    {
+      "check": "No chain-of-thought, brain_reasoning, full filing text, raw article chunk, duplicated tool payload, secret, token, or header was added to observability persistence by attempt 3.",
+      "status": "PASS"
+    },
+    {
+      "check": "No external tracing service was initialized or contacted by this pass.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "PASS_ATTEMPT_3_IDENTITY_ALLOWLIST_MONOTONIC_LIFECYCLE_VERIFIED",
+  "retry_audit": {
+    "retry_scope": [
+      "rag/ingestion.py",
+      "rag/seed.py",
+      "rag/processor.py",
+      "tests/unit_tests/test_rag/test_ingestion.py",
+      "tests/unit_tests/test_rag/test_processor.py",
+      "tests/unit_tests/test_root_main.py"
+    ],
+    "STAGE03_HISTORICAL_INGESTION_PROVIDER_002": "RESOLVED",
+    "STAGE03_CHECKPOINT_SNAPSHOT_IDENTITY_003": "RESOLVED",
+    "STAGE03_REVISION_EVIDENCE_PRESERVATION_004": "RESOLVED",
+    "STAGE03_OBSERVABILITY_ATTEMPT_IDENTITY_005": "RESOLVED",
+    "OBS_03_001": "RESOLVED_PRESERVED",
+    "OBS_03_002": "RESOLVED_PRESERVED",
+    "product_observability_source_changes": false,
+    "feature_call_sites_audited": true,
+    "change_request_required": false
+  },
+  "fingerprint_and_resume_audit": {
+    "provider_identity": "RAW_ID_IN_MEMORY_ONLY_SHA256_PERSISTED_AND_EMITTED",
+    "request_identity": "NORMALIZED_BOUNDARIES_TICKERS_DATASET_MODE_PROVIDER_HASH_ADAPTER_CONTROL_IDENTITY",
+    "adapter_identity": "SCHEMA_TABLE_RPC_PLUS_SHA256",
+    "embedding_identity": "VALIDATED_MODEL_VERSION_CACHE_SCHEMA_PLUS_SHA256",
+    "materialization_identity": "ORDERED_DOCUMENT_EVIDENCE_CHUNK_ID_HASHES_PLUS_REQUEST_PROVIDER_ADAPTER_EMBEDDING_HASHES",
+    "checkpoint_payload": "SAFE_IDENTIFIERS_HASHES_COUNTS_STATUS_BOUNDARIES_SANITIZED_ERROR_CODES_ONLY",
+    "resume_exact_match": "VISIBLE_AND_REUSES_COMPLETED_VECTOR",
+    "resume_mismatch": "VISIBLE_SANITIZED_AND_FAILS_CLOSED_BEFORE_VECTOR_REUSE_OR_GRAPH_MIXING",
+    "historical_live_fallback": "DISABLED"
+  },
+  "source_integrity": {
+    "observability_sources_unchanged": {
+      "core/observability.py": "3af7d734f1081e0d8a2ee4924b2fcea218ab0fdf0c0a93600ba46010c21222d5",
+      "core/progress_bus.py": "1b0115704447a0b5b2ad22374c6d335273585706c38c64c3cebef3a21bdd4a16",
+      "langsmith_trace.py": "57e334a86c2c6e20d925988270857264b29219811092d09a1c83c70ce94f4138"
+    },
+    "attempt_3_retry_source_sha256": {
+      "rag/ingestion.py": "62f74e1789337fed49c9094db29d157d38cb15d627d2075969c8f5d6a324bcfd",
+      "rag/seed.py": "12a9874f0aee03171d33abea77014b4d523554749965dcf446f70c20625657de",
+      "rag/processor.py": "ac23792b42ceb9bda26a290995e41ff3c19fea825de4ff25192144b540ad587b",
+      "tests/unit_tests/test_rag/test_ingestion.py": "950b328f6118a2e4e1ccf57a14e758d9dbdb913a45de9792e0acc44eb1695228",
+      "tests/unit_tests/test_rag/test_processor.py": "9370dcaf0db871f4951c7e9b04fb0dc4c717490677ae1eb3b622bca7484011fc",
+      "tests/unit_tests/test_root_main.py": "979264268bfcc13f7061b7aa394a18142b114fc9581dca7818471d77b296a86a"
+    }
+  },
+  "prior_attempt_artifact_immutability": {
+    "status": "PASS",
+    "attempt_1": {
+      "draft_ready": "a1613e7e74eb061b76f7b73cbf035688c0b7f4faa25021c8dac0874894e72c8a",
+      "observability": "ed399ef82504d9960feb2f811e217c54fe8e1989c40120908eb4a063f2544dfc",
+      "implementation_json": "69c37658e32c8b594ccfa3c9c3aa46425571843c5ce61ca67fde31b6b6f4cf6f",
+      "implementation_md": "ef724232847b60478566ab510cf35dcd29cd50d69548bd0d76c39435c99871ea",
+      "qa": "207443a6f5fb7094b671f61d4d61087fc0cfda856dcdacd7935b921c75424b4e"
+    },
+    "attempt_2": {
+      "draft_ready": "4d7c0a145dd2db6b48ee472ef90db53432d9ac16a8b5e853eb646afb871d8095",
+      "observability": "c697e50fce3dba57faad36c35c89d2d37a3b00823f5c6c1c056cde583322d647",
+      "implementation_json": "852c6be8a1e061b40f82ef9262e067829497cc014aee6e8b748c403e59410726",
+      "implementation_md": "c4c8e340fd5643ed48d5c05532ecb2168d732ff0f8bd44fabc974ba2d8c9c4a1",
+      "qa": "ccd3630def95381928f9e7e03f9314f3dde053be00c72dccc7ae7a1c325ba58f",
+      "review": "c875f41b60c693e5c88f1f9f6c0b5339aa0b31a1c4fdc132b2943981376e7950"
+    }
+  },
+  "tests_run": [
+    {
+      "command": "python -m py_compile rag/ingestion.py rag/seed.py rag/processor.py",
+      "exit_code": 0,
+      "result": "PASS"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_ingestion.py tests/unit_tests/test_rag/test_processor.py tests/unit_tests/test_root_main.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "60 passed in 27.95s"
+    },
+    {
+      "command": "pytest -q exact eight-case archive/provider/content/embedding/adapter reviewer counterexample matrix --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "8 passed in 27.29s"
+    },
+    {
+      "command": "SHA-256 comparison of all recorded Stage 03 attempt-1 and attempt-2 artifacts",
+      "exit_code": 0,
+      "result": "ATTEMPT_1_2_ARTIFACT_IMMUTABILITY_PASS"
+    },
+    {
+      "command": "git diff --check on exact attempt-3 retry product/test paths",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only"
+    }
+  ],
+  "blocking_issues": [],
+  "network_used": false,
+  "database_reads": false,
+  "database_writes": false,
+  "migrations_or_seed_execution": false,
+  "global_lock_validation_limitation": "The pre-existing unrelated agents/state.py lock-attribution mismatch was not investigated, modified, or attributed to Stage 03.",
+  "supersedes": ".codex/handoffs/stage-03-rev-1-attempt-2-observability.json",
+  "created_at": "2026-08-30T11:30:31.1528684Z"
+}

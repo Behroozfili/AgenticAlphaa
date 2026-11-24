@@ -1,0 +1,112 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "handoff",
+  "stage": "10A",
+  "stage_revision": 1,
+  "accepted_attempt": 3,
+  "primary_agent": "core",
+  "implementation_status": "IMPLEMENTED",
+  "observability_status": "AUDITED_CHANGES_RESOLVED",
+  "qa_status": "PASS",
+  "review_status": "APPROVED",
+  "rollback_documented": true,
+  "status": "CLOSED",
+  "artifacts": {
+    "draft_ready": ".codex/handoffs/stage-10A-rev-1-attempt-3-draft-ready.json",
+    "observability": ".codex/handoffs/stage-10A-rev-1-attempt-3-observability.json",
+    "implementation": ".codex/handoffs/stage-10A-rev-1-attempt-3-implementation.json",
+    "qa": ".codex/handoffs/stage-10A-rev-1-attempt-3-qa.json",
+    "review": ".codex/handoffs/stage-10A-rev-1-attempt-3-review.json"
+  },
+  "change_request": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-3-1.json",
+  "implementation_markdown": ".codex/handoffs/stage-10A-rev-1-attempt-3-implementation.md",
+  "handoff_markdown": ".codex/handoffs/stage-10A-rev-1-handoff.md",
+  "artifact_sha256": {
+    "draft_ready": "f2ab679571acd60a89de9e600b00b4e1b8e3811a8a58969b7ea0427c2bb25219",
+    "observability": "05e281d78aae8122aa2b8192c039e439ba889b5cc2749e51f0bd0ab13e03eb4f",
+    "change_request": "d3a162d334f4e95e17112e5e346a1cebf745cf056722c8e78966650f1c37a2fe",
+    "implementation": "72c392a8c5b472c104121db1ed5c7b09a8af198995e50c29d43b0ef909a68e6c",
+    "implementation_markdown": "6aca03576af980b1e64f16bd3d03b6f7efc54d51092e6a03aa8af4b524b11f0e",
+    "qa": "256a53d77de97dd42c28406334632757706452f70cc8e8f2293927dc90e92b3f",
+    "review": "5d4dbc95ecaf6aad1ed21e5735bce9122e01bf7d684f2533a97ade015c3cf8b8",
+    "handoff_markdown": "10ad5f5154a5138762362013af2ae043399bc9fd79fa5d002068720293cace5a"
+  },
+  "retry_chain": [
+    {"attempt": 1, "terminal_gate": "REVIEW", "result": "REJECTED", "artifact": ".codex/handoffs/stage-10A-rev-1-attempt-1-review.json"},
+    {"attempt": 2, "terminal_gate": "REVIEW", "result": "REJECTED", "artifact": ".codex/handoffs/stage-10A-rev-1-attempt-2-review.json"},
+    {"attempt": 3, "terminal_gate": "REVIEW", "result": "APPROVED", "artifact": ".codex/handoffs/stage-10A-rev-1-attempt-3-review.json"}
+  ],
+  "resolved_findings": [
+    "REVIEW-10A-001", "REVIEW-10A-002", "REVIEW-10A-A2-001",
+    "OBS-10A-001", "OBS-10A-002", "OBS-10A-003", "OBS-10A-A3-001"
+  ],
+  "non_blocking_findings": ["REVIEW-10A-A3-NB-001", "OBS-10A-004"],
+  "accepted_counts": {
+    "hostile_legacy_env_cases_passed": 32,
+    "hostile_legacy_env_external_attempts": 0,
+    "focused_guard_tests_passed": 246,
+    "analyze_route_tests_passed": 22,
+    "stage01_08_09_regressions_passed": 140,
+    "collection_total": 1478,
+    "collection_errors": 0,
+    "recorded_hashes_matched": 34,
+    "recorded_hashes_mismatched": 0
+  },
+  "delivered_contract": [
+    "Versioned LIVE/HISTORICAL forecast, backtest and runtime settings, safe temporal/version exception mapping, registered route skeletons and request/run correlation form the API runtime boundary.",
+    "Each request receives a fresh Manager and ManagerMemory, preventing mutable process-wide analysis state reuse.",
+    "Monthly memory uses the exact ticker, UTC as_of, horizon, analysis_mode and schema_version key with no legacy/monthly merged fallback.",
+    "Normal root startup cannot seed RAG; seeding requires the explicit python main.py seed-rag command.",
+    "Optional Sentry and LangSmith exporters fail closed for hostile legacy environment combinations while compact local lifecycle telemetry remains isolated and available.",
+    "The existing analyze-route Manager resolution, injected memory preferences, status propagation, schemas, persistence shape and progress behavior are preserved; privacy-safe logging and redacted failures are enforced."
+  ],
+  "reproducibility": {
+    "runtime_identity": "10A/r1/a3/core",
+    "implementation_version": "stage10a-r1-a3",
+    "acceptance_mode": "FORCED_OFFLINE_WITH_ZERO_EXTERNAL_ATTEMPTS",
+    "prior_attempt_artifacts_immutable": [1, 2],
+    "stage09_dependency_sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925"
+  },
+  "source_sha256": {
+    "api/config.py": "336d95c408c350fca263b9e1fc3bfd1a13dd01db39ebbc69fb3b45bc364eacd8",
+    "api/core/exceptions.py": "ee5a8783f0553f01cc00e706ff03c6eeef2d4d40f9b4d75caed077a1a039f886",
+    "api/dependencies.py": "d78200153f6a32c5704a25aee37f47c86d6801cc57ebc3c5eaa780a60679a021",
+    "api/main.py": "7f502c2c85dc0e9a5261f094d680004f513982b9e0c830143ec59fc5a4a05e46",
+    "api/routes/analyze.py": "32c755190b678b393e32ca3886e6153a111d1d35659046196c5153d3d4d48070",
+    "memory/manager_memory.py": "ced7e7ae7e93fada60e2d1deb1af4852eb7076f378a29584020732b6a2993177",
+    "main.py": "908c114239010f3e4ac689a267aef550514895423f399cf935259a8f0ae3abb8",
+    "langsmith_trace.py": "683384ad3b30521a3ca6f300f89413124e5b23e9fdb10e44e657b82e89ae77ae",
+    "core/observability.py": "9f644852adeb896eee2423ee684f5431ff477c55460106e6734d6ae52b74977f",
+    "tests/unit_tests/api_test/test_api_config.py": "ae484534ee8e5c99be2ae61cf369c4c8d4576f66b1df8a03361fc7456d5ea80b",
+    "tests/unit_tests/api_test/test_dependencies_api.py": "d584961da31d43d7999b19eefacec6637a383b66ff97bd4a78daeb3d6ed614e8",
+    "tests/unit_tests/api_test/test_api_main.py": "03b2aeea4416d2eb1092e004ebaf89a3680ffd7f05c9c0be0fe76bc6f83a5a03",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py": "ad29e110665faf749c77536ba6a7721356f2575a90080c9c01458d38eca99010",
+    "tests/unit_tests/api_test/test_core_eceptions.py": "82daa0443e4018f424a5df19e2b96823200836e49d485600402a9cb28ddeb8a8",
+    "tests/unit_tests/test_memory/test_manager_memory.py": "76dbffd9e701bf8b991d2bd3fdd1fbc1254df58e7e1b96f1d1fb66e1f79a5ccc",
+    "tests/unit_tests/test_root_main.py": "446d29f56f1f3cf6b387cf449c4f3638ca6593fb0d4818c190d14046f26baf57",
+    "tests/unit_tests/test_stage10a_runtime_foundation.py": "267232a62d79012319bedab9553c25f8d6c85fe54852e3c26611233490564ca9",
+    "tests/unit_tests/test_stage10a_observability.py": "7b30ac9ccc63c9cd4fda02675c6faf48cb7972d78e7b5233d34915a0631a31d6",
+    "tests/unit_tests/core_test/test_observability.py": "7df1137eb0c02a3d4c9cccea34c981e2ba4e43e66f799de01b5197d25406d2df"
+  },
+  "known_limitations": [
+    "Acceptance uses deterministic forced-offline engineering evidence; live providers, external databases and external trace export were not exercised.",
+    "A historical non-forced-offline Attempt 2 collection emitted a Hugging Face Hub authentication warning; actual network contact is unverified and the run is excluded from acceptance evidence.",
+    "External exporters intentionally remain fail-closed until their request paths receive a separately authorized privacy audit.",
+    "The optional seed.command.selected local lifecycle event remains unimplemented and non-blocking.",
+    "No network acquisition, external write, migration, seed, deletion, deploy, commit or push was authorized or performed."
+  ],
+  "operational_safety": {
+    "network_used_for_accepted_evidence": false,
+    "external_trace_provider_contacted": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deploy_commit_or_push": false
+  },
+  "next_stage": "10B",
+  "next_stage_activated": false,
+  "supersedes": null,
+  "created_at": "2026-09-13T22:55:56.1552567Z"
+}

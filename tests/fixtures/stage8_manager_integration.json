@@ -1,0 +1,38 @@
+{
+  "contexts": {
+    "MSFT": {
+      "ticker": "MSFT",
+      "as_of": "2026-08-31T20:00:00Z",
+      "target": "2026-09-30",
+      "horizon_trading_days": 21,
+      "lookback_days": 365,
+      "benchmark": "SPY",
+      "analysis_mode": "LIVE",
+      "schema_version": "forecast-v1",
+      "dataset_version": "dataset-v1",
+      "feature_version": "monthly-market-features-v1",
+      "model_version": "model-v1",
+      "calendar_version": "XNYS-regular-v1",
+      "label": "forward_21d_excess_return"
+    },
+    "NVDA": {
+      "ticker": "NVDA",
+      "as_of": "2026-07-31T20:00:00Z",
+      "target": "2026-08-31",
+      "horizon_trading_days": 21,
+      "lookback_days": 365,
+      "benchmark": "SPY",
+      "analysis_mode": "LIVE",
+      "schema_version": "forecast-v1",
+      "dataset_version": "dataset-v1",
+      "feature_version": "monthly-market-features-v1",
+      "model_version": "model-v1",
+      "calendar_version": "XNYS-regular-v1",
+      "label": "forward_21d_excess_return"
+    }
+  },
+  "predictions": {
+    "MSFT": {"probability_positive": 0.61, "expected_return_21d": 0.04, "expected_excess_return": 0.025, "confidence_interval": [-0.03, 0.11], "confidence": 0.22, "action": "BUY"},
+    "NVDA": {"probability_positive": 0.42, "expected_return_21d": -0.03, "expected_excess_return": -0.025, "confidence_interval": [-0.12, 0.04], "confidence": 0.16, "action": "AVOID"}
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "fixture_purpose": "deterministic_synthetic_stage07_regression_only_not_provider_evidence",
+  "context": {
+    "ticker": "MSFT",
+    "as_of": "2024-06-28T20:00:00Z",
+    "benchmark": "SPY",
+    "analysis_mode": "HISTORICAL_BACKTEST",
+    "schema_version": "forecast-v1",
+    "dataset_version": "adjusted-ohlcv-cache-v1",
+    "feature_version": "monthly-market-features-v1",
+    "model_version": "fixture-unfitted"
+  },
+  "universe": {
+    "schema_version": "1.0",
+    "universe_version": "stage07-msft-demo-v1",
+    "source": "locked-local-regression-fixture",
+    "created_at": "2024-01-01T00:00:00Z",
+    "constituents": [
+      {
+        "ticker": "MSFT",
+        "effective_from": "2018-01-01",
+        "effective_to": null,
+        "benchmark": "SPY",
+        "source_ref": "fixture:monthly_point_in_time_fixture.json"
+      }
+    ],
+    "limitations": [
+      "Synthetic one-ticker fixture; valid for engineering regression only and scientifically PRELIMINARY."
+    ]
+  },
+  "market_spec": {
+    "start": "2024-02-01",
+    "ticker_base": 100.0,
+    "ticker_daily_step": 0.31,
+    "benchmark_base": 200.0,
+    "benchmark_daily_step": 0.19,
+    "volume_base": 1000000,
+    "retrieved_at": "2024-08-01T00:00:00Z"
+  },
+  "training_spec": {
+    "first_month": "2019-01",
+    "monthly_cutoffs": 40,
+    "feature_formula_version": "synthetic-linear-v1",
+    "missing_every_nth_optional_value": 5,
+    "label_semantics": "compute_forward_return_labels_from_adjusted_closes_v1",
+    "ticker_start_adjusted_close": 100.0,
+    "ticker_return_per_index": 0.002,
+    "ticker_return_intercept": -0.03,
+    "benchmark_start_adjusted_close": 200.0,
+    "benchmark_return_per_index": 0.001,
+    "benchmark_return_intercept": -0.015
+  },
+  "expected": {
+    "horizon_trading_days": 21,
+    "minimum_training_cutoffs": 36,
+    "data_readiness_status": "PASS",
+    "scientific_report_level": "PRELIMINARY",
+    "action_policy_version": "action_policy_v1"
+  }
+}

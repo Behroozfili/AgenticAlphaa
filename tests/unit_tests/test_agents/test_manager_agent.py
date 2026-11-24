@@ -41,6 +41,7 @@ from agents.manager_agent import (
     _extract_chunk_text,
     _feedback_to_snapshot,
     _infer_result_keys,
+    agent_result_is_valid,
 )
 from memory.manager_memory import EvaluationFeedback
 
@@ -141,6 +142,35 @@ class TestInferResultKeys:
     def test_unknown_agent_key_returns_empty_list(self):
         assert _infer_result_keys("unknown", {}) == []
 
+
+class TestFinancialResultValidity:
+    def test_typed_result_requires_explicit_sanity_pass(self):
+        state = {
+            "financial_metrics_summary": {"validation_passed": True},
+            "financial_features": {
+                "values": {"roe_pct": 20.0},
+                "evidence_ids": ["sec:one"],
+                "missing": False,
+            },
+        }
+        assert agent_result_is_valid("financial", state) is False
+
+        state["financial_metrics_summary"]["financial_sanity"] = {"passed": True}
+        assert agent_result_is_valid("financial", state) is True
+
+    def test_typed_result_requires_evidence(self):
+        state = {
+            "financial_metrics_summary": {
+                "validation_passed": True,
+                "financial_sanity": {"passed": True},
+            },
+            "financial_features": {
+                "values": {"roe_pct": 20.0},
+                "evidence_ids": [],
+                "missing": False,
+            },
+        }
+        assert agent_result_is_valid("financial", state) is False
 
 # ---------------------------------------------------------------------------
 # __init__
@@ -546,6 +576,9 @@ class TestRunFullPipeline:
         sentiment = make_specialist_agent("SentimentAgent")
         sentiment.run = AsyncMock(side_effect=lambda s: {**s, "sentiment_analysis_summary": {
             "fear_greed_score": 0.3, "status": "VALID", "total_chunks_analyzed": 3,
+            "quality_passed": True, "unique_document_count": 3,
+            "unique_domain_count": 2, "extraction_errors": [],
+            "causal_mismatch_detected": False,
         }})
 
         manager = make_manager(llm=llm, research=research, financial=financial, sentiment=sentiment, max_loops=8)

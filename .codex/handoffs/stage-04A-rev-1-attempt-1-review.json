@@ -1,0 +1,113 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "reviewer",
+  "status": "REJECTED",
+  "review_status": "REJECTED",
+  "blocking_findings": [
+    {
+      "id": "STAGE04A-NEO4J-TEMPORAL-PROPERTY-TYPE-001",
+      "finding": "The V2 Graph write stores published_at, retrieved_at, filed_at, effective_from and effective_to exactly as GraphDocument string parameters (rag/graph_store.py:428-456), while the frozen traversal compares those stored properties directly with datetime($as_of) (rag/hybrid_rag.py:323-327). The frozen Neo4j contract requires temporal eligibility before traversal. A concrete live counterexample is an otherwise eligible evidence row written with published_at='2026-01-01T00:00:00+00:00': the property is a Neo4j String, but the traversal boundary is a Neo4j DateTime, so the query does not implement the required temporal comparison over like-typed values. Mock assertions that inspect parameter text cannot establish live property typing.",
+      "required_change": "Normalize and validate every Graph temporal value once, then persist it as a Neo4j temporal property (for example, null-safe datetime parameter conversion in Cypher) so published_at, retrieved_at, filed_at, effective_from and effective_to have the same temporal type family used by datetime($as_of). Invalid or unknown required time must remain null/quarantined and never become now. Add an offline driver/query-shape test that proves null-safe temporal conversion plus a live Neo4j integration test when separately authorized; retain fail-closed traversal behavior when the contract cannot be enforced."
+    },
+    {
+      "id": "STAGE04A-INCOMPLETE-V2-WRITE-FAIL-CLOSED-002",
+      "finding": "AlphaGraphStore.upsert_batch chooses the temporal path only when temporal_identity_complete is true; every other document is sent to the legacy entity/relation MERGE path (rag/graph_store.py:236-250). That fallback is based on missing fields rather than an explicit legacy provenance boundary. Therefore a quarantined or V2-origin document with one missing immutable identity field can update the legacy aggregate relationship, whose ON MATCH behavior averages weight and overwrites temporal meaning (rag/graph_store.py:390-399), instead of being rejected or skipped fail closed. This contradicts the Stage04A temporal/quarantine contract and can contaminate legacy state with incomplete V2 evidence.",
+      "required_change": "Introduce an explicit write-mode/provenance boundary. Only documents explicitly identified as legacy input may use the legacy MERGE path. Any V2-origin, temporal, or quarantined document with incomplete immutable identity/time must be skipped or rejected with a stable sanitized code and lifecycle count, without writing entities or relationships to either namespace. Add counterexample tests for quarantined extracted documents, V2-origin documents missing each required identity, and explicit legacy documents to prove fail-closed V2 behavior while preserving intentional legacy compatibility."
+    },
+    {
+      "id": "STAGE04A-EVIDENCE-MATERIALIZED-AT-003",
+      "finding": "The frozen Stage02 Neo4j write shape explicitly requires every EvidenceObservationV2 observation to store materialized_at (database/neo4j/001_temporal_evidence.cypher:69-75), and the data schema contract requires materialization time when applicable. The Stage04A EvidenceObservationV2 MERGE writes chunk/ticker/dataset and availability/effective/quarantine fields but omits materialized_at entirely (rag/graph_store.py:428-433 and parameter list at 448-456). Consequently a newly created evidence observation cannot satisfy the accepted V2 provenance contract.",
+      "required_change": "Carry the canonical Stage03 materialized_at value into GraphDocument and persist it on EvidenceObservationV2 as a validated Neo4j temporal property. Treat a missing required V2 materialization time according to the frozen quarantine/fail-closed policy rather than substituting current time. Add exact write-shape and preservation tests, including retry/idempotency, proving materialized_at is present and unchanged for the same evidence identity."
+    }
+  ],
+  "non_blocking_findings": [
+    {
+      "id": "STAGE04A-LIVE-NEO4J-NOT-RUN",
+      "finding": "No live Neo4j migration, reconciliation, read/write, production latency benchmark or provider call was authorized or performed. Offline QA and reviewer tests cannot validate live property typing; no live correctness or performance claim is approved."
+    },
+    {
+      "id": "STAGE04A-QA-PASS-DOES-NOT-RESOLVE-CONTRACT-REVIEW",
+      "finding": "The matching QA artifact is PASS and reports 65 focused Graph/Hybrid tests, 36 temporal/privacy/lifecycle tests, 321 RAG/Stage03 regressions and 1265 collected tests with zero collection errors. The independent reviewer offline suite also passed 82 tests. Those successful results establish regression and offline behavior evidence but do not cover the three frozen-contract counterexamples above."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [
+    "Persist all V2 evidence temporal fields as Neo4j temporal values compatible with datetime($as_of), with null-safe validation and no current-time substitution.",
+    "Make incomplete, quarantined, or V2-origin Graph writes fail closed; reserve legacy aggregate MERGE only for explicitly identified legacy input.",
+    "Preserve and persist the required immutable materialized_at provenance value on EvidenceObservationV2.",
+    "Add exact counterexample tests for temporal property conversion, incomplete/quarantined V2 write routing, and materialized_at preservation, then repeat Draft-ready -> Observability -> Primary-final -> QA -> Review in a new immutable attempt. Preserve Attempt 1 artifacts unchanged and keep Stage04B PENDING/NOT_STARTED."
+  ],
+  "review_blockers": [
+    "STAGE04A-NEO4J-TEMPORAL-PROPERTY-TYPE-001",
+    "STAGE04A-INCOMPLETE-V2-WRITE-FAIL-CLOSED-002",
+    "STAGE04A-EVIDENCE-MATERIALIZED-AT-003"
+  ],
+  "evidence": [
+    {
+      "check": "artifact_identity_phase_and_required_chain",
+      "status": "PASS",
+      "detail": "Control revision 72 is ACTIVE/REVIEW for Stage04A revision 1 attempt 1 with reviewer as the only support agent and the review path locked to reviewer. Matching draft-ready SHA-256 5e287a091d583b62d667b599f74877d3ab4b43a7bc020383554c1706c9d982d3, required observability SHA-256 c85cd69662e64ef429953f368c7227bcd47ff3f56e5737ce114c65fdb40a04c9, implementation SHA-256 fdc9713de674a9d3e0745730bdf95e8d7d4e97ecea4e9722bc101fb73672ed1f and QA SHA-256 9824c2f8f95d54e772c601464022164417bdd3fbeaca9499a6ab9662a5148ec4 exist for the same identity. QA status is PASS."
+    },
+    {
+      "check": "qa_and_independent_offline_regression_evidence",
+      "status": "PASS_WITH_REVIEW_BLOCKERS",
+      "detail": "QA reports 65 focused Graph/Hybrid passes, 36 exact temporal/privacy/lifecycle passes, 321 RAG/Stage03 regression passes and 1265 collected tests with zero errors. The prior independent reviewer offline suite was 82 passed. These results were accepted as evidence and were not broadly rerun while finalizing this artifact; contract inspection exposes three uncovered blockers."
+    },
+    {
+      "check": "frozen_neo4j_and_data_contract",
+      "status": "FAIL",
+      "detail": "The frozen database/neo4j/001_temporal_evidence.cypher has SHA-256 e1b5f08d97bca6929a7ed86bc5791c1c4fb49b8366c519ac6e89cb37979fae85. It requires temporal eligibility and materialized_at for every EvidenceObservationV2. Current writes pass raw strings, omit materialized_at, and can route incomplete V2/quarantined records to legacy aggregate writes."
+    },
+    {
+      "check": "temporal_safety",
+      "status": "FAIL_AT_LIVE_STORAGE_BOUNDARY",
+      "detail": "The traversal query includes ticker, dataset_version, quarantine, publication, retrieval, filing and effective-interval predicates before entity traversal, and temporal query failures remain fail closed. However, the writer does not persist like-typed temporal properties, so the live storage/query pair does not enforce the accepted as_of contract. No invalid timestamp was observed being mapped to now."
+    },
+    {
+      "check": "identity_versioning_and_reproducibility",
+      "status": "FAIL_FOR_INCOMPLETE_V2_ROUTING_AND_PROVENANCE",
+      "detail": "Complete V2 inputs use deterministic document/chunk/evidence/relation-observation identities and dataset_version. Incomplete V2 inputs can escape that versioned namespace into mutable legacy aggregation, and EvidenceObservationV2 omits required materialized_at provenance."
+    },
+    {
+      "check": "scope_ownership_artifact_immutability_and_downstream_gate",
+      "status": "PASS",
+      "detail": "Stage04A implementation declares only its locked Graph/Hybrid source, test and revisioned artifact paths; no ownership or scope violation was established. Attempt 1 input artifacts were not overwritten. Stage04B remains PENDING/NOT_STARTED at attempt 0 and was neither activated nor reviewed."
+    },
+    {
+      "check": "privacy_observability_and_data_hygiene",
+      "status": "PASS",
+      "detail": "QA evidence supports sanitized stable error codes, allowlisted count/version/latency tracing, and absence of original exception, secret, raw query/chunk/citation or private URL leakage in Stage04A failure telemetry. No CoT, brain_reasoning, full filing or duplicated analysis payload persistence was added."
+    },
+    {
+      "check": "financial_numeric_scientific_and_manager_integrity",
+      "status": "NOT_APPLICABLE_UNCHANGED",
+      "detail": "Stage04A does not change DCF/WACC, nine financial intents/mappers, Quant source-of-truth, monthly forecast policy, backtesting, Manager lifecycle or forecast persistence. No contrary change is attributed to this attempt."
+    },
+    {
+      "check": "rollback_and_operational_safety",
+      "status": "PASS",
+      "detail": "Runtime rollback is documented as restoration of prior Stage04A source bytes. No migration was applied, no external Neo4j read/write or reconciliation ran, and no seed/backfill, legacy deletion, route switch, deploy, commit or push is evidenced."
+    }
+  ],
+  "rollback_reviewed": true,
+  "live_neo4j_validation": "NOT_RUN_UNAUTHORIZED",
+  "qa_artifact_status": "PASS",
+  "independent_offline_suite": {
+    "passed": 82,
+    "failed": 0,
+    "status": "PASS"
+  },
+  "downstream_stage": {
+    "stage": "04B",
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "activated": false
+  },
+  "supersedes": null,
+  "created_at": "2026-08-31T18:31:05.6302526Z"
+}

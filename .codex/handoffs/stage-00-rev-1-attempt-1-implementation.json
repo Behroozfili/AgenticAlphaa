@@ -1,0 +1,61 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "00",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "core",
+  "status": "IMPLEMENTED",
+  "execution_mode": "IMPLEMENTATION",
+  "changed_files": [
+    ".codex/baseline-manifest.json",
+    "pytest.ini",
+    ".codex/handoffs/stage-00-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-00-rev-1-attempt-1-implementation.json",
+    ".codex/handoffs/stage-00-rev-1-attempt-1-milestone-BASELINE_READY.json"
+  ],
+  "self_tests_run": [
+    {"command": ".venv/Scripts/python.exe --version", "exit_code": 0, "result": "Python 3.12.13"},
+    {"command": ".venv/Scripts/python.exe -m pytest --version", "exit_code": 0, "result": "pytest 9.0.3"},
+    {"command": "uv lock --check --offline", "exit_code": 0, "result": "PASS; 210 packages resolved"},
+    {"command": ".venv/Scripts/python.exe -m pytest --collect-only -qq --disable-warnings tests/unit_tests tests/integration_tests", "exit_code": 0, "duration_seconds": 15.76, "result": "1136 collected: 1085 unit, 51 integration", "network_mode": "FORCED_OFFLINE"},
+    {"command": ".venv/Scripts/python.exe -m pytest -q --disable-warnings tests/unit_tests", "exit_code": 1, "duration_seconds": 68.29, "result": "1045 passed, 40 pre-existing failures, 35 warnings", "network_mode": "FORCED_OFFLINE"},
+    {"command": ".venv/Scripts/python.exe -m pytest -q --disable-warnings tests/unit_tests/test_supabase_phase5_migration.py", "exit_code": 1, "duration_seconds": 0.90, "result": "4 pre-existing FileNotFoundError failures; test unchanged", "network_mode": "FORCED_OFFLINE"},
+    {"command": ".venv/Scripts/python.exe -m json.tool .codex/baseline-manifest.json", "exit_code": 0, "result": "PASS"}
+  ],
+  "contract_diff": [
+    "No product or data contract changes.",
+    "pytest default testpaths now select local unit tests; live marker is deselected by default.",
+    "Explicit full collection still inventories unit and integration paths."
+  ],
+  "data_counts": {"unit_collected": 1085, "integration_collected": 51, "total_collected": 1136, "unit_passed": 1045, "unit_failed_pre_existing": 40},
+  "leakage_report": {"status": "NOT_APPLICABLE_STAGE_00", "historical_dataset": "NOT_AVAILABLE"},
+  "latency_delta": null,
+  "blocking_issues": [],
+  "known_limitations": [
+    {"issue": "Legacy supabase_phase5_provenance_migration.sql absent", "status": "BLOCKED_PRE_EXISTING", "disposition": "NO_VALID_RETARGET; recover exact file or explicitly retire later"},
+    {"issue": "Supabase/Neo4j/backup/restore evidence", "status": "NOT_AVAILABLE_NOT_RUN"},
+    {"issue": "Offline unit baseline", "status": "CAPTURED_WITH_40_PRE_EXISTING_FAILURES"},
+    {"issue": "Legacy integration tests contain unmarked external I/O", "status": "EXCLUDED_FROM_DEFAULT_AND_NOT_EXECUTED"}
+  ],
+  "out_of_scope_findings": [
+    "Historical point-in-time data acquisition belongs to Stages 07 and 09.",
+    "Product failure repairs belong to their assigned feature stages or an orchestrator-approved reopen."
+  ],
+  "requested_changes": [
+    {"stage": "01", "owner": "core", "count": 2},
+    {"stage": "03", "owner": "data_rag", "count": 1},
+    {"stage": "05", "owner": "financial", "count": 28},
+    {"stage": "06", "owner": "sentiment", "count": 4},
+    {"stage": "08", "owner": "integration", "count": 1}
+  ],
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Apply a reverse patch to restore the prior pytest.ini and incomplete baseline manifest.",
+    "Remove only the three Stage 00 attempt-1 core artifacts.",
+    "Do not alter orchestrator-owned refactor state or user-owned dfc.md."
+  ],
+  "supersedes": null,
+  "implementation_ready": true,
+  "created_at": "2026-08-27T14:46:07.5982587Z"
+}

@@ -1,0 +1,684 @@
+{
+  "all_agents_called_count": 10,
+  "attempt_count": 10,
+  "attempts": [
+    {
+      "action": null,
+      "actual_benchmark_return": -0.0007769820821962314,
+      "actual_direction_positive": 0,
+      "actual_excess_return": -0.051158792145494125,
+      "actual_ticker_return": -0.05193577422769036,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2025-10-31T20:00:00Z",
+      "backtest_number": 1,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-045",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:ccaaf25b8e1a4f144c930235638c778d4389a56e8d8ad94292878c8760e0f032",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt01",
+      "target_date": "2025-12-02",
+      "training_cutoffs": 81,
+      "training_max_as_of": "2025-09-30T20:00:00Z",
+      "training_max_outcome_materialized_at": "2025-10-29T20:00:00Z",
+      "training_rows": 81
+    },
+    {
+      "action": null,
+      "actual_benchmark_return": 0.008267647086968477,
+      "actual_direction_positive": 0,
+      "actual_excess_return": -0.0174748233463059,
+      "actual_ticker_return": -0.009207176259337424,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2025-11-28T18:00:00Z",
+      "backtest_number": 2,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-046",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:6af9e54df884afc2e5b026de054100519a9be04f034a9aadc1fac94d6078061c",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt02",
+      "target_date": "2025-12-30",
+      "training_cutoffs": 81,
+      "training_max_as_of": "2025-09-30T20:00:00Z",
+      "training_max_outcome_materialized_at": "2025-10-29T20:00:00Z",
+      "training_rows": 81
+    },
+    {
+      "action": null,
+      "actual_benchmark_return": 0.01978235949741247,
+      "actual_direction_positive": 0,
+      "actual_excess_return": -0.14436359078474736,
+      "actual_ticker_return": -0.12458123128733489,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2025-12-31T21:00:00Z",
+      "backtest_number": 3,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-047",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:6ef709d26a266d1c30de67b42bbf2f8a387732a7311a056fdad69b4fe9c3b152",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt03",
+      "target_date": "2026-02-02",
+      "training_cutoffs": 83,
+      "training_max_as_of": "2025-11-28T18:00:00Z",
+      "training_max_outcome_materialized_at": "2025-12-30T21:00:00Z",
+      "training_rows": 83
+    },
+    {
+      "action": null,
+      "actual_benchmark_return": -0.016821561239151794,
+      "actual_direction_positive": 0,
+      "actual_excess_return": -0.04229688234488049,
+      "actual_ticker_return": -0.05911844358403229,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2026-01-30T21:00:00Z",
+      "backtest_number": 4,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-048",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:36f106bcb9a1beda157d79636bfced3ab4c40786d3f6732e5cfb459c89c8fb49",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt04",
+      "target_date": "2026-03-03",
+      "training_cutoffs": 83,
+      "training_max_as_of": "2025-11-28T18:00:00Z",
+      "training_max_outcome_materialized_at": "2025-12-30T21:00:00Z",
+      "training_rows": 83
+    },
+    {
+      "action": null,
+      "actual_benchmark_return": -0.07623155132183435,
+      "actual_direction_positive": 0,
+      "actual_excess_return": -0.009779595121560125,
+      "actual_ticker_return": -0.08601114644339447,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2026-02-27T21:00:00Z",
+      "backtest_number": 5,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-049",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:931da1ee4914a6164e95c5c10f0db1cbb2de86ddc1e2249dac2206f5a73405b5",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt05",
+      "target_date": "2026-03-30",
+      "training_cutoffs": 84,
+      "training_max_as_of": "2025-12-31T21:00:00Z",
+      "training_max_outcome_materialized_at": "2026-02-02T21:00:00Z",
+      "training_rows": 84
+    },
+    {
+      "action": null,
+      "actual_benchmark_return": 0.10505274506872397,
+      "actual_direction_positive": 0,
+      "actual_excess_return": -0.0034508112853421924,
+      "actual_ticker_return": 0.10160193378338178,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2026-03-31T20:00:00Z",
+      "backtest_number": 6,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-050",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:5f106d2647831a45cda5cb74f00620dcf94c010e0ef75d549e456f1bd8715cab",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt06",
+      "target_date": "2026-04-30",
+      "training_cutoffs": 86,
+      "training_max_as_of": "2026-02-27T21:00:00Z",
+      "training_max_outcome_materialized_at": "2026-03-30T20:00:00Z",
+      "training_rows": 86
+    },
+    {
+      "action": null,
+      "actual_benchmark_return": 0.055492199947794196,
+      "actual_direction_positive": 1,
+      "actual_excess_return": 0.07628824165048598,
+      "actual_ticker_return": 0.13178044159828017,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2026-04-30T20:00:00Z",
+      "backtest_number": 7,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-051",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:6091e552fb56f4bde5f11b37d16ad215de2061a0757372606e9b3ee74c213bf9",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt07",
+      "target_date": "2026-06-01",
+      "training_cutoffs": 87,
+      "training_max_as_of": "2026-03-31T20:00:00Z",
+      "training_max_outcome_materialized_at": "2026-04-30T20:00:00Z",
+      "training_rows": 87
+    },
+    {
+      "action": null,
+      "actual_benchmark_return": -0.010292580956815511,
+      "actual_direction_positive": 0,
+      "actual_excess_return": -0.16121598061457687,
+      "actual_ticker_return": -0.17150856157139238,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2026-05-29T20:00:00Z",
+      "backtest_number": 8,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-052",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:f2a130a6b26867d5e9cf8b365dd2078d2e591867ce1b870ef5004468e43883c5",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt08",
+      "target_date": "2026-06-30",
+      "training_cutoffs": 87,
+      "training_max_as_of": "2026-03-31T20:00:00Z",
+      "training_max_outcome_materialized_at": "2026-04-30T20:00:00Z",
+      "training_rows": 87
+    },
+    {
+      "action": null,
+      "actual_benchmark_return": -0.006802666464996943,
+      "actual_direction_positive": 1,
+      "actual_excess_return": 0.21612128806905573,
+      "actual_ticker_return": 0.20931862160405879,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2026-06-30T20:00:00Z",
+      "backtest_number": 9,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-053",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:23a41f6fed91457b171c8ab5742a8cd0cb76070aecf6038e1b862c67eb8a9e43",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt09",
+      "target_date": "2026-07-30",
+      "training_cutoffs": 89,
+      "training_max_as_of": "2026-05-29T20:00:00Z",
+      "training_max_outcome_materialized_at": "2026-06-30T20:00:00Z",
+      "training_rows": 89
+    },
+    {
+      "action": null,
+      "actual_benchmark_return": 0.026799359784972054,
+      "actual_direction_positive": 1,
+      "actual_excess_return": 0.06685916415542215,
+      "actual_ticker_return": 0.0936585239403942,
+      "agents": {
+        "financial": {
+          "called": true,
+          "degraded": true,
+          "errors": [],
+          "evidence_count": 64,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-financial-features-v1"
+        },
+        "research": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "RESEARCH_EVIDENCE_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "research-features-v2"
+        },
+        "sentiment": {
+          "called": true,
+          "degraded": true,
+          "errors": [
+            "FINBERT_UNAVAILABLE",
+            "FUSION_UNAVAILABLE",
+            "LOW_COVERAGE",
+            "NO_ELIGIBLE_POINT_IN_TIME_EVIDENCE",
+            "POLARITY_UNAVAILABLE",
+            "SELECTED_ATTEMPT_QUALITY_FAILED",
+            "VADER_UNAVAILABLE"
+          ],
+          "evidence_count": 0,
+          "execution_error_type": null,
+          "missing": true,
+          "version": "monthly-sentiment-features-v1"
+        }
+      },
+      "all_agents_called": true,
+      "as_of": "2026-07-31T20:00:00Z",
+      "backtest_number": 10,
+      "direction_correct": null,
+      "expected_excess_return": null,
+      "expected_return_21d": null,
+      "fold_id": "fold-054",
+      "forecast_status": "BLOCKED",
+      "manager_error_type": "DataUnavailableAsOfError",
+      "model_variant": "walk_forward_full_system+specialist_fusion_v2",
+      "model_version": "logistic-ridge-21d-v1+sha256:6df8014416e6c2aeca7640050b28693d990bf249d7f52f6dc9c98c929b97281a",
+      "probability_positive": null,
+      "quality_gate_failures": [],
+      "quality_gate_passed": false,
+      "run_id": "full-system-msft-10bt-20260924-bt10",
+      "target_date": "2026-08-31",
+      "training_cutoffs": 90,
+      "training_max_as_of": "2026-06-30T20:00:00Z",
+      "training_max_outcome_materialized_at": "2026-07-30T20:00:00Z",
+      "training_rows": 90
+    }
+  ],
+  "benchmark": "SPY",
+  "correct_direction_count": 0,
+  "interpretation": "Only 0 of 10 attempts produced a numeric full-system forecast. Missing or degraded historical specialist evidence caused the remaining attempts to fail closed. No accuracy claim can be made for blocked attempts.",
+  "numeric_forecast_count": 0,
+  "report_hash": "16def54c7d8deab1c31491fb37e1899a52f9e315d664e14ee676a5cc686f42f0",
+  "report_version": "full-system-agent-backtest-v1",
+  "run_id": "full-system-msft-10bt-20260924",
+  "source_snapshot_sha256": "bcea064c6b66861f67d5e6b2ba437930df675e9e5f696f6e45589a1da43ee547",
+  "status": "BLOCKED_BY_POINT_IN_TIME_SPECIALIST_COVERAGE",
+  "temporal_audit": {
+    "audit_version": "stage09-temporal-leakage-v1",
+    "checked_forecasts": 0,
+    "checked_source_rows": 91,
+    "findings": [],
+    "future_record_count": 0,
+    "status": "PASS"
+  },
+  "ticker": "MSFT"
+}

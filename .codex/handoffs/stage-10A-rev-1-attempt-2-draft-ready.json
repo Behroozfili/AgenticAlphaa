@@ -1,0 +1,188 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "core",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 170,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "retry_scope": "Strict REVIEW-10A-002 repair only: restore the pre-Stage10A analyze route Manager resolution/request-binding and persistence-status behavior while retaining the authorized payload-free logging, stable error persistence, redaction and safe Stage10A request lifecycle telemetry. REVIEW-10A-001 is reserved for the following Observability pass.",
+  "trigger_review": {
+    "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-review.json",
+    "sha256": "d8f4a9bababc4232b41ad86173e27fafb51f9fffc739a8714018eb014529237c",
+    "review_status": "REJECTED",
+    "resolved_in_primary_draft": ["REVIEW-10A-002"],
+    "reserved_for_observability": ["REVIEW-10A-001"]
+  },
+  "dependency_handoffs": [
+    {
+      "stage": "09",
+      "path": ".codex/handoffs/stage-09-rev-1-handoff.json",
+      "sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+      "state_status": "CLOSED"
+    }
+  ],
+  "immutable_attempt_1_artifacts": [
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-draft-ready.json",
+      "sha256": "10cb19dd94d64f18ba1e88c86a1b5fa5116c83f3ba8c3424575fc096c17b1a06"
+    },
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json",
+      "sha256": "6952d6790995f426f5ace00dd323b2b96c317d7b35bd633cb74bc2b75816353c"
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json",
+      "sha256": "5293a8b273d7330ca11af9491cf9402a22a5a56ea630f8e1f5646805447a05f5"
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-2.json",
+      "sha256": "fa5a7f59fb8553138e72e691061fbb6418ad7abdd875b65d9424ddbdacca7895"
+    },
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.md",
+      "sha256": "2e8f4da71959373a0a70dae039ebcbc5c9072059ce4aaf91f9f7049cb4f4b72e"
+    },
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-implementation.json",
+      "sha256": "f30f3e154a2e8e977e1a97b44bb95f61b60c960873869d901f621f256cd63ae7"
+    },
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-qa.json",
+      "sha256": "5fcc4ebda0e6f3da92dd272270076c30857d5090b3c3a48e6062cd34b2fcd04e"
+    },
+    {
+      "path": ".codex/handoffs/stage-10A-rev-1-attempt-1-review.json",
+      "sha256": "d8f4a9bababc4232b41ad86173e27fafb51f9fffc739a8714018eb014529237c"
+    }
+  ],
+  "changed_files": [
+    "api/routes/analyze.py",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py",
+    "tests/unit_tests/test_stage10a_runtime_foundation.py",
+    ".codex/handoffs/stage-10A-rev-1-attempt-2-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "finding_disposition": {
+    "REVIEW-10A-002": "PASS_RESOLVED: analyze once again resolves request.app.state.manager_agent exactly as before the narrow privacy exception, uses the separately injected memory only to retrieve user preferences, and forwards the computed execution status unchanged to persistence. The route no longer imports or calls get_request_manager and contains no new status-normalization branch.",
+    "REVIEW-10A-001": "PENDING_OBSERVABILITY: external-exporter fail-closed safety is explicitly assigned to the next Observability pass; Core did not edit observability-owned sources or tests.",
+    "OBS-10A-001": "PASS_PRESERVED: safe request startup/completion and dependency-memory lifecycle events remain correlated by one opaque request run_id with finite latency and payload-free metadata.",
+    "OBS-10A-002": "PASS_PRESERVED_FOR_AUTHORIZED_ROUTE_CALLSITES: raw query, user identity, preferences, Manager result payload and exception values remain absent from route logs and persistence."
+  },
+  "route_contract": {
+    "manager_resolution": "request.app.state.manager_agent",
+    "request_memory_binding": "unchanged legacy behavior: injected memory supplies user_preferences but is not rebound into the route-selected Manager",
+    "manager_run_arguments_changed": false,
+    "execution_status_normalized_by_route": false,
+    "execution_status_forwarded_unchanged": true,
+    "request_schema_changed": false,
+    "response_schema_changed": false,
+    "result_mapping_changed_in_attempt_2": false,
+    "progress_behavior_changed": false,
+    "stage10b_business_work": false
+  },
+  "privacy_and_telemetry_preservation": {
+    "payload_free_route_logs": true,
+    "stable_execution_error_code": "ANALYSIS_EXECUTION_FAILED",
+    "stable_publication_error_code": "ANALYSIS_PUBLICATION_FAILED",
+    "raw_exception_persisted": false,
+    "raw_query_persisted": false,
+    "raw_user_id_persisted": false,
+    "raw_manager_result_persisted": false,
+    "public_response_mapping_preserved": true,
+    "private_sentinel_absent_from_logs_and_persistence": true,
+    "correlated_request_and_dependency_memory_events": true,
+    "observability_owned_sources_modified_by_core": false
+  },
+  "observability_owned_sources": {
+    "langsmith_trace.py": "e348fae4ac31277fa8c1a2483a225797eb13dc3969b0d47c9dfbfad45043b691",
+    "core/observability.py": "414b6b661c85138c17e81109e5dabeafba083767019fa9117fd68aa8fe6d6e88"
+  },
+  "draft_self_tests": [
+    {
+      "command": ".venv\\\\Scripts\\\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/api_test/test_analyze_cor_api.py -q",
+      "exit_code": 0,
+      "result": "22 passed in 2.68s",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\\\Scripts\\\\python.exe -B -m pytest -p no:cacheprovider <nine exact Stage10A API/config/dependency/exception/analyze/memory/root/runtime/observability modules> -q",
+      "exit_code": 0,
+      "result": "208 passed in 17.28s",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\\\Scripts\\\\python.exe -B -m pytest -p no:cacheprovider <Stage01 State contract + Stage08 Manager/integration + Stage09 walk-forward/metrics/leakage/CLI modules> -q",
+      "exit_code": 0,
+      "result": "140 passed in 24.58s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\\\Scripts\\\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q",
+      "exit_code": 0,
+      "result": "1440 tests collected in 17.43s; zero collection errors",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\\\Scripts\\\\python.exe -B -m py_compile api/routes/analyze.py tests/unit_tests/api_test/test_analyze_cor_api.py tests/unit_tests/test_stage10a_runtime_foundation.py",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "Static REVIEW-10A-002 scope/privacy scan plus git diff --check on the three Attempt2 Core paths",
+      "exit_code": 0,
+      "result": "PASS: exact app-state Manager resolution; unchanged status forwarding; no get_request_manager route call; privacy sanitation retained; no whitespace errors",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\\\Scripts\\\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent core",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 170 before draft artifact creation",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "preflight_notes": [
+    "The reserved lock path tests/unit_tests/test_stage10a_observability.py does not exist and was not claimed or created; the existing locked tests/unit_tests/core_test/test_observability.py is the ninth focused module.",
+    "The first post-revert focused run exposed one Attempt1 test expectation for the now-reverted get_request_manager route behavior; that directly affected locked test was narrowed to the preserved correlated request/dependency-memory lifecycle boundary, after which the exact focused suite passed 208/208."
+  ],
+  "source_sha256": {
+    "api/routes/analyze.py": "32c755190b678b393e32ca3886e6153a111d1d35659046196c5153d3d4d48070",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py": "ad29e110665faf749c77536ba6a7721356f2575a90080c9c01458d38eca99010",
+    "tests/unit_tests/test_stage10a_runtime_foundation.py": "88e8a504b575c8d3750cedb821ece084c1e197af3e0fb1d2b5341ed26d5134e1"
+  },
+  "observability_review_focus": [
+    "Resolve REVIEW-10A-001 by keeping external Sentry and LangSmith exporters fail-closed while request-reachable legacy trace/capture paths remain unproven payload-safe.",
+    "Add offline enabled-configuration PRIVATE_SENTINEL countertests without editing forbidden Manager or error-handler sources and without contacting any external exporter or network.",
+    "Preserve the corrected route Manager resolution, unnormalized status forwarding, payload-free route logging/persistence, request lifecycle events and all Stage10A foundation behavior."
+  ],
+  "known_limitations": [
+    "REVIEW-10A-001 remains intentionally unresolved until the separately owned Observability pass.",
+    "The restored legacy route surface delegates per-invocation Manager/memory isolation to the app-state ManagerAgentFactory compatibility shim; the route itself does not rebind the injected dependency memory.",
+    "Stage 10B still owns versioned forecast persistence, authentication-aware user identity, route forecast fields, progress/backtest jobs, UI and E2E wiring.",
+    "Final implementation MD/JSON are intentionally not written while observability_required is true and the phase is PRIMARY_DRAFT."
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_exporter_contact": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deployment": false,
+    "dependency_change": false,
+    "commit": false,
+    "push": false,
+    "prior_attempt_artifacts_changed": false,
+    "observability_owned_sources_changed_by_core": false,
+    "stage10b_files_changed": false,
+    "forbidden_manager_or_error_handler_sources_changed": false
+  },
+  "final_implementation_artifacts_written": false,
+  "stage10b_status": "PENDING_NOT_STARTED_UNCHANGED",
+  "created_at": "2026-09-12T21:41:12.3519498Z"
+}

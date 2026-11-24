@@ -1,0 +1,145 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "core",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 164,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "scope": "Stage 10A API/runtime foundation only: versioned settings, safe exceptions, request-scoped Manager/memory factories, lifecycle clients, route skeleton registration, natural-key monthly memory isolation, and explicit seed command boundary.",
+  "dependency_handoffs": [
+    {
+      "stage": "09",
+      "path": ".codex/handoffs/stage-09-rev-1-handoff.json",
+      "sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    "api/config.py",
+    "api/core/exceptions.py",
+    "api/dependencies.py",
+    "api/main.py",
+    "memory/manager_memory.py",
+    "main.py",
+    "tests/unit_tests/api_test/test_api_config.py",
+    "tests/unit_tests/api_test/test_dependencies_api.py",
+    "tests/unit_tests/api_test/test_api_main.py",
+    "tests/unit_tests/api_test/test_core_eceptions.py",
+    "tests/unit_tests/test_memory/test_manager_memory.py",
+    "tests/unit_tests/test_root_main.py",
+    "tests/unit_tests/test_stage10a_runtime_foundation.py",
+    ".codex/handoffs/stage-10A-rev-1-attempt-1-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "runtime_contract": {
+    "runtime_version": "stage10a-runtime-v1",
+    "analysis_modes": ["LIVE", "HISTORICAL_BACKTEST"],
+    "horizon_trading_days": 21,
+    "live_historical_dataset_versions_distinct": true,
+    "canonical_forecast_context_reused": true,
+    "sentry_default": "DISABLED",
+    "langsmith_default": "DISABLED",
+    "exporter_activation_requires_global_flag_feature_flag_and_credentials": true
+  },
+  "request_isolation": {
+    "app_state_manager_is_stateless_factory": true,
+    "manager_agent_created_per_invocation": true,
+    "manager_memory_created_per_request_or_invocation": true,
+    "shared_runtime_objects": ["Supabase client", "Neo4j driver", "immutable runtime settings"],
+    "concurrent_request_probe": "PASS_ZERO_CROSSTALK"
+  },
+  "memory_contract": {
+    "monthly_natural_key": ["ticker", "as_of", "horizon", "analysis_mode", "schema_version"],
+    "as_of_normalization": "timezone-aware UTC",
+    "legacy_monthly_merge": false,
+    "monthly_persistence": "DEFERRED_TO_STAGE_10B"
+  },
+  "startup_contract": {
+    "normal_server_start_auto_seeds": false,
+    "explicit_seed_command": "python main.py seed-rag",
+    "seed_executed": false
+  },
+  "draft_self_tests": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <seven exact Stage10A focused modules> -q",
+      "exit_code": 0,
+      "result": "149 passed in 12.62s",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <API+Memory+Forecast+Stage08 Manager proportional regressions> -q",
+      "exit_code": 0,
+      "result": "284 passed in 20.48s",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q",
+      "exit_code": 0,
+      "result": "1416 tests collected in 18.01s; zero collection errors",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile <six Stage10A source modules and seven focused test modules>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check -- <Stage10A core-owned source and test paths>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent core",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 164 before draft artifact creation",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "source_sha256": {
+    "api/config.py": "336d95c408c350fca263b9e1fc3bfd1a13dd01db39ebbc69fb3b45bc364eacd8",
+    "api/core/exceptions.py": "ee5a8783f0553f01cc00e706ff03c6eeef2d4d40f9b4d75caed077a1a039f886",
+    "api/dependencies.py": "a52ea208dec9422ad92661153fb286378075774f1cb83e24386b83983f570682",
+    "api/main.py": "15af561df2f5bf3fc09d77d505ccced9d9de7b5df2379fcdbb63dd478ca2141e",
+    "memory/manager_memory.py": "884db917f36952168ccc01ff7929c9743149bd01855720536f1404ec781a7d5c",
+    "main.py": "8ed3170d07ca5a2bb41e65f1a80c3cf04bb351332eb4b44cef6380a822e91c5c",
+    "tests/unit_tests/api_test/test_api_config.py": "ae484534ee8e5c99be2ae61cf369c4c8d4576f66b1df8a03361fc7456d5ea80b",
+    "tests/unit_tests/api_test/test_dependencies_api.py": "167b2e99bb27811c80781579a24d47efc870ac112981e2c5e27b9a49ab3b4184",
+    "tests/unit_tests/api_test/test_api_main.py": "8a6435f66fd96c11bf2cdfa5846adb6b9e31d7017d4e292f114b908366224788",
+    "tests/unit_tests/api_test/test_core_eceptions.py": "82daa0443e4018f424a5df19e2b96823200836e49d485600402a9cb28ddeb8a8",
+    "tests/unit_tests/test_memory/test_manager_memory.py": "90a077c828234042ce1d5bc7b35e1a246509e0f5931a626d3c4baee3a74c7162",
+    "tests/unit_tests/test_root_main.py": "8ccf955d32391bdef88fdbf42ac1d850026ebed03b4fc541becd44534ef1e3d7",
+    "tests/unit_tests/test_stage10a_runtime_foundation.py": "dec5a7c16c2249b3741cfd960d642db3cd95a7bbb5e5df80f4088c9862194814"
+  },
+  "observability_review_focus": [
+    "Verify optional exporters remain disabled unless explicitly enabled with credentials.",
+    "Verify runtime lifecycle/error logs contain no request payload, secrets, raw evidence, or chain-of-thought.",
+    "Assess whether Stage 10A needs additional bounded latency/lifecycle metadata in separately locked observability paths."
+  ],
+  "known_limitations": [
+    "Stage 10B still owns the request forecast fields, business route behavior, persistence, progress, backtest jobs, UI, and E2E wiring.",
+    "Monthly memory persistence is intentionally not added to the legacy long_term_memory row; Stage 10B owns versioned persistence.",
+    "No live provider, external database, exporter, migration, seed, deployment, commit, or push was executed.",
+    "Final implementation MD/JSON are intentionally not written while observability_required is true and the phase is PRIMARY_DRAFT."
+  ],
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false,
+    "stage10b_files_changed": false,
+    "protected_formula_files_changed": false
+  },
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-12T09:34:22.4526031Z"
+}

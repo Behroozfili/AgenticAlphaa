@@ -1,0 +1,224 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "09",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "quant",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "execution_phase": "PRIMARY_FINAL",
+  "control_revision": 160,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "implementation_identity": {
+    "single_source": "evaluation/point_in_time_dataset.py::STAGE09_RUNTIME_IDENTITY",
+    "stage": "09",
+    "stage_revision": 1,
+    "attempt": 2,
+    "agent": "quant",
+    "implementation_version": "stage09-r1-a2",
+    "backtest_version": "stage09-expanding-walk-forward-v1"
+  },
+  "draft_ready_artifact": ".codex/handoffs/stage-09-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "67e4bb4c67d1d5d4fd3426850262e43e512324fcb13f33ed10cf21c001a22daf",
+  "observability_artifact": ".codex/handoffs/stage-09-rev-1-attempt-2-observability.json",
+  "observability_sha256": "2cb75f58f52a577ad49cece3847bf3d77d0a319d4ba1c1cbd611df3d8694b445",
+  "change_request": ".codex/handoffs/change-request-stage-09-rev-1-attempt-2-1.json",
+  "change_request_sha256": "cf9f70850cdafbdec6ad4a8c988d8cf1278620752c502063af71223e938335c2",
+  "observability_status": "AUDITED_WITH_SUPPLEMENTAL_CHANGE_RESOLVED",
+  "implementation_md": ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.md",
+  "implementation_md_sha256": "1bbbde92cf740e52590567b312954040c4a263dd98606ff0ada811deb9a39265",
+  "dependency_handoffs": [
+    {
+      "stage": "08",
+      "path": ".codex/handoffs/stage-08-rev-1-handoff.json",
+      "sha256": "adeb20c8807b9723e197be466123a60b70998c4b1791587a0f7a4436f2605479",
+      "state_status": "CLOSED"
+    }
+  ],
+  "immutable_attempt_1_artifacts": [
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-draft-ready.json", "sha256": "de058ebaeeb139a2eb07913fdf7e4b201a68d605e2c5ecf11bce605a2fbe11f5"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-observability.json", "sha256": "ce2c10d05263288c233dfe5d8b1de604c954f1230d8b037030fda6600a7e8580"},
+    {"path": ".codex/handoffs/change-request-stage-09-rev-1-attempt-1-1.json", "sha256": "685004de49a8792449ef0b0ee46a3ff7dd7f8c848acf81211f402f9b69c9dada"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.md", "sha256": "8e03d32c4f6e257506a1466fe39bc1d63a96572abd76e75c23b0d391e1d43e3f"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.json", "sha256": "bddd6c7e363322059927f73f9de6cbe241aea83c8cc6ae5827f1892ca8c18232"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-qa.json", "sha256": "8300ab8489e5805193302f791f45c12c0e3194259129060bfbeedd6dbe6cbfa3"},
+    {"path": ".codex/handoffs/stage-09-rev-1-attempt-1-review.json", "sha256": "e75f3fee31d83fe0ae59b6977c3ce4555d15e26b54b706be2bdd28c3e3589f39"}
+  ],
+  "changed_files": [
+    "evaluation/point_in_time_dataset.py",
+    "evaluation/monthly_backtest.py",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py",
+    "tests/unit_tests/test_monthly_backtest_stage9.py",
+    ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.md",
+    ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "REVIEW-09-001",
+      "status": "RESOLVED",
+      "resolution": "SCIENTIFIC is now derived only after common executed OOS coverage is known and requires ticker_count>=10, monthly_cutoff_count>=60 and eligible_oos_forecasts>=500; source-row count cannot substitute."
+    },
+    {
+      "id": "OBS-09-A2-001",
+      "status": "RESOLVED",
+      "resolution": "The single immutable Stage 09 runtime identity and every derived event now identify attempt 2 and stage09-r1-a2; direct tests require current identity."
+    }
+  ],
+  "scientific_gate": {
+    "classification_owner": "EXECUTED_WALK_FORWARD_REPORT",
+    "classification_after_identical_variant_coverage": true,
+    "source_dataset_can_claim_scientific": false,
+    "source_rows_used_as_oos_proxy": false,
+    "minimums": {"tickers": 10, "monthly_cutoffs": 60, "eligible_oos_forecasts": 500},
+    "boundary_499": "PRELIMINARY",
+    "boundary_500": "SCIENTIFIC",
+    "nine_tickers_at_500": "PRELIMINARY",
+    "fifty_nine_cutoffs_at_500": "PRELIMINARY",
+    "actual_oos_manifest_field": "forecast_count_per_variant",
+    "threshold_manifest_field": "scientific_minimums",
+    "ticker_and_cutoff_manifest_source": "dataset manifest bound by dataset_manifest_hash"
+  },
+  "telemetry_contract": {
+    "runtime_identity": "09/r1/a2/quant",
+    "implementation_version": "stage09-r1-a2",
+    "canonical_fixture_event_count": 231,
+    "all_events_current_identity": true,
+    "required_boundaries_preserved": true,
+    "event_shape_order_and_count_semantics_preserved": true,
+    "finite_nonnegative_monotonic_latency_preserved": true,
+    "bounded_counts_and_degraded_flags_preserved": true,
+    "stable_payload_free_errors_preserved": true,
+    "private_sentinel_redaction_preserved": true,
+    "sink_failure_isolation_preserved": true,
+    "external_export": false
+  },
+  "privacy_checks": [
+    "All telemetry derives from the single immutable Attempt-2 identity.",
+    "No report, raw vector, label, prediction, coefficient, evidence ID/content, prompt, chain-of-thought, private payload or exception text enters telemetry.",
+    "No telemetry shape or privacy behavior changed apart from truthful attempt/version values.",
+    "No external trace provider was contacted."
+  ],
+  "latency_instrumentation_status": "PASS_PRESERVED_FINITE_NONNEGATIVE_MONOTONIC_CURRENT_ATTEMPT_IDENTITY",
+  "scientific_preservation": {
+    "telemetry_enabled_disabled_exact_equality": true,
+    "report_hash": "213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779",
+    "report_hash_matches_attempt_1": true,
+    "scientific_report_level": "PRELIMINARY",
+    "ticker_count": 2,
+    "source_monthly_cutoff_count": 48,
+    "fold_count": 11,
+    "eligible_oos_forecasts_per_variant": 22,
+    "total_variant_records": 154,
+    "identical_variant_row_identity": true,
+    "future_record_count": 0,
+    "model_or_numeric_change": false,
+    "action_policy_or_transaction_cost_change": false,
+    "honest_full_model_underperformance_disclosure": "PRESERVED",
+    "ragas_used_for_forecast_accuracy": false,
+    "llm_generated_or_altered_forecast_numbers": false
+  },
+  "source_sha256": {
+    "evaluation/point_in_time_dataset.py": "f710fc8ea9834c148c0ca51b00d6afa895563218dda71230fd9dd18c502dcb8b",
+    "evaluation/monthly_backtest.py": "1861cc3f635679fd14d40a13c8d445090f6a938efb0e994effe683485f9611d2",
+    "evaluation/forecast_metrics.py": "9930bc15574e2e8a7d5aaf65fe3f7af6102060b5c4be948dc37c06cb73efe7a8",
+    "evaluation/temporal_leakage.py": "c6971cbe9b51cd9e142f0f1805617767132f571d35f76e962c03b76c0a56bf7d",
+    "evaluation/backtest_cli.py": "7291084fa56a4194549de25adeea87ec5bebc98b8041534282dd843c80ad10df",
+    "evaluation/stage3_compare_cli.py": "7c7e8bfcd80c39d81b19421157dbe23ca4c1e45346e666723f35875591e3a39e",
+    "tests/fixtures/stage9_walk_forward.json": "697d84c0c2822764c24171a8d4167709dd80110e9548056520634c3108957a54",
+    "tests/unit_tests/test_point_in_time_dataset_stage9.py": "f1481f43365caf24f38d0989ee0c7012cfa398f213adcee76863f35dd919a1b4",
+    "tests/unit_tests/test_monthly_backtest_stage9.py": "66a21970f871a405dc0d9a9cec288b37e6030df83fd74e06c91c8edcc64a6e4f",
+    "tests/unit_tests/test_forecast_metrics_stage9.py": "39c96555916d3cd8986ce923b1b6fcdb1f4ed99ae4f2467f70fd7fce504d95f8",
+    "tests/unit_tests/test_temporal_leakage_stage9.py": "02180d9e2379108e8542ffeb6adff3323468437fe9d505c1809fb4de33073e42",
+    "tests/unit_tests/test_backtest_cli_stage9.py": "c9f3e75352d9e26f63ca78be534306d95c41ad4ab3ed7ca5242c0a858bf53d7c",
+    ".codex/handoffs/stage-09-rev-1-attempt-2-implementation.md": "1bbbde92cf740e52590567b312954040c4a263dd98606ff0ada811deb9a39265"
+  },
+  "self_tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <five exact Stage09 test modules> -q",
+      "exit_code": 0,
+      "result": "23 passed in 10.86s",
+      "coverage": "REVIEW-09-001, current Attempt-2 identity, telemetry safety/order/latency/failure, 499/500 boundary, report determinism and zero-future audit",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Independent active-state/runtime identity and scientific preservation probe",
+      "exit_code": 0,
+      "result": "PASS: enabled=disabled; all 231 events=09/r1/a2/quant and stage09-r1-a2; 499=PRELIMINARY; 500=SCIENTIFIC; current fixture PRELIMINARY; report_hash=213ad73328c244c495d0a465ed1bc7b02fb1ab2348a803e6ab807948f3aad779; future_record_count=0",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "71 passed in 1.16s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURES_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q <five exact Stage09 test modules>",
+      "exit_code": 0,
+      "result": "23 tests collected in 0.73s; zero collection errors",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile <two retry modules> <two direct tests>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check -- <four exact Attempt-2 source/test paths>",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent quant",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 160 before final artifact creation",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "contract_diff": [
+    "Resolved REVIEW-09-001 by basing scientific readiness on common executed OOS coverage instead of source-row count.",
+    "Resolved OBS-09-A2-001 by advancing only the single immutable runtime attempt/version and direct identity assertions.",
+    "Preserved dataset rows, labels, folds, variants, models, metrics, action policy, costs, report hash, PRELIMINARY fixture result, zero-future audit and telemetry safety behavior.",
+    "Did not modify Stage 07, Stage 08, state, contracts, dependencies, database, migrations, API/runtime or Stage 10A."
+  ],
+  "blocking_issues": [],
+  "known_limitations": [
+    "The deterministic two-ticker fixture is synthetic and valid only for engineering regression.",
+    "The current report remains below all three frozen scientific minimums.",
+    "Live providers, network acquisition, databases and external trace export were intentionally not exercised."
+  ],
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "supplemental_identity_only": "Restore evaluation/point_in_time_dataset.py to d7f5793bbd7069630484d04103dfbf4f882410e567d0b67c4bdf5d1ae6bd250b and tests/unit_tests/test_monthly_backtest_stage9.py to d3c0874af912384a4b934fd99c4e1db1e10f66573cd7c9d4c27aa963a03a67f0 from immutable Attempt-2 draft evidence.",
+    "entire_retry": "Restore the four REVIEW-09-001 paths to their hashes recorded in immutable Attempt-1 implementation bddd6c7e363322059927f73f9de6cbe241aea83c8cc6ae5827f1892ca8c18232 while retaining all workflow artifacts.",
+    "rollback_executed": false,
+    "data_loss_risk": "NONE_WHEN_ARCHIVE_IS_RETAINED"
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage10a_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "supersedes": ".codex/handoffs/stage-09-rev-1-attempt-1-implementation.json",
+  "implementation_ready": true,
+  "created_at": "2026-09-12T07:59:06.0288660Z"
+}

@@ -17,6 +17,13 @@ from agents.executor_helpers.financial_helper import (
 from evaluation.canonical_synthesis import build_canonical_synthesis_payload
 from evaluation.final_publication import validate_final_publication
 from tools.financial_tools.sec_edgar import _extract_annual
+from financial_test import stage5_context
+from core.forecast_contract import ForecastContext
+
+
+def extract_annual(*args, **kwargs):
+    kwargs.setdefault("context", ForecastContext.from_dict(stage5_context("NVDA")))
+    return _extract_annual(*args, **kwargs)
 
 
 def fact(value, start, end, *, concept="PrimaryConcept", status="VALID_PRIMARY"):
@@ -68,7 +75,7 @@ def test_same_concept_restatement_prefers_latest_filed_fact():
         ]}}}},
     }
 
-    selected = _extract_annual(payload, ["Revenue"], metric_scope="duration")
+    selected = extract_annual(payload, ["Revenue"], metric_scope="duration")
 
     assert selected[0]["value"] == 105
     assert selected[0]["accession_number"] == "new"
@@ -84,7 +91,7 @@ def test_alternative_xbrl_concept_is_explicit_fallback():
         }]}}}},
     }
 
-    selected = _extract_annual(
+    selected = extract_annual(
         payload, ["PreferredRevenue", "AlternativeRevenue"], metric_scope="duration"
     )
 

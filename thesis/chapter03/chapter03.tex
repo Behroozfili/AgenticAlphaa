@@ -1,0 +1,136 @@
+% Kapitel 3, erster Teil: Abschnitte 3.1 bis 3.3.
+\chapter{Forschungsmethodik und vorgeschlagene Architektur}
+\label{ch:method}
+
+\section{Überblick über die Forschungsmethodik}
+\label{sec:research-method}
+Ziel dieser Arbeit ist die Entwicklung und Bewertung eines Verfahrens zur Finanzanalyse und zur Prognose der benchmarkrelativen Aktienrendite. Dabei werden numerische Berechnung, sprachliche Interpretation und die Prüfung der zeitlichen Zulässigkeit von Informationen voneinander getrennt. Das entwickelte Softwareartefakt ist das System AgenticAlpha. Auf der Gestaltungsebene werden der Prognosevertrag und die Verarbeitungskomponenten festgelegt. Auf der Bewertungsebene werden die Einhaltung dieses Vertrags und die Qualität der Prognosen außerhalb der Trainingsstichprobe getrennt untersucht. Die technische Ausführbarkeit des Systems ist somit kein hinreichender Nachweis seiner Prognosegüte.
+
+Die Untersuchungseinheit ist eine Aktie zu einem festgelegten Prognosestichtag. Für jede Einheit werden der Prognosehorizont, die Benchmark sowie die Daten- und Modellversion bestimmt. Diese Angaben bilden den gemeinsamen Kontext für die Merkmalsextraktion, die Prognoseberechnung und die Speicherung der Ergebnisse. Analysen derselben Aktie mit unterschiedlichen Stichtagen oder Datenversionen sind daher nicht als identische Beobachtungen zu behandeln.
+
+Das Verfahren beginnt mit der Festlegung des Prognosevertrags. Anschließend werden die zum Stichtag zulässigen Daten ausgewählt und die Eingangsmerkmale gebildet. Bei der historischen Evaluation darf das Modell ausschließlich mit Beobachtungen trainiert werden, deren Ergebnisse zum jeweiligen Prognosezeitpunkt bereits beobachtbar waren. Das Trainingsfenster wächst im Zeitverlauf. Ein früherer Stichtag einer Trainingsbeobachtung genügt jedoch nicht als Zulässigkeitskriterium: Auch ihr zukünftiges Renditeergebnis muss zum Zeitpunkt der neuen Prognose bereits verfügbar sein.
+
+Spezialisierte Agenten stellen Belege und Merkmale aus Recherche, Finanzanalyse und Stimmungsanalyse bereit. Die quantitative Komponente, im Folgenden Quant-Komponente, ist die maßgebliche Quelle der numerischen Prognosewerte. Das Sprachmodell erläutert gültige Ergebnisse auf Grundlage der verfügbaren Belege. Fehlende Pflichtinformationen oder widersprüchliche Versionen dürfen nicht durch scheinbar gültige Ausgaben verdeckt werden. Das Verfahren folgt deshalb einem \emph{Fail-closed-Prinzip}: Sind notwendige Voraussetzungen nicht erfüllt, wird keine gültige Prognose ausgegeben.
+
+Die Evaluation unterscheidet zwei Fragen. Erstens ist zu prüfen, ob die Verarbeitungskette die zeitlichen und versionsbezogenen Regeln einhält. Zweitens ist zu bestimmen, welche Qualität die zulässigen Prognosen erreichen. Vertragsprüfungen und zeitliche Audits betreffen die erste Frage; die Bewertung außerhalb der Trainingsstichprobe und der Vergleich mit Basismodellen betreffen die zweite. Dieses Kapitel beschreibt das Verfahren und die Evaluationsregeln. Empirische Kennzahlen werden im Ergebniskapitel dargestellt.
+
+\section{Definition der Prognoseaufgabe}
+\label{sec:forecast-problem}
+\subsection{Prognosestichtag und Handelshorizont}
+Der Prognosestichtag wird mit $t_0$ bezeichnet und im System durch das Feld \texttt{as\_of} repräsentiert. Im Monatsendvertrag entspricht er dem Börsenschluss der letzten regulären US-Handelssitzung eines Kalendermonats. Zeitstempel werden mit expliziter Zeitzoneninformation verarbeitet und für Speicherung und Vergleich in UTC normalisiert. Die Zuordnung zum Handelstag und zum Börsenschluss erfolgt unter Berücksichtigung der Zeitzone \texttt{America/New\_York}. Zeitstempel ohne eindeutige Zeitzoneninformation werden zurückgewiesen.
+
+Der Prognosehorizont beträgt genau 21 Handelssitzungen. Bezeichnet $d_0$ das Datum der Ausgangssitzung und $s_k(d_0)$ die $k$-te reguläre Handelssitzung strikt nach diesem Datum, ergibt sich das Zieldatum als
+\begin{equation}
+ d_{\mathrm{target}}=s_{21}(d_0).
+ \label{eq:target-session}
+\end{equation}
+Die Ausgangssitzung wird nicht mitgezählt. Der Horizont entspricht daher weder 21 Kalendertagen noch notwendigerweise dem Ende des Folgemonats. Wochenenden und im versionierten Handelskalender berücksichtigte Schließtage werden übersprungen. Ein Vertragsprüffall des Projekts ordnet beispielsweise dem 31.~Mai~2024 das Zieldatum 2.~Juli~2024 zu. Dieses Beispiel veranschaulicht die Kalenderregel und stellt kein empirisches Prognoseergebnis dar.
+
+Neben der Monatsendregel \texttt{MONTH\_END} unterstützt die Implementierung die Regel \texttt{MONTH\_TO\_DATE}. Letztere hebt die Beschränkung auf die letzte Handelssitzung des Monats auf, behält jedoch den Horizont von 21 Sitzungen und die Bindung an den Sitzungsschluss bei. Die in dieser Arbeit beschriebene monatliche Evaluation basiert auf \texttt{MONTH\_END}. Die zusätzliche Ausführungsmöglichkeit innerhalb eines Monats verändert diesen Evaluationsvertrag nicht.
+
+\subsection{Zielvariable und Benchmark}
+Die Benchmark des Standardvertrags ist der börsengehandelte Fonds State Street SPDR S\&P~500 ETF Trust mit dem Börsenkürzel SPY. Ein börsengehandelter Fonds, auch Exchange Traded Fund (ETF), ermöglicht über seine Anteile eine Beteiligung an einem Portfolio von Wertpapieren. Laut Anbieter soll SPY vor Kosten grundsätzlich die Kurs- und Ausschüttungsentwicklung des S\&P~500 abbilden.\footnote{State Street Investment Management: \emph{State Street SPDR S\&P 500 ETF Trust (SPY)}, offizielle Produktbeschreibung, \url{https://www.ssga.com/us/en/intermediary/etfs/state-street-spdr-sp-500-etf-trust-spy}, abgerufen am 5.~November~2026.} Damit ist SPY ein investierbares Vergleichsinstrument für ein breites Segment großer US-Unternehmen.
+
+Für die vorliegende Untersuchung wird SPY als Referenz gewählt, um die Rendite einer einzelnen US-Aktie relativ zu diesem Marktsegment zu bewerten. Diese methodische Entscheidung legt fest, dass eine erfolgreiche Richtungsprognose die relative Entwicklung gegenüber SPY betrifft. SPY bildet nicht den gesamten weltweiten Aktienmarkt ab. Darüber hinaus sind der Fonds und der zugrunde liegende Index nicht identisch: Kosten und Abweichungen bei der Indexnachbildung können Renditeunterschiede verursachen. Die nachfolgenden Berechnungen verwenden daher die Preisreihe von SPY und nicht unmittelbar eine Indexzeitreihe. Die Eignung des Fonds als Referenz ersetzt außerdem nicht die gesonderte Prüfung der verwendeten historischen Preisdaten.
+
+Für die Aktie $i$ bezeichnen $P^{\mathrm{adj}}_{i,0}$ und $P^{\mathrm{adj}}_{i,21}$ die adjustierten Schlusskurse am Ausgangs- beziehungsweise Zieltermin. Die entsprechenden Preise der Benchmark werden mit $P^{\mathrm{adj}}_{b,0}$ und $P^{\mathrm{adj}}_{b,21}$ bezeichnet. Aktienrendite, Benchmarkrendite und benchmarkrelative Rendite werden wie folgt berechnet:
+\begin{align}
+ R_{i,21} &= \frac{P^{\mathrm{adj}}_{i,21}}{P^{\mathrm{adj}}_{i,0}}-1,
+ \label{eq:ticker-return}\\
+ R_{b,21} &= \frac{P^{\mathrm{adj}}_{b,21}}{P^{\mathrm{adj}}_{b,0}}-1,
+ \label{eq:benchmark-return}\\
+ R^{\mathrm{excess}}_{i,21} &= R_{i,21}-R_{b,21}.
+ \label{eq:excess-return}
+\end{align}
+Die benchmarkrelative Rendite wird im Folgenden auch als Überschussrendite bezeichnet. Sie ist hier ausdrücklich die Differenz zur SPY-Rendite und nicht die Differenz zu einem risikofreien Zinssatz. Eine positive Überschussrendite bedeutet eine bessere Entwicklung als die Benchmark, aber nicht zwingend eine positive absolute Aktienrendite. Beträgt die Aktienrendite beispielsweise minus zwei Prozent und die Benchmarkrendite minus fünf Prozent, ergibt sich eine Überschussrendite von drei Prozentpunkten. Dieses Rechenbeispiel dient ausschließlich der Begriffsabgrenzung.
+
+Das binäre Richtungslabel wird durch
+\begin{equation}
+ y_{i,0}=\begin{cases}
+ 1 & \text{falls } R^{\mathrm{excess}}_{i,21}>0,\\
+ 0 & \text{falls } R^{\mathrm{excess}}_{i,21}\leq 0
+ \end{cases}
+ \label{eq:direction-label}
+\end{equation}
+festgelegt. Die zweite Klasse heißt in der Implementierung \texttt{NEGATIVE}, schließt jedoch auch den Wert null ein. Mathematisch handelt es sich somit um die Klasse der nichtpositiven Überschussrenditen. Die prognostizierte Wahrscheinlichkeit einer positiven Überschussrendite und deren erwarteter Betrag sind unterschiedliche Größen. Beide sind von der später tatsächlich beobachteten Rendite zu unterscheiden.
+
+Alle zur Labelbildung verwendeten Preise müssen numerisch, endlich und strikt positiv sein. Nichtadjustierte und adjustierte Kurse dürfen innerhalb eines Labels nicht vermischt werden. Die wirtschaftliche Interpretation der berechneten Renditen hängt von der Adjustierungspolitik der Datenquelle ab. Die Verwendung adjustierter Schlusskurse belegt insbesondere nicht, dass ein Archiv historischer Datenstände vorliegt, die zu jedem damaligen Stichtag tatsächlich verfügbar waren. Langfristige Bewertungen mittels diskontierter Zahlungsströme und Kapitalkosten sind ebenfalls keine direkte Quelle der Zielvariable für den 21-Sitzungs-Horizont.
+
+\subsection{Identität einer Beobachtung und Versionierung}
+Jede Beobachtung wird durch Aktie, Stichtag, Zieldatum, Horizont, Benchmark und Analysemodus beschrieben. Zusätzlich werden Versionen des Datenschemas, des Datensatzes, der Merkmale und des Modells gespeichert. Diese Angaben dienen dazu, inkompatible Eingaben zu erkennen und die Berechnungsbedingungen nachzuvollziehen. Auch die Kalenderkennung gehört zum Prognosekontext, damit der Horizont an eine explizite Definition der Handelssitzungen gebunden bleibt.
+
+\section{Zeitliche Datenregeln und Vermeidung von Zukunftsinformationen}
+\label{sec:temporal-policy}
+\subsection{Veröffentlichung, Abruf und Beobachtbarkeit}
+Eine zeitliche Informationsleckage liegt vor, wenn Informationen, die zum Prognosestichtag nicht verfügbar waren, in die historische Merkmalsbildung, das Training oder die Entscheidungsfindung eingehen. Zu ihrer Kontrolle werden der wirtschaftliche Bezugszeitraum, die Veröffentlichung beziehungsweise Einreichung einer Information und ihr Abruf durch das System getrennt behandelt. Tabelle~\ref{tab:temporal-fields} fasst die wichtigsten Zeitangaben zusammen.
+
+\begin{table}[htbp]
+\centering
+\caption{Bedeutung der Zeitangaben im Datenvertrag}
+\label{tab:temporal-fields}
+\small
+\begin{tabularx}{\textwidth}{@{}>{\raggedright\arraybackslash}p{0.39\textwidth}>{\raggedright\arraybackslash}X@{}}
+\toprule
+Kennung & Funktion \\
+\midrule
+\texttt{published\_at} & Öffentliche Veröffentlichung einer Nachricht oder eines Dokuments \\
+\texttt{filed\_at} & Einreichungszeit eines Finanzberichts, unabhängig von dessen Berichtsperiode \\
+\texttt{retrieved\_at} & Abrufzeit durch das System; kein Ersatz für die Veröffentlichungszeit \\
+\texttt{effective\_from/to} & Beginn und Ende der Gültigkeit, soweit anwendbar \\
+\texttt{as\_of} & Informationsgrenze der Prognose \\
+\texttt{target\_date} & Datum der 21.~Handelssitzung nach dem Stichtag \\
+\texttt{observable\_at} & Konzeptioneller Zeitpunkt der Beobachtbarkeit des Ergebnisses \\
+\texttt{outcome\_materialized\_at} & Im Evaluationsdatensatz erfasster Zeitpunkt der Ergebnismaterialisierung \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Bezeichnet $t_e$ den gültigen Veröffentlichungs- oder Verfügbarkeitszeitpunkt eines Belegs $e$, lautet die grundlegende zeitliche Zulässigkeitsbedingung
+\begin{equation}
+ t_e\leq t_0.
+ \label{eq:evidence-cutoff}
+\end{equation}
+Diese Bedingung ist notwendig, aber nicht hinreichend. Auch Quellenidentität, Inhaltsversion und Gültigkeitsintervall müssen zum Analysekontext passen. Eine unbekannte Veröffentlichungszeit darf nicht durch die Abrufzeit ersetzt werden. Wird eine Nachricht am Tag des Stichtags erst nach Börsenschluss veröffentlicht, ist sie für die betreffende Prognose unzulässig, obwohl beide Ereignisse dasselbe Kalenderdatum tragen.
+
+Abbildung~\ref{fig:temporal-timeline} zeigt eine beispielhafte Reihenfolge. Der Abruf erfolgt hier vor dem Stichtag. Bei einer historischen Rekonstruktion kann der tatsächliche Abruf später stattfinden. In diesem Fall sind die historische Inhaltsversion und deren Veröffentlichung gesondert zu prüfen. Aus einem heutigen Abruf folgt nicht, dass derselbe Inhalt bereits damals verfügbar war.
+
+\begin{figure}[htbp]
+\centering
+\begin{tikzpicture}[>=Stealth,font=\small]
+\draw[->] (0,0)--(12,0) node[right] {$t$};
+\foreach \x/\zeit in {0.7/{t_{\mathrm{pub}}},3/{t_{\mathrm{ret}}},5.6/{t_0},8.5/{d_{\mathrm{target}}},11/{t_{\mathrm{obs}}}}
+{\draw (\x,0.12)--(\x,-0.12); \node[above] at (\x,0.18) {$\zeit$};}
+\node[below,align=center] at (0.7,-0.15) {Veröffent-\\lichung};
+\node[below] at (3,-0.15) {Abruf};
+\node[below] at (5.6,-0.15) {Stichtag};
+\node[below] at (8.5,-0.15) {Zielsitzung};
+\node[below,align=center] at (11,-0.15) {Beobacht-\\barkeit};
+\end{tikzpicture}
+\caption{Schematische zeitliche Reihenfolge ohne maßstäbliche Abstände. Die Beobachtbarkeit kann bereits mit dem Schluss der Zielsitzung eintreten.}
+\label{fig:temporal-timeline}
+\end{figure}
+
+\subsection{Revidierte Finanzdaten und historische Quellen}
+Die Berichtsperiode einer Finanzkennzahl bestimmt nicht ihre Verfügbarkeit. Ein Bericht über ein bereits abgeschlossenes Quartal darf erst ab seiner gültigen Einreichung oder Veröffentlichung berücksichtigt werden. Eine später veröffentlichte Korrektur darf nicht rückwirkend den Informationsstand eines früheren Prognosestichtags verändern. Der Datenvertrag verlangt deshalb, Einreichungszeiten, Dokumentidentitäten und Belegversionen zu erhalten.
+
+Im historischen Modus darf eine fehlende Quelle nicht durch aktuelle Live-Daten ersetzt werden. Dies betrifft insbesondere aktuelle Nachrichten, gegenwärtige Stimmungswerte und nachträglich revidierte makroökonomische Werte. Fehlt für eine optionale Quelle ein gültiger historischer Datenstand, bleibt die Information ausdrücklich als fehlend gekennzeichnet. Fehlt eine erforderliche Eingabe, ist keine gültige Prognose zulässig. Ein fehlender Wert ist daher weder mit null noch mit einem neutralen Ergebnis gleichzusetzen.
+
+\subsection{Trennung von Merkmalen, Prognose und Ergebnis}
+Die Merkmale einer Beobachtung müssen vor der Verwendung ihres zukünftigen Ergebnisses festgeschrieben werden. Für den bestehenden Audit bezeichnen $t_f$ den Festschreibungszeitpunkt, $t_x$ die Merkmalsmaterialisierung, $t_p$ die Prognosematerialisierung und $t_o$ die Ergebnismaterialisierung. Geprüft werden folgende Beziehungen:
+\begin{align}
+ t_f &\leq t_0, & t_x &\leq t_0,\\
+ t_o &\geq t_{\mathrm{close}}(d_{\mathrm{target}}), & t_f &<t_o,\\
+ t_p &=t_0, & t_p &<t_o.
+\end{align}
+Die Gleichheit $t_p=t_0$ beschreibt die logische Zeit des Prognosedatensatzes innerhalb der historischen Evaluation. Sie bedeutet nicht, dass die Berechnung tatsächlich zu diesem vergangenen Zeitpunkt ausgeführt wurde. Für die Trainingsbeobachtungen verlangt der Audit außerdem
+\begin{equation}
+ \max_j t^{\mathrm{train}}_{0,j}<t_0,
+ \qquad
+ \max_j t^{\mathrm{train}}_{o,j}\leq t_p.
+\end{equation}
+Hierbei bezeichnet $j$ eine Trainingsbeobachtung. Die Bedingungen schließen Beobachtungen aus, deren Ausgangsstichtag zwar in der Vergangenheit liegt, deren 21-Sitzungs-Ergebnis zum neuen Prognosezeitpunkt jedoch noch nicht verfügbar war.
+
+\subsection{Fehlerbehandlung und Grenzen des Audits}
+Die grundlegende zeitliche Prüfung vergleicht den Belegzeitpunkt mit dem Prognosestichtag. Ein zukünftiger Zeitpunkt, ein unbekannter Zeitpunkt und eine inkompatible Version werden als unterschiedliche Fehlerfälle behandelt. Der Evaluationsaudit kontrolliert zusätzlich das Zieldatum, die zeitliche Reihenfolge von Merkmalen und Ergebnissen sowie die zeitliche Zulässigkeit der Trainingsinformationen. Die zugehörigen Tests verändern gezielt den Merkmalszeitpunkt oder den Ergebniszeitpunkt einer Trainingsbeobachtung und prüfen, ob der Verstoß erkannt wird.
+
+Ein bestandener mechanischer Audit beweist jedoch nicht die Abwesenheit sämtlicher Formen zeitlicher Informationsleckage. Er setzt korrekte Zeitangaben und Identitäten voraus und rekonstruiert nicht eigenständig die Revisionshistorie eines Datenanbieters. Auch synthetische Testdaten belegen ausschließlich das Verhalten der Kontrollmechanismen und nicht die Prognosequalität auf realen Marktdaten. Bei der Interpretation sind daher die zeitliche Konsistenz der Datensätze, die Gültigkeit historischer Quellenstände und die empirische Prognoseleistung getrennt zu beurteilen.

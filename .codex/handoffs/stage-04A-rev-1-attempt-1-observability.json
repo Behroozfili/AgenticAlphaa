@@ -1,0 +1,210 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "status": "AUDITED",
+  "changed_files": [
+    ".codex/handoffs/stage-04A-rev-1-attempt-1-observability.json"
+  ],
+  "requested_primary_changes": [
+    {
+      "id": "OBS-04A-001",
+      "blocking": true,
+      "owner": "data_rag",
+      "requested_paths": [
+        "rag/hybrid_rag.py",
+        "tests/unit_tests/test_rag/test_hybried.py"
+      ],
+      "reason": "The three Vector, Graph and Hybrid retriever functions use bare LangSmith @traceable decorators. The installed decorator defaults process_inputs and process_outputs to None, so enabled tracing serializes the query/context inputs and full result dictionaries, including chunk_text, citations and untrusted error strings, instead of a compact allowlisted summary.",
+      "requested_change": "Add deterministic process_inputs/process_outputs redaction for all three retriever traces. Inputs may expose only bounded ForecastContext/version identity and non-sensitive operation labels; outputs may expose only result/evidence/citation counts, branch availability, deterministic degradation codes and safe identity/version metadata. Do not trace query text, chunk/article text, full result/citation payloads, URLs/titles, prompts, credentials, headers, raw backend payloads or exception text. Include stage=04A, stage_revision=1, attempt=1 and agent=data_rag at the current attempt boundary, and add offline sentinel tests proving raw query/evidence/URL/secret/exception text is absent from processed trace inputs and outputs.",
+      "source_lock_required": true
+    },
+    {
+      "id": "OBS-04A-002",
+      "blocking": true,
+      "owner": "data_rag",
+      "requested_paths": [
+        "rag/hybrid_rag.py",
+        "rag/graph_store.py",
+        "tests/unit_tests/test_rag/test_hybried.py",
+        "tests/unit_tests/test_rag/test_graph_store.py"
+      ],
+      "reason": "LangSmith provides automatic duration for the three decorated retriever spans, but there is no safe Vector/Graph/RRF lifecycle summary, no RRF-specific span or measured latency, no compact result/evidence/citation counts, and no Graph extraction/upsert latency/count/degraded lifecycle telemetry. Stage 04A therefore cannot correlate its explicit degradation modes with branch and fusion latency or counts without retaining full outputs.",
+      "requested_change": "Instrument Vector, Graph, RRF fusion and overall Hybrid boundaries with monotonic measured latency or an equivalently scoped redacted span. Emit compact allowlisted ForecastContext metadata where available (ticker, as_of, target, horizon, analysis_mode, dataset/feature/model/schema/calendar versions), Stage identity, result/evidence/citation counts, branch availability and deterministic degraded flags. Add compact extraction/upsert completion/failure telemetry with document/entity/relation/skipped counts. Treat retrieval as stateless with resume=not_applicable; describe Graph write recovery as caller retry over deterministic MERGE identities, and expose partial-batch failure as a sanitized failed/degraded lifecycle outcome rather than fabricating checkpoint resume. Add offline assertions for non-negative latency, counts, hybrid/vector_only/graph_only/unavailable modes, failure and retry-safe outcomes.",
+      "source_lock_required": true
+    },
+    {
+      "id": "OBS-04A-003",
+      "blocking": true,
+      "owner": "data_rag",
+      "requested_paths": [
+        "rag/hybrid_rag.py",
+        "rag/graph_store.py",
+        "tests/unit_tests/test_rag/test_hybried.py",
+        "tests/unit_tests/test_rag/test_graph_store.py"
+      ],
+      "reason": "Current failure paths return str(exc) from both retrieval branches, log original backend exception text, log a source URL during Graph extraction failure, and send the original extraction exception to Sentry. When tracing or log/event persistence is enabled, provider messages or captured locals can contain secrets, private URLs, raw request/evidence text or payload fragments.",
+      "requested_change": "Replace persisted/reflected exception strings with deterministic codes such as VECTOR_RETRIEVAL_FAILED, GRAPH_TRAVERSAL_FAILED, GRAPH_EXTRACTION_FAILED and GRAPH_UPSERT_FAILED. Keep original exceptions out of result dictionaries, breadcrumbs, logs and trace outputs; report sanitized exceptions to Sentry without raw prompt/text/source URL/provider payload locals. Add sentinel tests using secret, raw-evidence and private-URL exception messages and assert none appear in results, processed traces, breadcrumbs, logs or captured exception values.",
+      "source_lock_required": true
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "Temporal context and citations preserve bounded identities without chain-of-thought.",
+      "status": "PASS",
+      "evidence": "ForecastContext is shared across Vector and Graph; citations retain document_id, chunk_id, evidence_id and Graph observation_id. No chain-of-thought or brain_reasoning field was added by the Stage 04A draft."
+    },
+    {
+      "check": "Explicit API degradation is deterministic and does not fall back from temporal Graph to legacy traversal.",
+      "status": "PASS",
+      "evidence": "The focused temporal fixture tests passed for hybrid, vector_only, graph_only and unavailable modes, including the graph_error no-legacy-fallback counterexample."
+    },
+    {
+      "check": "Enabled LangSmith tracing serializes only compact allowlisted metadata.",
+      "status": "FAIL",
+      "evidence": "rag/hybrid_rag.py has three bare @traceable retriever decorators and zero process_inputs/process_outputs processors. Default LangSmith behavior records function inputs and outputs, which include query and full result chunk/citation payloads. OBS-04A-001 is blocking."
+    },
+    {
+      "check": "Backend failure persistence is sanitized.",
+      "status": "FAIL",
+      "evidence": "Static audit found two raw str(exc) response fields, two Hybrid exception log sites, three Graph exception log sites and one capture_exception(exc) call. OBS-04A-003 is blocking."
+    },
+    {
+      "check": "No external trace provider, database, migration, seed, deployment, commit or push was contacted by this audit.",
+      "status": "PASS"
+    }
+  ],
+  "latency_instrumentation_status": "BLOCKING_GAP_AUTOMATIC_RETRIEVER_SPAN_DURATION_ONLY_NO_REDACTED_VECTOR_GRAPH_RRF_LIFECYCLE_LATENCY_OR_COUNTS",
+  "required_metadata_matrix": {
+    "available_in_forecast_context": [
+      "ticker",
+      "as_of",
+      "target",
+      "horizon",
+      "analysis_mode",
+      "dataset_version",
+      "feature_version",
+      "model_version",
+      "schema_version",
+      "calendar_version"
+    ],
+    "available_in_business_results": [
+      "document_id",
+      "chunk_id",
+      "evidence_id",
+      "observation_id",
+      "citations",
+      "degradation mode",
+      "branch availability"
+    ],
+    "missing_from_compact_trace_metadata": [
+      "stage",
+      "stage_revision",
+      "attempt",
+      "agent",
+      "vector_latency_ms",
+      "graph_latency_ms",
+      "rrf_latency_ms",
+      "hybrid_latency_ms",
+      "result_count",
+      "evidence_count",
+      "citation_count",
+      "degraded_flags"
+    ],
+    "not_available_at_stage04a_callsite": [
+      "run_id"
+    ]
+  },
+  "lifecycle_audit": {
+    "vector": "Explicit unavailable/error degradation and context-bound retrieval exist; compact safe lifecycle latency/count metadata is missing.",
+    "graph": "Explicit unavailable/error degradation and fail-closed temporal traversal exist; compact safe lifecycle latency/count metadata is missing.",
+    "rrf": "Deterministic fusion and citation retention exist; RRF has no separately scoped latency/count instrumentation.",
+    "graph_write": "Temporal MERGE identities make caller retry idempotent in principle, but no checkpoint resume contract exists and partial-batch failure has no sanitized lifecycle summary.",
+    "resume": "NOT_APPLICABLE_STATELESS_RETRIEVAL; GRAPH_UPSERT_CALLER_RETRY_ONLY"
+  },
+  "instrumentation_audit": {
+    "traceable_retriever_decorators": 3,
+    "trace_input_processors": 0,
+    "trace_output_processors": 0,
+    "explicit_latency_fields": 0,
+    "raw_exception_response_sites": 2,
+    "hybrid_exception_log_sites": 2,
+    "graph_original_exception_capture_sites": 1,
+    "graph_exception_log_sites": 3,
+    "observability_source_files_modified": false,
+    "feature_call_sites_modified_by_observability": false,
+    "primary_reactivation_required": true
+  },
+  "source_integrity": {
+    "draft_ready_artifact": ".codex/handoffs/stage-04A-rev-1-attempt-1-draft-ready.json",
+    "draft_ready_sha256": "5e287a091d583b62d667b599f74877d3ab4b43a7bc020383554c1706c9d982d3",
+    "draft_source_sha256": {
+      "rag/graph_store.py": "cc3bbe164cf76e637421640d318310621eb35effa7743f79fbc43be7683ba48a",
+      "rag/hybrid_rag.py": "8d643b173d6f0b71b06a0c2854c2c8dd37d7f70d349b3b5a992aceffc181a92d",
+      "rag/__init__.py": "8e626b80cd9fa25d9fcb4ebb05f9f5049b33384f2b7c1fd6ca6fecfa92a375c1",
+      "tests/unit_tests/test_rag/test_graph_store.py": "4c170ec83e9a5923807b6097580195f05bc7807e019c4da0d13f75d650b010e0",
+      "tests/unit_tests/test_rag/test_hybried.py": "921ca5feb55720954e2f966eac4b8082d0b9a3d6f757b8e3288af0241ae643f8",
+      "tests/fixtures/stage4a_temporal_graph_hybrid.json": "f4371765140cae52600e1165e253499006dadccf89aed421523fd9a77f49d83b"
+    },
+    "draft_hash_match": "PASS_ALL_RECORDED_SOURCE_HASHES_MATCH",
+    "observability_sources_unchanged": {
+      "core/observability.py": "3af7d734f1081e0d8a2ee4924b2fcea218ab0fdf0c0a93600ba46010c21222d5",
+      "core/progress_bus.py": "1b0115704447a0b5b2ad22374c6d335273585706c38c64c3cebef3a21bdd4a16",
+      "langsmith_trace.py": "57e334a86c2c6e20d925988270857264b29219811092d09a1c83c70ce94f4138"
+    }
+  },
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact .codex/handoffs/stage-04A-rev-1-attempt-1-draft-ready.json --agent data_rag",
+      "exit_code": 0,
+      "result": "CONTROL VALID"
+    },
+    {
+      "command": "pytest -q TestTemporalEvidenceV2 TestForecastContextBoundRetrieval tests/unit_tests/core_test/test_observability.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "28 passed in 15.50s"
+    },
+    {
+      "command": "pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py --disable-warnings --tb=short",
+      "exit_code": 0,
+      "result": "57 passed in 16.15s"
+    },
+    {
+      "command": "read-only static counts for trace processors, latency fields, raw exception responses/logs and original Sentry exception capture",
+      "exit_code": 0,
+      "result": "3 decorators; 0 input processors; 0 output processors; 0 explicit latency fields; 2 raw exception responses; 2 Hybrid exception logs; 3 Graph exception logs; 1 original exception capture"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-04A-001: Bare LangSmith traces can persist query and full raw result/evidence/citation/error payloads instead of redacted summaries.",
+    "OBS-04A-002: Vector/Graph/RRF/Hybrid and Graph write lifecycle latency/count/degradation instrumentation is incomplete.",
+    "OBS-04A-003: Original exception strings, source URL context and exception objects can reach response, logs, trace output or Sentry persistence."
+  ],
+  "stage04B_gate": {
+    "status_at_audit": "PENDING",
+    "phase_at_audit": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false,
+    "scope_audited": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN_UNAUTHORIZED",
+    "seed_execution": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "limitations": [
+    "No production latency benchmark or external tracing run was performed; automatic span duration behavior was inspected from the installed local LangSmith implementation.",
+    "Temporal Graph behavior remains fixture/mock validated; no Neo4j migration, reconciliation or external count was authorized or attempted.",
+    "Observability did not edit feature, test, state, migration or shared instrumentation files."
+  ],
+  "created_at": "2026-08-31T15:19:40.3217293Z"
+}

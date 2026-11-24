@@ -1,0 +1,169 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "integration",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 146,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "retry_scope": "Strict QA-08-001 retry limited to authoritative Quant reproducibility provenance in the Stage 08 assembly helper and exact focused tests. No other product, upstream, API, persistence, migration, state, prior-attempt artifact or external-system change.",
+  "trigger_qa": {
+    "path": ".codex/handoffs/stage-08-rev-1-attempt-1-qa.json",
+    "sha256": "8211385cdeadd90964b908f68b080dcc805a2b8d9d43d67360e7512afbe60720",
+    "blocking_issue": "QA-08-001",
+    "disposition": "RESOLVED_IN_CURRENT_DRAFT"
+  },
+  "immutable_attempt_1_artifacts": [
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-1-draft-ready.json",
+      "sha256": "1b1f6632636c4d869dfdc76bd8cbe98d5e719dd6e39c7986218515a2f68e1de6"
+    },
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-1-observability.json",
+      "sha256": "fb3091eaf1bbedb688fbc43baf311ff1f4658c9e8cd53de6999ff70516ff9d6c"
+    },
+    {
+      "path": ".codex/handoffs/change-request-stage-08-rev-1-attempt-1-1.json",
+      "sha256": "e1c25be55da2375e09f37125357993b5be25bffcf9dd288b9c0ee8577ad7bd50"
+    },
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.md",
+      "sha256": "e01ee884bdf43c629c8c650bf9f03dd9fb4121ff71e205c5dfeec776088d81b1"
+    },
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.json",
+      "sha256": "07fd2b1b30eea050d282039717fc9717878268cad3ac087deba69b984fb5e633"
+    },
+    {
+      "path": ".codex/handoffs/stage-08-rev-1-attempt-1-qa.json",
+      "sha256": "8211385cdeadd90964b908f68b080dcc805a2b8d9d43d67360e7512afbe60720"
+    }
+  ],
+  "dependency_handoffs": [
+    {"stage": "01", "path": ".codex/handoffs/stage-01-rev-1-handoff.json", "sha256": "9042aa034aa246fbc48c9ed03f5121c078925f33473c07fcbe6392e38a6a1112", "state_status": "CLOSED"},
+    {"stage": "04B", "path": ".codex/handoffs/stage-04B-rev-1-handoff.json", "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049", "state_status": "CLOSED"},
+    {"stage": "05", "path": ".codex/handoffs/stage-05-rev-1-handoff.json", "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed", "state_status": "CLOSED"},
+    {"stage": "06", "path": ".codex/handoffs/stage-06-rev-1-handoff.json", "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735", "state_status": "CLOSED"},
+    {"stage": "07", "path": ".codex/handoffs/stage-07-rev-1-handoff.json", "sha256": "3fb148bab21cc48cb985a866b5b02581e8d535d685ae936a3f2b2f6bb8e305fc", "state_status": "CLOSED"}
+  ],
+  "changed_files": [
+    "agents/executor_helpers/monthly_forecast_helper.py",
+    "tests/unit_tests/test_stage8_manager_integration.py",
+    ".codex/handoffs/stage-08-rev-1-attempt-2-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "finding_disposition": {
+    "QA-08-001": "PASS_RESOLVED: authoritative Quant universe_manifest_hash, model_variant and feature_materialized_at are validated and preserved byte-for-byte at the canonical forecast top level and inside versions consumed by canonical_synthesis. Missing provenance or feature-materialization mismatch fails closed to INSUFFICIENT_DATA with null numeric confidence.",
+    "OBS-08-001": "PASS_PRESERVED: prior allowlisted Manager trace processors and PRIVATE_SENTINEL redaction counterprobe remain green.",
+    "OBS-08-002": "PASS_PRESERVED: prior measured identity-bound lifecycle/error events and concurrent progress queue isolation remain green.",
+    "QUANT_NUMERIC_AND_ACTION_IMMUTABILITY": "PASS_PRESERVED: no Quant numeric value, action threshold or action-policy implementation changed."
+  },
+  "provenance_contract": {
+    "authoritative_source": "Stage 07 quant_prediction",
+    "required_fields": [
+      "universe_manifest_hash",
+      "model_variant",
+      "feature_materialized_at"
+    ],
+    "top_level_preservation": "PASS_EXACT",
+    "versions_preservation": "PASS_EXACT",
+    "canonical_synthesis_preservation": "PASS_VIA_VERSIONS",
+    "missing_provenance": "FAIL_CLOSED",
+    "materialization_mismatch": "FAIL_CLOSED",
+    "placeholder_substitution": false,
+    "numeric_or_action_mutation": false
+  },
+  "draft_self_tests": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py -q",
+      "exit_code": 0,
+      "result": "17 passed in 18.93s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "result": "67 passed in 33.80s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "result": "188 passed in 36.30s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/api_test/test_api_main.py tests/unit_tests/api_test/test_analyze_cor_api.py tests/unit_tests/test_root_main.py -q",
+      "exit_code": 0,
+      "result": "47 passed in 39.12s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_financial_agent_only.py tests/integration_test_2/test_research_agent_only.py tests/integration_test_2/test_sentiment_agent_only.py",
+      "exit_code": 0,
+      "result": "1432 tests collected in 8.37s; zero collection errors; integration tests collected only",
+      "network_mode": "OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile agents/executor_helpers/monthly_forecast_helper.py tests/unit_tests/test_stage8_manager_integration.py",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check -- agents/executor_helpers/monthly_forecast_helper.py tests/unit_tests/test_stage8_manager_integration.py",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent integration",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 146 before artifact creation; execution enabled, Stage 08 revision 1 attempt 2 ACTIVE in PRIMARY_DRAFT, exact source/test/artifact locks owned by integration.",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "source_sha256": {
+    "agents/executor_helpers/monthly_forecast_helper.py": "8f9a71d04448d71b1fa765a69510724a3f84d031f1f139d66ce0dc34342dfa43",
+    "tests/unit_tests/test_stage8_manager_integration.py": "14d789f9f8e3b43036aaf073a982fa3dbc8c6febf8665964bbcf545f9cff22b4"
+  },
+  "gate_evidence": {
+    "non_placeholder_provenance_survives_exactly": "PASS",
+    "missing_universe_manifest_hash": "PASS_FAIL_CLOSED",
+    "missing_model_variant": "PASS_FAIL_CLOSED",
+    "missing_feature_materialized_at": "PASS_FAIL_CLOSED",
+    "tampered_feature_materialized_at": "PASS_FAIL_CLOSED",
+    "complete_state_schema": "PASS",
+    "future_evidence": "PASS_FAIL_CLOSED",
+    "quant_action_tamper": "PASS_FAIL_CLOSED",
+    "llm_numeric_override": "PASS_IGNORED",
+    "node_order_and_controlled_join": "PASS",
+    "legacy_manager_compatibility": "PASS",
+    "trace_privacy": "PASS",
+    "lifecycle_identity_latency": "PASS",
+    "concurrent_result_and_queue_isolation": "PASS"
+  },
+  "operational_safety": {
+    "network_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false,
+    "api_or_upstream_files_changed": false,
+    "prior_attempt_artifacts_changed": false
+  },
+  "limitations": [
+    "Validation is offline with deterministic fixtures and mocks; live providers and external trace export were not exercised.",
+    "This retry is limited to QA-08-001 provenance transport and validation; all other accepted Stage 08 behavior is preserved.",
+    "Because observability_required is true, Attempt 2 final implementation MD/JSON are intentionally not written in PRIMARY_DRAFT."
+  ],
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-10T21:33:04.0068746Z"
+}

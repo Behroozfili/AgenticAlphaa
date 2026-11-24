@@ -1,0 +1,158 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "qa",
+  "stage": "04B",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "qa",
+  "status": "QA_PASSED",
+  "qa_status": "PASS",
+  "execution_phase": "QA",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-draft-ready.json",
+      "sha256": "0d159dc3bad94068a22f8a7ec0b0e93dcb89f9e05fed60fcdfafeef6106b7ce3",
+      "identity_valid": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-observability.json",
+      "sha256": "ef761d3048f2dfff4ece394f0caddf0be369136ff82d82380b06f0d57e48aff9",
+      "identity_valid": true,
+      "status": "AUDITED"
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-implementation.json",
+      "sha256": "89b600a3425fd394ab704ba3d64711623561319d4b01e3abae207e2869f1bf0d",
+      "identity_valid": true,
+      "recorded_source_hashes_valid": true
+    },
+    "implementation_markdown": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-implementation.md",
+      "sha256": "4beb996858ed3660c71119f3bccfbd147cb01822d68b5581ffa2068f8f301896"
+    }
+  },
+  "tests_run": [
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact draft-ready --artifact observability --artifact implementation",
+      "exit_code": 0,
+      "result": "CONTROL VALID; Stage 04B revision 1 attempt 2 QA phase, identities and locks valid"
+    },
+    {
+      "command": "independent SHA-256 verification of every implementation source_sha256 entry and immutable Attempt 1 artifact chain",
+      "exit_code": 0,
+      "result": "PASS: all 20 source/test hashes match, including tavily_search.py and test_search_server.py; all 5 Attempt 1 artifact hashes match"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/search_test -q",
+      "exit_code": 0,
+      "result": "66 passed in 22.09s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_search_executor_helpers.py tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/search_test/test_tavily_search.py tests/unit_tests/search_test/test_news_search.py tests/unit_tests/search_test/test_search_sec_edgar.py tests/unit_tests/search_test/test_search_server.py -q",
+      "exit_code": 0,
+      "result": "119 passed in 20.04s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_rag -q",
+      "exit_code": 0,
+      "result": "333 passed in 54.57s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_research_agent_only.py",
+      "exit_code": 0,
+      "result": "1311 tests collected in 15.57s; zero collection errors; integration tests collected only and not executed"
+    },
+    {
+      "command": "scoped py_compile of 19 Python source/test paths; git diff --check; old prompt runtime/test scan; static raw-exception privacy scan",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only; zero propt_search_agent Python references; zero capture_exception, logger.exception or exception-stringification hits in Stage 04B scope"
+    },
+    {
+      "command": "offline in-memory first and second leakage-gate future/unknown sentinel",
+      "exit_code": 0,
+      "result": "FIRST_SECOND_FUTURE_UNKNOWN_REJECTION_PASS; zero provider calls and zero LLM calls"
+    }
+  ],
+  "contract_results": {
+    "forecast_context_and_run_identity": "PASS_MANDATORY_IN_SCHEMAS_ALL_EIGHT_DISPATCH_ROUTES_AGENT_AND_PROVIDERS",
+    "qa_04b_001_resolution": "PASS_COMPLETE_DIRECT_DISPATCHER_SUITE_MIGRATED_AND_ALL_RECORDED_HASHES_REPRODUCIBLE",
+    "historical_provider_allowlist_and_fail_closed": "PASS_OFFLINE_NO_CURRENT_WEB_FALLBACK",
+    "sec_filed_at_not_after_as_of": "PASS_OFFLINE",
+    "first_and_second_future_unknown_rejection": "PASS_OFFLINE_ZERO_LLM_CALLS",
+    "deterministic_evidence_and_citation_version_dedupe": "PASS_OFFLINE",
+    "typed_reference_only_research_features": "PASS_OFFLINE",
+    "vector_graph_hybrid_degradation": "PASS_OFFLINE",
+    "prompt_rename_and_collection": "PASS",
+    "observability_privacy_findings": "PASS_OBS_04B_001_THROUGH_004_RESOLVED",
+    "implementation_evidence_reproducibility": "PASS_ALL_20_RECORDED_PATHS"
+  },
+  "leakage_report": {
+    "status": "PASS",
+    "future_evidence": "Rejected at provider/normalization boundary and independently before synthesis and State",
+    "unknown_timestamp": "Rejected at both independently exercised gates",
+    "historical_current_web_fallback": "Fail-closed; only retained allowlisted archives are admitted",
+    "sec_boundary": "filed_at must be on or before ForecastContext.as_of",
+    "ticker_and_version": "Wrong ticker, wrong dataset version and outside-lookback evidence remain rejected"
+  },
+  "privacy_and_observability_report": {
+    "status": "PASS",
+    "findings_verified": ["OBS-04B-001", "OBS-04B-002", "OBS-04B-003", "OBS-04B-004"],
+    "trace_state_log_progress_sentry": "Compact allowlisted identities, stable codes, counts and measured latency only; no raw query, plan, arguments, exception, URL, evidence, citation, synthesis or rejection payload persistence found",
+    "lifecycle_boundaries": [
+      "tavily_search", "news_search", "sec_edgar_search", "sec_edgar_filing",
+      "rag_vector_search", "rag_graph_traverse", "rag_hybrid_query",
+      "comprehensive_analysis", "research_synthesis", "pre_state_leakage_gate"
+    ],
+    "state_reference_only": true
+  },
+  "regression_report": {
+    "search_unit_full": {"passed": 66, "failed": 0},
+    "focused_stage04b": {"passed": 119, "failed": 0},
+    "graph_rag": {"passed": 333, "failed": 0},
+    "collection": {"collected": 1311, "errors": 0},
+    "recorded_hashes": {"matched": 20, "mismatched": 0},
+    "prior_attempt_artifacts": {"matched": 5, "mismatched": 0}
+  },
+  "blocking_issues": [],
+  "environment_blockers": [],
+  "candidate_downstream_stages_affected": [],
+  "operational_incident_audit": {
+    "type": "ACCIDENTAL_READ_ONLY_LEGACY_LIVE_TEST",
+    "disclosed_reads": ["News", "SEC"],
+    "stopped_immediately": true,
+    "external_writes": false,
+    "migration_seed_deploy_commit_push": false,
+    "attempt2_qa_rerun": false,
+    "used_as_attempt2_qa_evidence": false,
+    "assessment": "NON_BLOCKING_RETAINED_SAFETY_INCIDENT; no live result was accepted as QA evidence"
+  },
+  "external_execution": {
+    "network_access_by_qa": false,
+    "live_provider_tests": "NOT_RUN_AND_RERUN_FORBIDDEN",
+    "database_reads": false,
+    "database_writes": false,
+    "migrations": "NOT_APPLIED",
+    "seed_execution": false,
+    "deployment": false,
+    "commit": false,
+    "push": false
+  },
+  "stage05_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "limitations": [
+    "No live/provider integration was authorized or used as Attempt 2 QA evidence.",
+    "The disclosed Attempt 1 read-only legacy probe remains retained as a no-write safety incident and was not rerun.",
+    "Historical behavior is validated with deterministic local fixtures; no external archive was acquired or queried."
+  ],
+  "supersedes": ".codex/handoffs/stage-04B-rev-1-attempt-1-qa.json",
+  "created_at": "2026-09-01T14:19:04.1531441Z"
+}

@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "fixture_purpose": "stage09_deterministic_walk_forward_regression_only",
+  "generation_spec": {
+    "first_month": "2018-01",
+    "monthly_cutoffs": 48,
+    "tickers": ["MSFT", "AAPL"],
+    "benchmark": "SPY",
+    "missing_every": 6,
+    "formula_version": "stage09-cyclical-two-ticker-v1"
+  },
+  "universe": {
+    "schema_version": "1.0",
+    "universe_version": "stage09-two-ticker-demo-v1",
+    "source": "locked-local-regression-fixture",
+    "created_at": "2018-01-01T00:00:00Z",
+    "constituents": [
+      {"ticker": "MSFT", "effective_from": "2018-01-01", "effective_to": null, "benchmark": "SPY", "source_ref": "fixture:stage9_walk_forward.json"},
+      {"ticker": "AAPL", "effective_from": "2018-01-01", "effective_to": null, "benchmark": "SPY", "source_ref": "fixture:stage9_walk_forward.json"}
+    ],
+    "limitations": ["Synthetic two-ticker fixture for deterministic engineering regression only."]
+  },
+  "expected": {
+    "minimum_training_cutoffs": 36,
+    "transaction_cost_bps_one_way": 10,
+    "scientific_report_level": "PRELIMINARY",
+    "model_variant_count": 7,
+    "future_record_count": 0
+  }
+}

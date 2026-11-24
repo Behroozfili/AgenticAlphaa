@@ -1,0 +1,131 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "10B",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "integration",
+  "execution_phase": "PRIMARY_DRAFT",
+  "control_revision": 183,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoffs": [
+    {
+      "stage": "10A",
+      "path": ".codex/handoffs/stage-10A-rev-1-handoff.json",
+      "sha256": "5d4e36d9f1db1c2dec6c5909d4bbf11d6f572edc569604396fadffc221670625",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    "api/routes/analyze.py",
+    "api/routes/progress.py",
+    "api/routes/backtest.py",
+    "frontend/alpha-agent-app.html",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py",
+    "tests/unit_tests/api_test/test_progress_api.py",
+    "tests/unit_tests/api_test/test_backtest_api.py",
+    "tests/unit_tests/test_stage10b_end_to_end.py",
+    "tests/unit_tests/test_stage10b_frontend.py",
+    "tests/integration_tests/test_monthly_pipeline.py",
+    ".codex/handoffs/stage-10B-rev-1-attempt-1-draft-ready.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "implementation_contract": {
+    "monthly_request_context": "ticker/as_of/horizon/mode/run_id canonicalized at the API boundary",
+    "horizon_sessions": 21,
+    "request_state_isolation": true,
+    "compact_forecast_response": true,
+    "idempotent_versioned_persistence": true,
+    "outcomes_fail_closed_until_observable": true,
+    "asynchronous_backtest_jobs": true,
+    "backtest_registry_scope": "FastAPI application state",
+    "arbitrary_fixture_paths_allowed": false,
+    "progress_stream_terminal_events": [
+      "pipeline_complete",
+      "pipeline_error",
+      "backtest_complete",
+      "forecast_error"
+    ],
+    "dcf_semantics": "LONG_TERM_VALUATION_FEATURE_NOT_21_DAY_FORECAST",
+    "stage10a_changed_or_reopened": false
+  },
+  "gate_evidence": {
+    "canonical_request_and_compact_response": "PASS",
+    "invalid_context_and_horizon": "PASS_STABLE_422",
+    "idempotent_forecast_persistence": "PASS",
+    "unobservable_outcome": "PASS_NOT_PERSISTED",
+    "two_concurrent_direct_requests": "PASS_NO_CROSS_TALK",
+    "two_concurrent_http_requests": "PASS_NO_CROSS_TALK",
+    "backtest_submission": "PASS_NONBLOCKING_AND_IDEMPOTENT",
+    "backtest_failure": "PASS_STABLE_REDACTED_ERROR",
+    "progress_sse": "PASS_RUN_ID_SCOPED",
+    "frontend_monthly_and_backtest_controls": "PASS",
+    "stage08_09_10a_regressions": "PASS"
+  },
+  "draft_self_tests": [
+    {
+      "command": "forced-offline pytest of Stage10B route, pipeline, progress, backtest and frontend tests plus Stage08/09/10A sensitive regression modules",
+      "exit_code": 0,
+      "result": "118 passed in 27.67s",
+      "network_mode": "FORCED_OFFLINE_FIXTURES_MOCKS_AND_SOCKET_SAFE_PATHS"
+    },
+    {
+      "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 pytest --collect-only -q",
+      "exit_code": 0,
+      "result": "1494 tests collected in 28.77s; zero collection errors",
+      "network_mode": "FORCED_OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent integration",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 183",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": "git diff --check -- <Stage10B owned source and test paths>",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "source_sha256": {
+    "api/routes/analyze.py": "ceee53b8f6ddd4bc1020b7f7a19de3d16d0e5fa9c45a26d609505832a21c9e94",
+    "api/routes/progress.py": "e0a997e361cd0c8163b0d9addbe482b5508e985e9bc396a478445b4bc98c2ee0",
+    "api/routes/backtest.py": "57487f57ef0fe982238dbde10dff84e36856217bd03517dea8eb79add0d35807",
+    "frontend/alpha-agent-app.html": "4b23a0848420f02d85a60cf4059694b6bbd4ea651fc14dfb52d4e36b0de5de6c",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py": "a4251e2e37db202913f57e0d8ae5a6b8071e83d12efeab1692f7c21cf46644cf",
+    "tests/unit_tests/api_test/test_progress_api.py": "60bc2ba1aeef0e01743bcdbaf7bb71b48bb41fcd6ffaafbded23593e4eeea0e1",
+    "tests/unit_tests/api_test/test_backtest_api.py": "e664fb31b326f9926a5ca3cb659e3541b507b50e604a8241d6c65c2ea1383766",
+    "tests/unit_tests/test_stage10b_end_to_end.py": "e7d0ce1ce4991efb1521f1fbe6b3d9245faf7ccea587328e0344517240e20ce3",
+    "tests/unit_tests/test_stage10b_frontend.py": "987595697816717aa64082ddcd9d2d8d9709b5a5b2c42cf17c2e2687c69be87a",
+    "tests/integration_tests/test_monthly_pipeline.py": "2723843f59cb6ed7cb46fb88bb36ab0148a5e75aa4ff5a2b3399992bf9dcd681"
+  },
+  "observability_review_focus": [
+    "Bind lifecycle telemetry to Stage10B revision 1 attempt 1 and the request or backtest run_id without recording ticker, query, raw evidence, forecast narrative or exceptions.",
+    "Measure analyze and asynchronous backtest start, completion, failure and latency while preserving nonfatal local-only behavior.",
+    "Verify concurrent request telemetry has no run_id cross-talk and failure events expose stable codes only.",
+    "Do not alter forecast formulas, persistence semantics, route response contents, UI behavior or closed-stage artifacts."
+  ],
+  "known_limitations": [
+    "External providers and external database writes were intentionally not exercised; persistence is covered with deterministic mocks.",
+    "Backtest execution is process-local asynchronous work; a durable distributed queue is outside Stage10B scope.",
+    "The UI is validated by deterministic static contract tests rather than a browser session.",
+    "Final implementation artifacts are intentionally deferred until the required observability pass completes."
+  ],
+  "operational_safety": {
+    "network_intentionally_used": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "migration_application": false,
+    "seed": false,
+    "dependency_change": false,
+    "deletion": false,
+    "deployment": false,
+    "commit": false,
+    "push": false,
+    "prior_stage_artifacts_changed": false
+  },
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-14T13:21:09.9792333Z"
+}

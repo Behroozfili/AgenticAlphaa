@@ -3,6 +3,9 @@ import json
 from typing import Any
 import logging
 
+from core.forecast_contract import ForecastContext
+from tools.research_tools import require_research_context
+
 logger = logging.getLogger(__name__)
 
 TICKER_ARG_BY_TOOL: dict[str, str] = {
@@ -11,7 +14,38 @@ TICKER_ARG_BY_TOOL: dict[str, str] = {
     "rag_hybrid_query":   "entity",
     "sec_edgar_search":   "ticker",
     "sec_edgar_filing":   "ticker",
+    "comprehensive_analysis": "ticker",
 }
+
+RESEARCH_TOOL_NAMES = frozenset({
+    "tavily_search", "news_search", "sec_edgar_search", "sec_edgar_filing",
+    "rag_vector_search", "rag_graph_traverse", "rag_hybrid_query",
+    "comprehensive_analysis",
+})
+
+
+def require_execution_identity(
+    forecast_context: ForecastContext | dict[str, Any] | None,
+    run_id: str | None,
+) -> tuple[ForecastContext, str]:
+    """Validate the immutable identity shared by every Research tool call."""
+    return require_research_context(forecast_context, run_id)
+
+
+def inject_execution_identity(
+    tool_name: str,
+    arguments: dict[str, Any],
+    *,
+    forecast_context: ForecastContext,
+    run_id: str,
+) -> dict[str, Any]:
+    """Override model-supplied identity with the manager-authorized identity."""
+    if tool_name not in RESEARCH_TOOL_NAMES:
+        return dict(arguments)
+    patched = dict(arguments)
+    patched["forecast_context"] = forecast_context.to_dict()
+    patched["run_id"] = run_id
+    return patched
 
 
 def ensure_ticker_argument(

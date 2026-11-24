@@ -1,0 +1,197 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "04B",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "research",
+  "execution_phase": "PRIMARY_DRAFT",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-04A-rev-1-handoff.json",
+  "dependency_handoff_sha256": "c8e2bd6da7095e5d23447bfb8c3900402a34b11fea19c4ae40714dd48ed4e3",
+  "supersedes": ".codex/handoffs/stage-04B-rev-1-attempt-1-draft-ready.json",
+  "trigger_qa": ".codex/handoffs/stage-04B-rev-1-attempt-1-qa.json",
+  "trigger_qa_sha256": "861856bbc7b8c5c95cec4b1c5aaee34efcecde464838f55c49e950be5d28b64b",
+  "changed_files": [
+    "tests/unit_tests/search_test/test_search_server.py",
+    ".codex/handoffs/stage-04B-rev-1-attempt-2-draft-ready.json"
+  ],
+  "revalidated_unchanged_files": [
+    "tools/research_tools/__init__.py",
+    "tools/research_tools/research_server.py",
+    "tools/research_tools/news_search.py",
+    "tools/research_tools/sec_edgar.py",
+    "tools/research_tools/tavily_search.py",
+    "tools/research_tools/comprehensive_analysis.py",
+    "tools/research_tools/context_synthesizer.py",
+    "agents/research_agent.py",
+    "agents/executor_helpers/search_executor_helpers.py",
+    "agents/prompts/prompt_research_agent.py",
+    "agents/prompts/__init__.py",
+    "tests/unit_tests/test_agents/test_search_executor_helpers.py",
+    "tests/unit_tests/test_agents/test_research_agent.py",
+    "tests/unit_tests/search_test/test_tavily_search.py",
+    "tests/unit_tests/search_test/test_search_sec_edgar.py",
+    "tests/unit_tests/search_test/test_news_search.py",
+    "tests/integration_test_2/test_research_agent_only.py",
+    "tests/integration_tests/test_integration_search_agent.py",
+    "tests/fixtures/stage4b_research_point_in_time.json"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "resolved_findings": [
+    {
+      "id": "QA-04B-001",
+      "status": "RESOLVED_IN_DRAFT",
+      "resolution": "The direct Research MCP dispatcher suite now supplies mandatory ForecastContext and run_id on every valid dispatch, exercises all eight dispatcher routes under validated immutable identity, proves missing identity fails before provider invocation, and asserts stable privacy-safe fail-closed payload and Sentry behavior. The complete offline search unit suite passes. Attempt1 implementation artifacts remain immutable; this Attempt2 evidence records the independently recomputed actual tavily_search.py SHA-256 instead of modifying the incorrect Attempt1 recorded value."
+    }
+  ],
+  "dispatcher_contract": {
+    "mandatory_identity": ["forecast_context", "run_id"],
+    "valid_routes_exercised": [
+      "tavily_search",
+      "news_search",
+      "sec_edgar_search",
+      "sec_edgar_filing",
+      "rag_vector_search",
+      "rag_graph_traverse",
+      "rag_hybrid_query",
+      "comprehensive_analysis"
+    ],
+    "missing_identity_provider_calls": 0,
+    "fail_closed_error_code": "RESEARCH_TOOL_FAIL_CLOSED",
+    "raw_query_or_exception_in_error_log_or_sentry": false,
+    "production_source_modified_in_attempt2": false
+  },
+  "historical_and_evidence_contract_revalidated": {
+    "forecast_context_required_live_and_historical": true,
+    "current_web_as_historical_fallback": false,
+    "historical_unavailable_behavior": "DATA_UNAVAILABLE_FAIL_CLOSED",
+    "sec_filed_at_not_after_as_of": true,
+    "future_unknown_rejection_before_synthesis_and_state": true,
+    "deterministic_evidence_and_citation_version_identity": true,
+    "vector_graph_hybrid_degradation": true
+  },
+  "draft_self_tests": [
+    {
+      "command": "python -m pytest tests/unit_tests/search_test/test_search_server.py -q",
+      "exit_code": 0,
+      "result": "15 passed in 19.24s",
+      "network_mode": "OFFLINE_MOCKS"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/search_test -q",
+      "exit_code": 0,
+      "result": "66 passed in 27.06s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_search_executor_helpers.py tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/search_test/test_tavily_search.py tests/unit_tests/search_test/test_news_search.py tests/unit_tests/search_test/test_search_sec_edgar.py tests/unit_tests/search_test/test_search_server.py -q",
+      "exit_code": 0,
+      "result": "119 passed in 30.29s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_rag -q",
+      "exit_code": 0,
+      "result": "333 passed in 60.98s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_research_agent_only.py",
+      "exit_code": 0,
+      "result": "1311 tests collected in 24.33s; zero collection errors; integration tests collected only and not executed"
+    },
+    {
+      "command": "scoped compileall; git diff --check; static privacy scan; old prompt reference scan; control and lock validation",
+      "exit_code": 0,
+      "result": "PASS; STATIC_PRIVACY_SCAN=PASS_ZERO_MATCHES; OLD_PROMPT_RUNTIME_REFS=0; CONTROL VALID; line-ending notices only"
+    }
+  ],
+  "source_sha256": {
+    "tools/research_tools/__init__.py": "62e9569d612ae95f05e9f4ccffb33584faa7b7224948ec557ea1e25ae702e22d",
+    "tools/research_tools/research_server.py": "5aced92c330415ca2d658ec82aa5c1e2f9c258b16d753f1874df344892908579",
+    "tools/research_tools/news_search.py": "109aa3dfb278604f30042d9cfe2d2ff019596befde96191d92a41e026a5c9877",
+    "tools/research_tools/sec_edgar.py": "1f704ce85b02f9974cfe2f6d5858735e82f7b815130786da27ae4d9c8452ff59",
+    "tools/research_tools/tavily_search.py": "3c40e9638aa23f1c1544e715cdb3760c32b83eafffe790cbeff8b130c11350e1",
+    "tools/research_tools/comprehensive_analysis.py": "292cf821290032f8f54fcfa0c148eb8070e6abf7f0797009a4e2189cc38b8046",
+    "tools/research_tools/context_synthesizer.py": "7635d5b3e77da076ef62688c6f25b96257d301b2abb927086ff0802bd1123a5e",
+    "agents/research_agent.py": "fb53d188161b81781599bbd3dde9006b93b25be18f32ba5b49d98488794f87b1",
+    "agents/executor_helpers/search_executor_helpers.py": "9ae3b32f7ea7913bc597d32ea20c30a2cf6ade30ea1bafb5ddd1da51cea9b17d",
+    "agents/prompts/prompt_research_agent.py": "ce7e2b03d38e80a93d1da8e4e33245bae3418aba7b6308f11a5a63c056acada7",
+    "agents/prompts/__init__.py": "0f5b66c87c4e60dec7c67267e12a13b983cea56b3cb1007e2484d2bbf38944a2",
+    "tests/unit_tests/test_agents/test_search_executor_helpers.py": "956f2fd202f60b478d7a631e56c808d02d62c0a7c7c2cdf9247e0423923e28b3",
+    "tests/unit_tests/test_agents/test_research_agent.py": "d6a4e9154b576647f76d7bf58e772e5e79e2f3fc10e769b25c90c3c8b081d9e7",
+    "tests/unit_tests/search_test/test_tavily_search.py": "83251090d48a23d420f2b77384212de7b37e485f61520e7ed475ec9c06836bcd",
+    "tests/unit_tests/search_test/test_search_sec_edgar.py": "fd9bf2fba97102de7b5b1e70524914c45076dcc219db3135398ddcf2bf7d7b78",
+    "tests/unit_tests/search_test/test_news_search.py": "b6a24b0d43f9707ad7723cbef197b2f3f1f2aab245132fb73bb38368febefd7a",
+    "tests/unit_tests/search_test/test_search_server.py": "29434950869c6f1c33cf31163f471af87a6967c32be3130c47661a11b532fabd",
+    "tests/integration_test_2/test_research_agent_only.py": "9c9ffe9ebb6a3622bc957c1dc77ee009ad99761b949a10f233b6ba26b71aa506",
+    "tests/integration_tests/test_integration_search_agent.py": "f311591429b546d21e4f938a0014a3f7adda76f862bc3452a5bb6156613bb256",
+    "tests/fixtures/stage4b_research_point_in_time.json": "eb6e64300e625d6c7f640ce02c49013b2b3ab022b0521e0dbc862b0f7a609f17"
+  },
+  "attempt1_artifact_immutability": {
+    "status": "PASS",
+    "prior_attempt_artifacts_modified": false,
+    "draft_ready_sha256": "1a1c585620b89810533c8e89520001a5e3fb58a0a83bcf8927651634998f45f9",
+    "observability_sha256": "0014612f1a1bf736a0b9b42e09a7573e0dc20c2445e8c3e4a05cba58d72f48d8",
+    "implementation_json_sha256": "0af0f3e55511db380a7b9ff3b47d524fb705eef50495d2f8a20dafc64136fe8b",
+    "implementation_md_sha256": "1050da5f558e15091ec3012626ac8fb534852544b18718ea8147c17d1fa713d1",
+    "qa_sha256": "861856bbc7b8c5c95cec4b1c5aaee34efcecde464838f55c49e950be5d28b64b"
+  },
+  "attempt1_hash_defect_reconciliation": {
+    "path": "tools/research_tools/tavily_search.py",
+    "attempt1_recorded_sha256": "3c40e9638aa23d420f2b77384212de7b37e485f61520e7ed475ec9c06836bcd",
+    "independently_recomputed_sha256": "3c40e9638aa23f1c1544e715cdb3760c32b83eafffe790cbeff8b130c11350e1",
+    "source_predates_attempt1_implementation_artifact": true,
+    "source_modified_in_attempt2": false,
+    "attempt1_artifact_modified": false
+  },
+  "operational_incident_retained": {
+    "type": "ACCIDENTAL_READ_ONLY_LEGACY_LIVE_TEST",
+    "disclosed_reads": ["News", "SEC"],
+    "stopped_immediately": true,
+    "external_writes": false,
+    "attempt2_rerun": false,
+    "rerun_forbidden": true,
+    "used_as_attempt2_evidence": false
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "external_counts": "NOT_AVAILABLE_NO_EXTERNAL_READ",
+    "legacy_data_deleted": false,
+    "route_switched": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the prior tests/unit_tests/search_test/test_search_server.py bytes; no product source rollback is required for Attempt2.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "external_execution": {
+    "network_access_by_attempt2": false,
+    "database_reads": false,
+    "database_writes": false,
+    "live_provider_tests": "NOT_RUN_AND_RERUN_FORBIDDEN",
+    "archive_download": "NOT_RUN",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage05_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "limitations": [
+    "Attempt2 evidence is entirely offline; no live/provider integration was executed.",
+    "The disclosed Attempt1 read-only legacy live probe remains retained as a non-write safety incident and was not reused as evidence.",
+    "Stage05 remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-01T13:57:00.7278349Z"
+}

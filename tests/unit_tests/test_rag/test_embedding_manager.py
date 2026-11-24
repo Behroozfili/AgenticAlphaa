@@ -145,8 +145,21 @@ class TestEmbedChunks:
         vec = results[0]["embedding"]
         # [3,4,0] has norm 5 -> normalised to [0.6, 0.8, 0.0]
         assert vec == pytest.approx([0.6, 0.8, 0.0], abs=1e-6)
-        assert results[0]["metadata"] == {"ticker": "NVDA"}
+        assert results[0]["metadata"]["ticker"] == "NVDA"
+        assert results[0]["metadata"]["embedding_version"] == "BAAI/bge-small-en-v1.5"
+        assert results[0]["metadata"]["embedding_dimension"] == 3
         assert results[0]["text"] == "hello world"
+
+    def test_cache_key_includes_content_and_model_version(self, mock_sentence_transformer):
+        _, instance = mock_sentence_transformer
+        with patch("rag.embedding_manager._select_device", return_value="cpu"):
+            embedder = AlphaEmbedder(model_version="weights-2024-01")
+        chunk = ProcessedChunk(text="same", metadata={"chunk_hash": "a" * 64})
+        first = embedder.embed_chunks([chunk])
+        second = embedder.embed_chunks([chunk])
+        assert first == second
+        assert instance.encode.call_count == 1
+        assert embedder.manifest.dimension == 3
 
     def test_embed_chunks_empty_list_returns_empty(self, mock_sentence_transformer):
         with patch("rag.embedding_manager._select_device", return_value="cpu"):

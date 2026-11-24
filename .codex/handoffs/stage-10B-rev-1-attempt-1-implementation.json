@@ -1,0 +1,206 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "10B",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "integration",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "execution_phase": "PRIMARY_FINAL",
+  "control_revision": 185,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "implementation_identity": {
+    "single_source": "langsmith_trace.STAGE10B_RUNTIME_IDENTITY",
+    "stage": "10B",
+    "stage_revision": 1,
+    "attempt": 1,
+    "agent": "integration",
+    "implementation_version": "stage10b-r1-a1"
+  },
+  "draft_ready_artifact": ".codex/handoffs/stage-10B-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "2b607d13576f2943c18aa0317f0ab8fab018da0ec3dd77576d899bbb6081f4ac",
+  "observability_artifact": ".codex/handoffs/stage-10B-rev-1-attempt-1-observability.json",
+  "observability_sha256": "b338b677fd555010fda445431e5c62d38892f9a8e2dc4c59878a1b534e9622e9",
+  "change_request": ".codex/handoffs/change-request-stage-10B-rev-1-attempt-1-1.json",
+  "change_request_sha256": "967eb092d32ee1d445bbf26a0e5b66b06f54df6ed54b02d007241133abcbd01e",
+  "observability_status": "CHANGES_REQUESTED_AND_RESOLVED",
+  "implementation_md": ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.md",
+  "implementation_md_sha256": "9db7ef6a75f355987b80866f94f8755952df7b4e470d34ea7192ae279fc8332f",
+  "dependency_handoffs": [
+    {
+      "stage": "10A",
+      "path": ".codex/handoffs/stage-10A-rev-1-handoff.json",
+      "sha256": "5d4e36d9f1db1c2dec6c5909d4bbf11d6f572edc569604396fadffc221670625",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    "api/routes/analyze.py",
+    "api/routes/progress.py",
+    "api/routes/backtest.py",
+    "frontend/alpha-agent-app.html",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py",
+    "tests/unit_tests/api_test/test_progress_api.py",
+    "tests/unit_tests/api_test/test_backtest_api.py",
+    "tests/unit_tests/test_stage10b_end_to_end.py",
+    "tests/unit_tests/test_stage10b_frontend.py",
+    "tests/integration_tests/test_monthly_pipeline.py",
+    ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.md",
+    ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "OBS-10B-001",
+      "status": "RESOLVED",
+      "resolution": "Monthly analyze start and terminal events use canonical context, opaque run ID, measured latency, evidence count, degraded flags and stable error codes."
+    },
+    {
+      "id": "OBS-10B-002",
+      "status": "RESOLVED",
+      "resolution": "Monthly persistence completion/failure is locally observable while failure remains nonfatal and idempotent persistence keys are unchanged."
+    },
+    {
+      "id": "OBS-10B-003",
+      "status": "RESOLVED",
+      "resolution": "Backtest start/completion/failure lifecycle uses current identity, available version metadata, measured latency and stable BACKTEST_EXECUTION_FAILED."
+    },
+    {
+      "id": "OBS-10B-004",
+      "status": "RESOLVED",
+      "resolution": "Direct and HTTP-level tests prove privacy, latency, raising-sink safety, persistence disposition and concurrent identity isolation."
+    }
+  ],
+  "source_sha256": {
+    "api/routes/analyze.py": "c98c4e4b071f19bcb222241e08b854ea9120d5a9ae9b49538814affc598a0996",
+    "api/routes/progress.py": "e0a997e361cd0c8163b0d9addbe482b5508e985e9bc396a478445b4bc98c2ee0",
+    "api/routes/backtest.py": "104e4ed0cac267def8dca152090f96013f57465d545539ca6e363527318ba4ce",
+    "frontend/alpha-agent-app.html": "4b23a0848420f02d85a60cf4059694b6bbd4ea651fc14dfb52d4e36b0de5de6c",
+    "langsmith_trace.py": "5e5e6782f6d5c01e1107bf9a748caeaf4590cf50158dc55547b8bf40d900c505",
+    "tests/unit_tests/api_test/test_analyze_cor_api.py": "a4251e2e37db202913f57e0d8ae5a6b8071e83d12efeab1692f7c21cf46644cf",
+    "tests/unit_tests/api_test/test_progress_api.py": "60bc2ba1aeef0e01743bcdbaf7bb71b48bb41fcd6ffaafbded23593e4eeea0e1",
+    "tests/unit_tests/api_test/test_backtest_api.py": "ae8ad33d318e29d5167e8662a9f59d95f63387c36b400a2b0ecacf1a2ce84c5e",
+    "tests/unit_tests/test_stage10b_end_to_end.py": "01fa03c32de71ddd6578095668ba6d00b87c67d6838ac9737999d3094799537a",
+    "tests/unit_tests/test_stage10b_frontend.py": "987595697816717aa64082ddcd9d2d8d9709b5a5b2c42cf17c2e2687c69be87a",
+    "tests/unit_tests/test_stage10b_observability.py": "7d5f781903db7cdcba98242bd5ba662ac0797bbbc68d8c68ecc1ae6619724618",
+    "tests/integration_tests/test_monthly_pipeline.py": "9c003107a8f256b6b916c0b5568d1cbe12ab58f72be5707b36c9a71878b24779",
+    ".codex/handoffs/stage-10B-rev-1-attempt-1-implementation.md": "9db7ef6a75f355987b80866f94f8755952df7b4e470d34ea7192ae279fc8332f"
+  },
+  "self_tests_run": [
+    {
+      "command": "forced-offline direct Stage10B telemetry/analyze/backtest/concurrency plus analyze-route regression suite",
+      "exit_code": 0,
+      "result": "42 passed in 1.67s",
+      "network_mode": "FORCED_OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "forced-offline combined Stage10B plus sensitive Stage08/09/10A regression suite",
+      "exit_code": 0,
+      "result": "127 passed in 27.79s",
+      "network_mode": "FORCED_OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "forced-offline Stage10B, Stage10A and Core observability suite before primary-final wiring",
+      "exit_code": 0,
+      "result": "39 passed in 8.04s",
+      "network_mode": "FORCED_OFFLINE_LOCAL_SINK_AND_EXPORTERS_DISABLED"
+    },
+    {
+      "command": "HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_DATASETS_OFFLINE=1 pytest --collect-only -q",
+      "exit_code": 0,
+      "result": "1503 tests collected in 28.70s; zero collection errors",
+      "network_mode": "FORCED_OFFLINE_COLLECTION_ONLY"
+    },
+    {
+      "command": "py_compile changed Stage10B Python source/test paths",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check -- exact Stage10B source/test paths",
+      "exit_code": 0,
+      "result": "PASS; line-ending notices only",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv/Scripts/python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent integration",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 185",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "contract_diff": [
+    "Added optional monthly request context and compact monthly response fields while preserving the legacy request contract.",
+    "Added deterministic analysis identity and idempotent versioned forecast/outcome persistence; outcomes fail closed until observable.",
+    "Added app-scoped asynchronous backtest jobs, status and compact artifact endpoints using the closed Stage 09 engine.",
+    "Extended progress terminal handling for pipeline and backtest completion/failure.",
+    "Added monthly forecast/backtest frontend controls and kept DCF visually and semantically separate.",
+    "Added local allowlisted Stage 10B lifecycle telemetry without activating external exporters."
+  ],
+  "data_counts": {
+    "focused_direct_tests_passed": 42,
+    "combined_regression_tests_passed": 127,
+    "full_collection": 1503,
+    "collection_errors": 0
+  },
+  "leakage_report": {
+    "status": "PASS_REGRESSION",
+    "future_record_count": 0,
+    "source": "Closed Stage 09 leakage tests included in the combined suite"
+  },
+  "latency_delta": null,
+  "latency_instrumentation_status": "PASS_MEASURED_NONNEGATIVE_LOCAL_ONLY_CURRENT_ATTEMPT_IDENTITY",
+  "privacy_checks": [
+    "Persistence stores redacted query/report/private state and compact evidence references only.",
+    "Telemetry allowlists context/version/count/status fields and drops query, user identity, raw evidence, reasoning, Manager state and exception payloads.",
+    "Failure events use ANALYSIS_PERSIST_FAILED, ANALYSIS_EXECUTION_FAILED or BACKTEST_EXECUTION_FAILED without exception text.",
+    "Raising local sinks are nonfatal and external exporters remain fail closed."
+  ],
+  "blocking_issues": [],
+  "known_limitations": [
+    "Validation used deterministic offline fixtures and mocks; live providers and real database writes were not exercised.",
+    "Backtest jobs are process-local rather than durable distributed jobs.",
+    "Frontend validation is static contract coverage rather than an interactive browser session."
+  ],
+  "out_of_scope_findings": [
+    "A durable multi-worker backtest queue may be considered after the current refactor.",
+    "Live provider, migration and browser acceptance require separate explicit operational authorization."
+  ],
+  "requested_changes": [],
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Archive current Stage 10B source/test files and artifacts with the recorded SHA-256 values.",
+    "Restore only Stage 10B source/test paths to their pre-stage versions while retaining the complete audit chain.",
+    "Do not modify closed Stage 10A or earlier stage artifacts; no database rollback is required because no external write or migration ran."
+  ],
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "external_action": "NONE_REQUIRED",
+    "rollback_tested": false,
+    "data_loss_risk": "NONE_WHEN_AUDIT_ARTIFACTS_ARE_RETAINED"
+  },
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "dependency_change": false,
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage10a_status": "CLOSED_UNCHANGED",
+  "stage11_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "activated": false
+  },
+  "supersedes": null,
+  "implementation_ready": true,
+  "created_at": "2026-09-14T13:43:58.0918731Z"
+}

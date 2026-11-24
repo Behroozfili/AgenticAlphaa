@@ -1,0 +1,173 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "07",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "quant",
+  "status": "REVALIDATION_ONLY",
+  "execution_mode": "PRIMARY_FINAL",
+  "execution_phase": "PRIMARY_FINAL",
+  "control_revision": 129,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "retry_scope": "QA-07-001 milestone semantic-reproduction repair only; current Stage 07 runtime is byte-preserved.",
+  "runtime_implementation_identity": {
+    "single_source": "tools/market_tools/__init__.py::QUANT_IMPLEMENTATION_IDENTITY",
+    "stage": "07",
+    "stage_revision": 1,
+    "attempt": 1,
+    "agent": "quant",
+    "implementation_version": "stage07-r1-a1",
+    "status": "PRESERVED_UNCHANGED_FROM_FINAL_RUNTIME"
+  },
+  "draft_ready_artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "4058fb9ed2d19f47900599204b697101bc380dbd4749a21eddb79a6c4a87265f",
+  "observability_artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-observability.json",
+  "observability_sha256": "855c3d6079ad9f9b1f250b24a944e266ce646e3185c514661c34496a2ae8bd82",
+  "observability_status": "AUDITED_NO_FINDINGS",
+  "implementation_md": ".codex/handoffs/stage-07-rev-1-attempt-2-implementation.md",
+  "implementation_md_sha256": "830e14dabd0162d8b3f7b100215cf88c1df9231b69c876492c36390f0300dd21",
+  "dependency_handoffs": [
+    {
+      "stage": "04B",
+      "path": ".codex/handoffs/stage-04B-rev-1-handoff.json",
+      "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049",
+      "state_status": "CLOSED"
+    },
+    {
+      "stage": "05",
+      "path": ".codex/handoffs/stage-05-rev-1-handoff.json",
+      "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+      "state_status": "CLOSED"
+    },
+    {
+      "stage": "06",
+      "path": ".codex/handoffs/stage-06-rev-1-handoff.json",
+      "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735",
+      "state_status": "CLOSED"
+    }
+  ],
+  "changed_files": [
+    ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-DATA_READINESS.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-MODEL_READY.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-2-draft-ready.json",
+    ".codex/handoffs/stage-07-rev-1-attempt-2-implementation.md",
+    ".codex/handoffs/stage-07-rev-1-attempt-2-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "QA-07-001",
+      "status": "RESOLVED",
+      "resolution": "Both non-overwriting Attempt 2 milestones were regenerated from the current final runtime. DATA_READINESS now includes the eligible-row content hash, and MODEL_READY is bound to that exact readiness hash, eligible-row hash and current model version."
+    }
+  ],
+  "milestones": {
+    "DATA_READINESS": {
+      "status": "PASS",
+      "artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-DATA_READINESS.json",
+      "sha256": "cd406506c1b9c001ea4f62861796aadf9243e7d9c049b705cb93611b692b8b6e",
+      "manifest_hash": "ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6",
+      "eligible_rows_sha256": "1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4"
+    },
+    "MODEL_READY": {
+      "status": "PASS",
+      "artifact": ".codex/handoffs/stage-07-rev-1-attempt-2-milestone-MODEL_READY.json",
+      "sha256": "3c52a74ebc9c3f74ae5db54bff131696e6362997d4edd8af860121813d27f6b1",
+      "readiness_manifest_hash": "ac2129fb3ccb08e630ead2e80f8243b1538938c9373ab030ac81a2d294432ca6",
+      "eligible_rows_sha256": "1a1c07998cc84ba0f4286733055da68b1410c87dce4b58e6181116cf53ee4bf4",
+      "model_version": "logistic-ridge-21d-v1+sha256:43fc408aaeac86fba888f822a44ffb90452c816487bf06bff917247b86e11126"
+    }
+  },
+  "artifact_bindings": {
+    "draft_ready_sha256_matches_observability": true,
+    "milestone_sha256_matches_observability": true,
+    "readiness_hash_matches_across_artifacts": true,
+    "eligible_rows_hash_matches_across_artifacts": true,
+    "model_version_matches_current_runtime": true,
+    "observability_requested_primary_changes": 0
+  },
+  "runtime_input_sha256": {
+    "tools/market_tools/__init__.py": "151c5a32ef2af46ad2c5cdb1e4b5bdd1fec842f7a232330007129c0d4142f1b8",
+    "tools/market_tools/market_data.py": "b0e360a9b6bc97427c8e74647fd69ff065a5635aca8a935ce3e3c8673a860630",
+    "tools/market_tools/feature_builder.py": "c95e6d569591606b1c3ff36afd8414b20c6a61e7f89a9ef40987f61310025d1f",
+    "tools/market_tools/historical_dataset_builder.py": "c094e50c0aaa9973b8dffadace8e14c45269212b66138ad63733ae1c7f6917be",
+    "tools/market_tools/forecast_model.py": "200231a42c985b812af12f5f4565171be7ed72a9728d3494ace67d939a62c84a",
+    "tools/market_tools/market_server.py": "7249ec02b782de2380b2c28bae82fcfd91c17fb84080d43941c3286f62d35d56",
+    "tests/fixtures/monthly_point_in_time_fixture.json": "deb996a86cb98d1e13d5a6cc3483d9521bee3a4ad347dd2870905c106dfae483"
+  },
+  "self_tests_run": [
+    {
+      "command": "python -m pytest tests/unit_tests/market_test tests/unit_tests/test_market_features_stage7.py -q",
+      "exit_code": 0,
+      "result": "64 passed in 3.45s",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Current-runtime normal/reversed-order readiness, fit and prediction reproduction probe",
+      "exit_code": 0,
+      "result": "PASS; both orders produced identical readiness, eligible-row hash, model artifact and prediction. Model fitting enforced the readiness-bound eligible rows.",
+      "network_mode": "OFFLINE_LOCKED_FIXTURE_ONLY"
+    },
+    {
+      "command": "Independent Attempt 2 Observability audit",
+      "exit_code": 0,
+      "result": "AUDITED with semantic integrity, runtime immutability, privacy and latency instrumentation PASS; zero requested primary changes and zero blocking issues."
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 129; execution enabled; Stage 07 revision 1 attempt 2 ACTIVE in PRIMARY_FINAL with exact Quant implementation locks.",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "data_counts": {
+    "fixture_tickers": 1,
+    "monthly_cutoffs": 40,
+    "eligible_forecasts": 40,
+    "focused_tests_passed": 64
+  },
+  "leakage_report": {
+    "status": "PASS_PRESERVED_RUNTIME_AND_REPRODUCED_BINDINGS",
+    "eligible_row_content_binding": "PASS",
+    "model_to_readiness_binding": "PASS",
+    "normal_reversed_order_determinism": "PASS"
+  },
+  "blocking_issues": [],
+  "known_limitations": [
+    "Validation is offline against a deterministic synthetic single-ticker, 40-cutoff fixture and proves engineering correctness only.",
+    "The scientific report level remains PRELIMINARY; no investment-performance claim is made.",
+    "Research/news, SEC filing and temporal Graph fixture coverage remains UNVERIFIED_REFERENCE_ONLY.",
+    "Walk-forward performance metrics, baselines and ablations remain Stage 09 scope."
+  ],
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime_action": "NONE_REQUIRED_NO_PRODUCT_OR_TEST_CHANGE",
+    "artifact_action": "Move only the five Quant-owned Attempt 2 artifacts to a timestamped workspace quarantine while preserving Attempt 1, Observability, state and dependency artifacts.",
+    "data_loss_risk": "NONE_WHEN_QUARANTINE_IS_RETAINED",
+    "rollback_tested": false
+  },
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Verify and archive the SHA-256 values of the five Quant-owned Attempt 2 artifacts.",
+    "Move those five artifacts to a timestamped workspace quarantine; do not delete them.",
+    "Do not modify product/test files, Attempt 1 artifacts, the Observability artifact, refactor state, dependency handoffs, migrations or external data."
+  ],
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "stage08_work": "NOT_RUN",
+    "llm_generated_or_altered_forecast_numbers": false
+  },
+  "supersedes": ".codex/handoffs/stage-07-rev-1-attempt-1-implementation.json",
+  "implementation_ready": true,
+  "created_at": "2026-09-07T14:07:29.1620900Z"
+}

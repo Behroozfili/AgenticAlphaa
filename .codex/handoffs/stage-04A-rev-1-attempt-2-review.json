@@ -1,0 +1,175 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "review",
+  "stage": "04A",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "reviewer",
+  "status": "APPROVED",
+  "review_status": "APPROVED",
+  "blocking_findings": [],
+  "non_blocking_findings": [
+    {
+      "id": "STAGE04A-LIVE-NEO4J-NOT-RUN",
+      "finding": "No live Neo4j connection, schema application, write/read, reconciliation or production latency run was authorized or performed. Approval covers the offline temporal Graph/Hybrid contract established by normalized parameters, exact Cypher shape, deterministic fixtures and mocks; it does not claim live database correctness or performance."
+    }
+  ],
+  "ownership_violations": [],
+  "scope_violations": [],
+  "required_rework": [],
+  "review_blockers": [],
+  "input_artifacts": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-04A-rev-1-attempt-2-draft-ready.json",
+      "sha256": "27eeced34e07bd9417dd36a5278a34b790cbd0062e5a141e10c11ac271fbb7ff",
+      "ready_for_observability": true
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-04A-rev-1-attempt-2-observability.json",
+      "sha256": "007f2a09fce5811d9e9cc471ff7fd37c8811dbbd84bb27b887d4abafa25ce147",
+      "status": "AUDITED",
+      "requested_primary_changes": ["OBS-04A-004"]
+    },
+    "implementation": {
+      "path": ".codex/handoffs/stage-04A-rev-1-attempt-2-implementation.json",
+      "sha256": "5fb172752f3896fe58ad56a46383c0c2742c3cd7644585357f508b52bbf78763",
+      "markdown_path": ".codex/handoffs/stage-04A-rev-1-attempt-2-implementation.md",
+      "markdown_sha256": "25cdb65b85d68ce8c13d302ec3a18de59b0aba37750ec350c6d216233077adc8",
+      "status": "IMPLEMENTED",
+      "implementation_ready": true
+    },
+    "qa": {
+      "path": ".codex/handoffs/stage-04A-rev-1-attempt-2-qa.json",
+      "sha256": "af69cda6f3b33c6b57c4eb3ff15d70347cbd60c061b2ad7151069238348ad2f5",
+      "qa_status": "PASS"
+    },
+    "dependency_handoff": {
+      "path": ".codex/handoffs/stage-03-rev-2-handoff.json",
+      "sha256": "19a684a9f65c7e348f758725280497195a7daaa381c3dded794eab66e04a3a2a",
+      "status": "CLOSED",
+      "review_status": "APPROVED"
+    }
+  },
+  "resolved_findings": [
+    {
+      "id": "STAGE04A-NEO4J-TEMPORAL-PROPERTY-TYPE-001",
+      "status": "RESOLVED",
+      "detail": "The writer normalizes published_at, retrieved_at, filed_at, effective_from, effective_to and materialized_at to timezone-aware UTC before any V2 write. EvidenceObservationV2 ON CREATE uses an exact null-safe CASE WHEN parameter IS NULL THEN null ELSE datetime(parameter) END conversion for every temporal property, compatible with traversal comparisons against datetime($as_of). Invalid required values fail closed and no current-time fallback exists."
+    },
+    {
+      "id": "STAGE04A-INCOMPLETE-V2-WRITE-FAIL-CLOSED-002",
+      "status": "RESOLVED",
+      "detail": "Legacy aggregate MERGE is reachable only when write_mode=legacy and provenance=legacy_explicit. Quarantined, V2-origin, unknown-provenance, incomplete-identity, missing-time, invalid-time and reversed-interval documents are rejected before entity or relation execution with zero writes and stable sanitized rejection codes/counts."
+    },
+    {
+      "id": "STAGE04A-EVIDENCE-MATERIALIZED-AT-003",
+      "status": "RESOLVED",
+      "detail": "Canonical Stage 03 materialized_at, with the accepted ingested_at provenance alias, is required for temporal V2, normalized, persisted as a Neo4j DateTime on EvidenceObservationV2 ON CREATE, and not overwritten on a deterministic retry of the same evidence identity."
+    },
+    {
+      "id": "OBS-04A-004",
+      "status": "RESOLVED",
+      "detail": "Vector, Graph, RRF and Hybrid trace/lifecycle identity now reports stage 04A, revision 1, attempt 2, agent data_rag. Sentinel coverage proves the existing compact allowlist excludes raw query, evidence text, URLs, headers, secrets and exception strings. OBS-04A-001 through OBS-04A-003 remain preserved."
+    }
+  ],
+  "evidence": [
+    {
+      "check": "artifact_identity_phase_and_required_chain",
+      "status": "PASS",
+      "detail": "Control revision 77 is ACTIVE/REVIEW for Stage 04A revision 1 attempt 2 with reviewer as the only support agent. The matching draft-ready, required observability, PRIMARY_FINAL implementation and QA artifacts exist at their recorded hashes. Observability is AUDITED with OBS-04A-004 accepted and applied; QA status is PASS."
+    },
+    {
+      "check": "attempt1_rejection_and_artifact_immutability",
+      "status": "PASS",
+      "detail": "Attempt 1 review remains immutable and REJECTED with exactly three blockers. Attempt 2 explicitly supersedes the prior draft/QA/review chain as applicable; all six Attempt 1 artifact hashes match the immutable values independently checked by Observability and QA."
+    },
+    {
+      "check": "scope_ownership_locks_and_downstream_gate",
+      "status": "PASS",
+      "detail": "All Stage 04A product, test, fixture and current-attempt artifact paths have exact locks for their writers, and the control validator reports CONTROL VALID for draft-ready, observability, implementation and QA. No ownership or scope violation was established. Stage 04B remains PENDING/NOT_STARTED at revision 0 attempt 0."
+    },
+    {
+      "check": "temporal_storage_and_as_of_safety",
+      "status": "PASS",
+      "detail": "The accepted V2 write boundary persists like-typed Neo4j DateTime properties and rejects unknown/invalid required time without mapping it to now. Context-bound traversal applies quarantine, ticker, dataset version, publication, retrieval, filing and effective-interval predicates before entity traversal and ranking, and temporal Graph errors never fall back to legacy traversal."
+    },
+    {
+      "check": "identity_versioning_provenance_and_idempotency",
+      "status": "PASS",
+      "detail": "Graph extraction reuses the accepted Stage 03 document_id, chunk_id and evidence_id. Temporal entity and relation-observation identities are deterministic; document, chunk, evidence and relation observations use immutable MERGE keys. materialized_at is create-only and unchanged on identical retry."
+    },
+    {
+      "check": "shared_context_citations_fusion_and_degradation",
+      "status": "PASS",
+      "detail": "Vector and Graph consume the same validated ForecastContext before ranking/traversal. Shared document/chunk/evidence identities and Vector/Graph citation origins survive fusion. RRF ordering and hybrid, vector_only, graph_only and unavailable degradation modes are deterministic."
+    },
+    {
+      "check": "observability_privacy_and_data_hygiene",
+      "status": "PASS",
+      "detail": "OBS-04A-001 through OBS-04A-004 are preserved or resolved. Trace processors and lifecycle telemetry retain only compact stage/context/version identity, bounded counts, latency, degradation and stable codes. No chain-of-thought, brain_reasoning, raw chunk/evidence, full filing, URL, credential, header, secret or original exception text is persisted by Stage 04A instrumentation."
+    },
+    {
+      "check": "independent_counterexamples_and_frozen_contract",
+      "status": "PASS",
+      "detail": "Reviewer independently ran 27 Attempt 2 blocker counterexamples, 17 frozen Database V2/Neo4j contract tests and the 93-test focused Graph/Hybrid suite; all passed with zero failures. QA additionally reports 349 RAG/Stage03 regressions and 1293 collected tests with zero collection errors."
+    },
+    {
+      "check": "operational_safety_and_rollback",
+      "status": "PASS",
+      "detail": "Rollback is documented as source restoration; no database rollback is required because no external operation occurred. No live Neo4j access, migration, external read/write, reconciliation, seed/backfill, legacy deletion, route switch, deploy, commit or push was performed."
+    },
+    {
+      "check": "financial_numeric_scientific_manager_and_monthly_contract_integrity",
+      "status": "NOT_APPLICABLE_UNCHANGED",
+      "detail": "Stage 04A does not modify DCF/WACC, the nine financial intents/mappers, deterministic Quant outputs, forecast target/provider/universe/action policy, backtesting, Manager lifecycle, analysis prompts or forecast storage keys. Accepted upstream contracts remain unchanged."
+    }
+  ],
+  "tests_run": [
+    {
+      "command": "python -m pytest -q tests/unit_tests/test_rag/test_graph_store.py::TestAttempt2ReviewBlockers --tb=short",
+      "exit_code": 0,
+      "result": "27 passed in 25.56s"
+    },
+    {
+      "command": "python -m pytest -q tests/unit_tests/test_database_v2_migrations.py --tb=short",
+      "exit_code": 0,
+      "result": "17 passed in 27.61s"
+    },
+    {
+      "command": "python -m pytest -q tests/unit_tests/test_rag/test_graph_store.py tests/unit_tests/test_rag/test_hybried.py --tb=short",
+      "exit_code": 0,
+      "result": "93 passed in 28.71s"
+    },
+    {
+      "command": "python .codex/scripts/validate_refactor_control.py --check-control --check-locks --artifact each Attempt 2 draft-ready, observability, implementation and QA artifact --agent matching_owner",
+      "exit_code": 0,
+      "result": "CONTROL VALID for all four artifacts"
+    }
+  ],
+  "source_integrity": {
+    "rag/graph_store.py": "50b52061db0d0dbaa557baf3a3686b894b8740818128f687033b9aba2b649f5b",
+    "rag/hybrid_rag.py": "53e7057b4649da3591b932951f308fdd6319b942a3e0bb125a534333a6ef1cdc",
+    "rag/__init__.py": "8e626b80cd9fa25d9fcb4ebb05f9f5049b33384f2b7c1fd6ca6fecfa92a375c1",
+    "tests/unit_tests/test_rag/test_graph_store.py": "37d9bbe725a1763051536c0276deb7cffda7d46b092fb4fc45e9adafe34fc1f7",
+    "tests/unit_tests/test_rag/test_hybried.py": "d476e86efd3c308249991ca50573a5c3cb1d26fb0fc5fc7b199f3f712883c280",
+    "tests/fixtures/stage4a_temporal_graph_hybrid.json": "8c5f352787640a457fb043e5634c66bab12b22d65a83e83194c26913a3c92413"
+  },
+  "operational_safety": {
+    "live_neo4j_authorized": false,
+    "live_neo4j_attempted": false,
+    "migration_applied": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "seed_or_backfill_executed": false,
+    "legacy_data_deleted": false,
+    "production_route_switched": false,
+    "stage04B_activated": false,
+    "deploy_commit_or_push": false
+  },
+  "rollback_reviewed": true,
+  "live_neo4j_validation": "NOT_RUN_UNAUTHORIZED",
+  "qa_artifact_status": "PASS",
+  "approval_scope": "Stage 04A revision 1 attempt 2 offline temporal Graph/Hybrid contract only; excludes live Neo4j, migration/reconciliation and all Stage 04B work.",
+  "supersedes": ".codex/handoffs/stage-04A-rev-1-attempt-1-review.json",
+  "created_at": "2026-08-31T19:37:24.2178769Z"
+}

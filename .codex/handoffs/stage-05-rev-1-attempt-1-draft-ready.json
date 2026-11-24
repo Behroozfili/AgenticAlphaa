@@ -1,0 +1,213 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "draft_ready",
+  "stage": "05",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "financial",
+  "execution_phase": "PRIMARY_DRAFT",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-04B-rev-1-handoff.json",
+  "dependency_handoff_sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049",
+  "changed_files": [
+    "tools/financial_tools/__init__.py",
+    "tools/financial_tools/sec_edgar.py",
+    "tools/financial_tools/yahoo_finance.py",
+    "tools/financial_tools/financial_ratio_calculator.py",
+    "tools/financial_tools/financial_server.py",
+    "agents/financial_agent.py",
+    "agents/executor_helpers/finance_executor_helper.py",
+    "agents/executor_helpers/financial_helper.py",
+    "agents/executor_helpers/monthly_financial_features.py",
+    "agents/prompts/promt_finance_checker.py",
+    "agents/prompts/prompt_finance_checker.py",
+    "agents/prompts/__init__.py",
+    "tests/unit_tests/financial_test/__init__.py",
+    "tests/unit_tests/financial_test/test_yahoo_finance.py",
+    "tests/unit_tests/financial_test/test_sec_edgar.py",
+    "tests/unit_tests/financial_test/test_financial_server.py",
+    "tests/unit_tests/test_agents/test_financial_agent.py",
+    "tests/unit_tests/test_agents/test_financial_intent_routing.py",
+    "tests/unit_tests/test_agents/test_financial_followup_gaps.py",
+    "tests/unit_tests/test_agents/test_stage2_financial_recovery.py",
+    "tests/unit_tests/test_period_provenance_phase5.py",
+    "tests/fixtures/stage5_financial_point_in_time.json",
+    ".codex/handoffs/stage-05-rev-1-attempt-1-draft-ready.json"
+  ],
+  "revalidated_unchanged_files": [
+    "tools/__init__.py",
+    "tests/unit_tests/financial_test/test_financial_ratio_calculator.py",
+    "tests/unit_tests/test_agents/test_stage1_financial_data_integrity.py",
+    "tests/unit_tests/test_financial_sanity.py",
+    "tests/unit_tests/test_earnings_quality_phase6.py",
+    "tests/unit_tests/test_multi_factor_monte_carlo_phase6.py",
+    "tests/integration_test_2/test_financial_agent_only.py",
+    "tests/integration_tests/test_integration_financial_agent.py"
+  ],
+  "ready_for_observability": true,
+  "blocking_issues": [],
+  "implementation_identity": {
+    "version": "stage05-r1-a1",
+    "stage": "05",
+    "stage_revision": 1,
+    "attempt": 1,
+    "agent": "financial",
+    "single_source": "tools/financial_tools/__init__.py::FINANCIAL_IMPLEMENTATION_IDENTITY"
+  },
+  "forecast_identity_contract": {
+    "mandatory": ["forecast_context", "run_id", "ticker"],
+    "propagated_through": ["Financial tool functions", "Financial MCP schemas", "MCP dispatcher", "Financial agent", "executor helpers", "MonthlyFinancialFeatures"],
+    "ticker_mismatch": "FAIL_CLOSED",
+    "missing_identity_before_provider": "FAIL_CLOSED",
+    "safe_trace_identity": ["stage", "stage_revision", "attempt", "agent", "run_id", "ticker", "as_of", "dataset_version", "analysis_mode"]
+  },
+  "point_in_time_contract": {
+    "sec_availability_date": "filed_at",
+    "period_end_used_as_availability": false,
+    "future_facts_and_filings": "INVISIBLE",
+    "duplicate_or_restated_selection": "newest eligible filed_at and accession on or before as_of",
+    "annual_history_preserved": true,
+    "quarterly_history_added": true,
+    "raw_sec_cache": "immutable in-process companyfacts/submissions cache keyed by ticker/CIK; snapshots built locally as_of",
+    "historical_price_boundary": "exact start/end/as_of with auto-adjusted total-return prices",
+    "historical_current_snapshot_fallback": false,
+    "missing_data": "None or explicit DATA_UNAVAILABLE, never fabricated zero"
+  },
+  "monthly_financial_features_contract": {
+    "owner": "Financial Stage 05",
+    "adapter": "fixed deterministic typed adapter independent of LLM-selected intents",
+    "fields": ["valuation_gap", "growth", "quality_profitability", "leverage", "liquidity", "cash_flow_quality", "filing_age_days", "availability_flags", "missing_flags", "evidence_ids", "accession_references", "dataset_version", "run_id"],
+    "state_storage": "compact values and evidence/accession references only",
+    "raw_filing_text_persisted": false,
+    "dcf_semantics": "LONG_TERM_VALUATION_FEATURE_NOT_21_DAY_FORECAST"
+  },
+  "legacy_financial_contract": {
+    "nine_intents_preserved": true,
+    "intent_routing_and_mappers_preserved": true,
+    "validation_requirements_preserved": true,
+    "dcf_preserved": true,
+    "wacc_preserved": true,
+    "reverse_dcf_preserved": true,
+    "scenarios_preserved": true,
+    "monte_carlo_preserved": true
+  },
+  "prompt_rename": {
+    "from": "agents/prompts/promt_finance_checker.py",
+    "to": "agents/prompts/prompt_finance_checker.py",
+    "old_path_absent": true,
+    "old_runtime_and_test_references": 0,
+    "direct_agent_import": true,
+    "package_exports_updated": true,
+    "collection_safe": true
+  },
+  "pre_observability_scan": {
+    "status": "READY_FOR_INDEPENDENT_OBSERVABILITY_AUDIT",
+    "stable_sentry_error_code": true,
+    "raw_exception_text_sent_to_sentry": false,
+    "known_surfaces_for_auditor": [
+      "LangSmith traceable decorators must be checked for input/output payload capture",
+      "legacy ratio-tool log calls currently include numeric scalar inputs and must be classified or redacted by the observability pass",
+      "lifecycle latency/count coverage must be independently audited across SEC, Yahoo, dispatcher, feature adapter and agent"
+    ]
+  },
+  "draft_self_tests": [
+    {
+      "command": "python -m pytest <all 13 locked Stage05 financial unit files> -q",
+      "exit_code": 0,
+      "result": "277 passed in 32.49s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest <nine-intent, mapper, DCF/WACC, reverse-DCF, scenario and Monte-Carlo regression files> -q",
+      "exit_code": 0,
+      "result": "165 passed in 21.69s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest <10 exact Stage05 cutoff, restatement, adjusted-price, no-current-fallback, identity, feature and Sentry sentinels> -q",
+      "exit_code": 0,
+      "result": "10 passed in 3.68s",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_rag -q",
+      "exit_code": 0,
+      "result": "333 passed in 53.61s; previously reported stale vector_store failure did not reproduce",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_financial_agent_only.py",
+      "exit_code": 0,
+      "result": "1318 tests collected in 16.02s; zero collection errors; integration tests collected only and not executed"
+    },
+    {
+      "command": "scoped compileall; git diff --check; old-prompt and exception-text privacy scans; SHA-256 verification; control/lock validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; zero old prompt refs; zero raw exception capture; line-ending notices only"
+    }
+  ],
+  "source_sha256": {
+    "tools/financial_tools/sec_edgar.py": "3ddf41da696ce21ca4f0c3212899836a872f3ec105bbceb3533726284ce420ca",
+    "tools/financial_tools/yahoo_finance.py": "7a6726c17fcbeb3460ada5ac1dba2731fd4437aa9d94cf5964cbef69b679f836",
+    "tools/financial_tools/financial_ratio_calculator.py": "ec0290038275fb56642a60042bb6911bfb9c4881c09365e380e85f3f4ca833e6",
+    "tools/financial_tools/financial_server.py": "1ed15c1f5468afebd17ee6a6c4df8fa6c2e47741595e245609b9bfd4489dc37c",
+    "tools/financial_tools/__init__.py": "9699803af815e367b077ee30d4394d1df1accf6da4f7dced38606cf95d9621dd",
+    "tools/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "agents/financial_agent.py": "4ef11a6c19ea60051582690fb0bf92230f3a76c4a56c632752d0bd5db33418b3",
+    "agents/executor_helpers/finance_executor_helper.py": "64c310894333aca616939fc1f67d6bf2471c8c75fa8f3c2a2c18d5814c084bf6",
+    "agents/executor_helpers/financial_helper.py": "84e58de37f2110c9202410318e4865cb90abb1ecc1c74b594d325a6ce5e76a74",
+    "agents/executor_helpers/monthly_financial_features.py": "e0f95aca0814cf1f688ec1c8f0c8f49c6c1ae55a41712d518eeecca4c97492cd",
+    "agents/prompts/prompt_finance_checker.py": "4869b77375f046a7df534de797cfd5a9feb2a5e1c0378e183762a7e48117bce8",
+    "agents/prompts/__init__.py": "88e3a07a0c15e3ee472890f491e54878a3021f7c8568b7d33da4430e420c9a97",
+    "tests/unit_tests/financial_test/__init__.py": "72d1b2f9ba54e330f189dcff7b1aac8f738355766bc6a20067992f2c859531ab",
+    "tests/unit_tests/financial_test/test_yahoo_finance.py": "614615dd5e762534db956a5ca7be7c6115a15eb2089a8c4cff5e782b7a82579b",
+    "tests/unit_tests/financial_test/test_sec_edgar.py": "9ace19a4030e9ec08080645758797387a33926678ee28ed2a9749518d9ada24f",
+    "tests/unit_tests/financial_test/test_financial_ratio_calculator.py": "01b43a4fd92f0fb44ecfc45c15a7a9163147f1b3406d2a7548e41752cf017ef7",
+    "tests/unit_tests/financial_test/test_financial_server.py": "a07d4fceae436056ec5cd36b6d05b779f3379041edf7afa79c82214f3d972549",
+    "tests/unit_tests/test_agents/test_financial_agent.py": "360a96570088d5da6d50c7997552064489e9040d928a2a1425a1dc194d5422b6",
+    "tests/unit_tests/test_agents/test_financial_intent_routing.py": "e2065aec90aa9216ef0c3c9b60dba4eeacbb584cbc27888811eba4717025ebef",
+    "tests/unit_tests/test_agents/test_financial_followup_gaps.py": "5f5b5a99ff181509b5252190528eeea5e0ffb221bc5a653a8338e7da14e088b6",
+    "tests/unit_tests/test_agents/test_stage1_financial_data_integrity.py": "dc5531c23c7a00e3b342b648448447e02765d058c20128330e7b8e24b290017c",
+    "tests/unit_tests/test_agents/test_stage2_financial_recovery.py": "e6ec73ec19cad16b05dc640540905cd83f85fc3c28ec0218055c156bab9aa923",
+    "tests/unit_tests/test_period_provenance_phase5.py": "f7f16530351d824f483a15b064fc400e85a77982e42cf66e86161a1972d31e77",
+    "tests/unit_tests/test_financial_sanity.py": "29d69eafdcad8588320fd50a71a4b11092e83589358d64c35432c158e8fe73c1",
+    "tests/unit_tests/test_earnings_quality_phase6.py": "6b9aa7f81a52e09c1099001e4317a4cd8e6f7c600298c7af8cf9a454410e7d2c",
+    "tests/unit_tests/test_multi_factor_monte_carlo_phase6.py": "913b24a77ce24dc408d1078b81bd678178515b9e02a5926ca01675728eab38be",
+    "tests/integration_test_2/test_financial_agent_only.py": "fb2e6fca1883971b211943a14b0468183b1175d5a5400f383b45a8eb34993c27",
+    "tests/integration_tests/test_integration_financial_agent.py": "00b7963a0db78c5481dd7d992c6c7fee51e1c7cb4c9dad0fd74b2a2452299d05",
+    "tests/fixtures/stage5_financial_point_in_time.json": "ba2bb8dce6298d973373f2bf53f6b87ce02e2e09caa4acdd1337688c6ebd3a1a"
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "external_counts": "NOT_AVAILABLE_NO_EXTERNAL_READ",
+    "legacy_data_deleted": false,
+    "route_switched": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the prior Financial source/test bytes, remove the Stage05 adapter and fixture, and reverse the checker prompt rename.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "external_execution": {
+    "network_access": "NOT_RUN",
+    "database_reads": "NOT_RUN",
+    "database_writes": "NOT_RUN",
+    "live_financial_provider_tests": "NOT_RUN_UNAUTHORIZED",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "SEC and Yahoo point-in-time behavior is validated only with deterministic local fixtures and mocks; live provider integration was not executed.",
+    "Current-only Yahoo snapshots deliberately return DATA_UNAVAILABLE in HISTORICAL_BACKTEST mode instead of fabricating an as-of snapshot.",
+    "No persistent external SEC archive was acquired; immutable raw cache behavior is in-process and external acquisition remains separately authorized work.",
+    "Pre-observability legacy numeric log callsites and trace input/output capture surfaces are explicitly handed to the required independent observability pass.",
+    "Stage 06 remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "final_implementation_artifacts_written": false,
+  "created_at": "2026-09-02T09:58:36.1040332Z"
+}

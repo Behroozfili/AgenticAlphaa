@@ -1,0 +1,138 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "02",
+  "stage_revision": 2,
+  "attempt": 2,
+  "agent": "data_rag",
+  "status": "IMPLEMENTED",
+  "phase": "PRIMARY_FINAL",
+  "execution_mode": "PRIMARY_FINAL",
+  "implementation_ready": true,
+  "supersedes": ".codex/handoffs/stage-02-rev-2-attempt-1-implementation.json",
+  "supersedes_handoff": ".codex/handoffs/stage-02-rev-1-handoff.json",
+  "milestone_artifact": ".codex/handoffs/stage-02-rev-2-attempt-2-milestone-SCHEMA_CONTRACT_FROZEN.json",
+  "milestone_status": "PASS",
+  "changed_files": [
+    ".codex/handoffs/stage-02-rev-2-attempt-2-milestone-SCHEMA_CONTRACT_FROZEN.json",
+    ".codex/handoffs/stage-02-rev-2-attempt-2-implementation.md",
+    ".codex/handoffs/stage-02-rev-2-attempt-2-implementation.json"
+  ],
+  "attempt_2_finalization_files": [
+    ".codex/handoffs/stage-02-rev-2-attempt-2-implementation.md",
+    ".codex/handoffs/stage-02-rev-2-attempt-2-implementation.json"
+  ],
+  "cumulative_stage02_paths": [
+    "database/supabase/001_alpha_documents_v2.sql",
+    "database/supabase/002_forecast_tables.sql",
+    "database/supabase/003_analysis_versioning.sql",
+    "database/supabase/004_alpha_documents_v2_evidence_identity.sql",
+    "database/neo4j/001_temporal_evidence.cypher",
+    "tests/unit_tests/test_database_v2_migrations.py"
+  ],
+  "blocking_finding_resolutions": [
+    {
+      "id": "STAGE03-V2-EVIDENCE-COEXISTENCE-006",
+      "status": "RESOLVED",
+      "resolution": "Migration 004 replaces evidence-independent document/evidence row uniqueness with evidence-scoped chunk identities; the offline real processor/embedder/V2-row path proves same-content dataset, retrieval, and effective observations coexist across every primary/unique identity."
+    },
+    {
+      "id": "STAGE02-REV2-FINAL-ARTIFACT-PHASE-001",
+      "status": "RESOLVED",
+      "resolution": "The immutable Attempt 2 MD and JSON consistently identify the finalized implementation as PRIMARY_FINAL and implementation_ready=true before QA."
+    }
+  ],
+  "preserved_finding_resolutions": [
+    "STAGE02-RLS-VIEW-001",
+    "STAGE02-RECONCILIATION-HASH-002",
+    "STAGE02-NEO4J-RECONCILIATION-003"
+  ],
+  "contract_diff": [
+    "Accepted migrations 001-003 remain unchanged; revision 2 is expressed only as ordered migration 004.",
+    "The document evidence chunk identity includes canonical source/content/document semantics plus document/evidence/dataset/chunk/embedding identity.",
+    "The evidence chunk identity scopes uniqueness to evidence, dataset, chunk position/hash, and embedding version so multi-chunk observations coexist.",
+    "chunk_id remains the primary key and V2 adapter conflict target.",
+    "Forward migration checks exact definitions, is idempotent for expected states, writes no rows, and fails on drift.",
+    "Rollback preflights revision-1 collisions and fails closed without deleting or rewriting evidence.",
+    "Temporal RPC, RLS, views, reconciliation, least privilege, legacy routes, and prior data are unchanged."
+  ],
+  "schema_identity_contract": {
+    "primary_key": ["chunk_id"],
+    "document_evidence_chunk_unique": [
+      "canonical_source_id",
+      "content_hash",
+      "document_version",
+      "document_id",
+      "evidence_id",
+      "dataset_version",
+      "chunk_index",
+      "chunk_hash",
+      "embedding_version"
+    ],
+    "evidence_chunk_unique": [
+      "evidence_id",
+      "dataset_version",
+      "chunk_index",
+      "chunk_hash",
+      "embedding_version"
+    ]
+  },
+  "unchanged_technical_evidence": {
+    "source_attempt": 1,
+    "qa_technical_contract_status": "PASS",
+    "focused_stage02_passed": 17,
+    "exact_amendment_gates_passed": 3,
+    "focused_stage01_stage02_passed": 112,
+    "unit_integration_collected": 1234,
+    "collection_errors": 0
+  },
+  "technical_source_hashes": {
+    "database/supabase/004_alpha_documents_v2_evidence_identity.sql": "fced2fc6fcca6ef6bda11b887746b03a1fa98d7eaaa4b717a5c7dfb7c646f481",
+    "tests/unit_tests/test_database_v2_migrations.py": "3f543f17f26d6ea4cf7afdcc7c069e50256f929491a012a6d3e269a180e43ece"
+  },
+  "self_tests_run": [
+    {
+      "command": "SHA-256 comparison of migration 004 and migration contract test against Attempt 1 evidence",
+      "exit_code": 0,
+      "result": "TECHNICAL_BYTES_UNCHANGED"
+    },
+    {
+      "command": "Attempt 1 QA authorized offline technical suite",
+      "exit_code": 0,
+      "result": "17 migration tests, 3 exact amendment gates, 112 Stage 01-02 regressions, 1234 collected with zero errors"
+    },
+    {
+      "command": "Attempt 2 milestone schema/identity/control validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID"
+    }
+  ],
+  "blocking_issues": [],
+  "known_limitations": [
+    "Migration 004 is statically/offline validated only; application and live reconciliation require separate explicit authorization.",
+    "Production remains on legacy-v1 and V2 remains a shadow schema.",
+    "Stage 03 revision 1 remains stale; ticker/materialization and pre-materialization-resume findings remain separate Stage 03 rework.",
+    "The missing legacy Phase 5 migration retains its Stage 00 disposition."
+  ],
+  "rollback_documented": true,
+  "rollback_instructions": [
+    "Use only the separately authorized rollback SQL embedded in migration 004.",
+    "Rollback checks revision-1 document/evidence collisions and aborts without mutation when coexistence rows would be lost.",
+    "After a clean preflight, drop only the two revision-2 constraints and restore the exact two revision-1 constraints.",
+    "Never delete, rewrite, merge, or map unknown evidence time to make rollback pass."
+  ],
+  "rollback_tested": false,
+  "prior_attempt_artifacts_modified": false,
+  "operational_safety": {
+    "migration_application": false,
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "live_reconciliation": false,
+    "seed_or_backfill": false,
+    "legacy_deletion": false,
+    "route_switch": false,
+    "network_used": false,
+    "deploy_commit_or_push": false
+  },
+  "created_at": "2026-08-30T12:23:57.1219933Z"
+}

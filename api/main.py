@@ -1,10 +1,4 @@
-"""
-api/main.py
------------
-Run locally
------------
-    uvicorn api.main:app --reload --port 3000
-"""
+"""FastAPI application and request-safe Stage 10A runtime lifecycle."""
 
 from __future__ import annotations
 
@@ -12,279 +6,344 @@ import logging
 import sys
 import time
 from contextlib import asynccontextmanager
-from neo4j import GraphDatabase
+from pathlib import Path
+from typing import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-
+from fastapi.responses import FileResponse, JSONResponse
+from neo4j import GraphDatabase
 from supabase import create_client
 
-from agents.financial_agent import FinancialAnalystAgent
-from agents.research_agent import ResearchAgent
-from agents.sentiment_agent import SentimentAgent
-from agents.manager_agent import ManagerAgent
-from memory.manager_memory import ManagerMemory
-
-from api.config import settings, validate_settings
-from api.core.exceptions import AlphaAgentError, ConfigurationError
+from api.auth import jwt_auth_middleware
+from api.config import Settings, get_settings, settings, validate_settings
+from api.core.exceptions import (
+    AlphaAgentError,
+    CORE_EXCEPTION_TYPES,
+    ConfigurationError,
+    map_core_exception,
+)
+from api.dependencies import ManagerAgentFactory
 from api.routes.analyze import router as analyze_router
 from api.routes.progress import router as progress_router
-from core.observability import init_sentry, init_langsmith
-import os
-from fastapi.responses import FileResponse
+from core.observability import init_langsmith, init_sentry
+from langsmith_trace import emit_stage10a_event, new_stage10a_run_id
 
-
-# ─────────────────────────────────────────────────────────────
-# Logging
-# ─────────────────────────────────────────────────────────────
-
-logging.basicConfig(
-    level=getattr(logging, settings.LOG_LEVEL, logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-    stream=sys.stderr,
-)
 log = logging.getLogger("api.main")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+_SENSITIVE_DEPENDENCY_LOGGERS = (
+    "httpcore", "httpx", "hpack", "urllib3", "supabase", "postgrest",
+    "anthropic", "yfinance", "peewee", "neo4j", "langsmith",
+)
 
 
-# ─────────────────────────────────────────────────────────────
-# Lifespan — startup & shutdown
-# ─────────────────────────────────────────────────────────────
-script_path = os.path.join(os.getcwd(), "tools", "sentiment_tools", "sentiment_server.py")
+def _harden_dependency_logging() -> None:
+    """Prevent HTTP dependencies from logging authentication headers."""
+    for logger_name in _SENSITIVE_DEPENDENCY_LOGGERS:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+
+
+def _runtime_path(value: str) -> Path:
+    path = Path(value).expanduser()
+    return path if path.is_absolute() else PROJECT_ROOT / path
+
+
+def _configure_quant_runtime(runtime: Settings):
+    """Load one validated artifact and make it the runtime version authority."""
+    configured_path = runtime.QUANT_ARTIFACT_PATH.strip()
+    if not configured_path:
+        if runtime.QUANT_RUNTIME_REQUIRED:
+            raise ConfigurationError("QUANT_ARTIFACT_PATH is required")
+        return runtime, None, None
+
+    from tools.market_tools.market_provider import YahooMarketDataProvider
+    from tools.market_tools.quant_artifacts import load_quant_artifacts
+
+    artifacts = load_quant_artifacts(_runtime_path(configured_path))
+    resolved = runtime.model_copy(update={
+        "LIVE_DATASET_VERSION": artifacts.model.dataset_version,
+        "HISTORICAL_DATASET_VERSION": artifacts.model.dataset_version,
+        "FORECAST_FEATURE_VERSION": artifacts.model.feature_version,
+        "FORECAST_MODEL_VERSION": artifacts.model.model_version,
+    })
+    provider = YahooMarketDataProvider(
+        cache_dir=_runtime_path(runtime.MARKET_DATA_CACHE_DIR),
+        sector_benchmark=runtime.MARKET_SECTOR_BENCHMARK.strip() or None,
+    )
+    return resolved, artifacts.service(), provider
+
+
+def _configure_optional_observability(runtime: Settings) -> tuple[bool, bool]:
+    """Configure explicit exporters with outbound payload filtering."""
+    sentry_ok = False
+    langsmith_ok = False
+    try:
+        sentry_ok = init_sentry(
+            app_env=runtime.APP_ENV,
+            observability_enabled=runtime.OBSERVABILITY_ENABLED,
+            exporter_enabled=runtime.SENTRY_ENABLED,
+            dsn=runtime.SENTRY_DSN,
+        ) is True
+    except Exception:
+        log.warning("observability_initializer_failed code=SENTRY_INIT_FAILED")
+    try:
+        langsmith_ok = init_langsmith(
+            observability_enabled=runtime.OBSERVABILITY_ENABLED,
+            exporter_enabled=runtime.LANGSMITH_ENABLED,
+            api_key=runtime.LANGSMITH_API_KEY,
+            project=runtime.LANGSMITH_PROJECT,
+        ) is True
+    except Exception:
+        log.warning("observability_initializer_failed code=LANGSMITH_INIT_FAILED")
+    return sentry_ok, langsmith_ok
+
+
+def _telemetry_sink(application: FastAPI):
+    sink = getattr(application.state, "telemetry_sink", None)
+    return sink if callable(sink) else None
+
+
 @asynccontextmanager
-async def lifespan(app: FastAPI):
-    
+async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+    """Own connection clients for one application lifecycle, not request state."""
+    _harden_dependency_logging()
+    lifecycle_run_id = new_stage10a_run_id()
+    lifecycle_started_at = time.perf_counter()
+    sink = _telemetry_sink(application)
+    configured = getattr(application.state, "runtime_settings", None)
+    runtime = configured if isinstance(configured, Settings) else get_settings()
+    startup_metadata = {
+        "run_id": lifecycle_run_id,
+        "component": "api_runtime",
+        "runtime_version": runtime.RUNTIME_VERSION,
+    }
+    emit_stage10a_event(
+        "api.startup.started",
+        metadata={**startup_metadata, "status": "STARTED"},
+        sink=sink,
+    )
+    neo4j_driver = None
     try:
-        validate_settings()
-    except ConfigurationError as exc:
-        log.critical("Startup aborted — %s", exc)
-        sys.exit(1)
-
-    
-    app.state.sentry_ok  = init_sentry(app_env=settings.APP_ENV)
-    langsmith_ok         = init_langsmith()
-    log.info("Sentry enabled: %s, LangSmith enabled: %s", app.state.sentry_ok, langsmith_ok)
-
-    
-    log.info("Connecting to Supabase...")
-    try:
-        app.state.supabase = create_client(
-            settings.SUPABASE_URL,
-            settings.SUPABASE_KEY,
+        validate_settings(runtime)
+        runtime, market_forecast_service, market_data_provider = _configure_quant_runtime(runtime)
+        application.state.runtime_settings = runtime
+        application.state.sentry_ok, application.state.langsmith_ok = (
+            _configure_optional_observability(runtime)
         )
-        log.info("Supabase client ready.")
-    except Exception as exc:
-        log.critical("Failed to connect to Supabase: %s", exc)
-        sys.exit(1)
-    log.info("Connecting to Neo4j...")
-    try:
-        app.state.neo4j_driver = GraphDatabase.driver(
-            settings.NEO4J_URI,
-            auth=(settings.NEO4J_USER, settings.NEO4J_PASSWORD)
+
+        supabase_client = create_client(runtime.SUPABASE_URL, runtime.SUPABASE_KEY)
+        neo4j_driver = GraphDatabase.driver(
+            runtime.NEO4J_URI,
+            auth=(runtime.NEO4J_USER, runtime.NEO4J_PASSWORD),
         )
-        log.info("Neo4j driver ready.")
-    except Exception as exc:
-        log.critical("Failed to connect to Neo4j: %s", exc)
-        sys.exit(1)
+        application.state.supabase = supabase_client
+        application.state.neo4j_driver = neo4j_driver
 
-    
-    log.info("Initialising specialist agents...")
-    research_agent  = ResearchAgent()
-    financial_agent = FinancialAnalystAgent()
-    sentiment_agent = SentimentAgent(server_script_path=script_path)
-
-    # ── 4. Initialise ManagerMemory with a system-level user ─
-    #       Per-request memory (user-scoped) is created inside
-    #       analyze.py using the user_id from the request.
-    #       This instance is only used for agent warm-up.
-    system_memory = ManagerMemory(
-        user_id="system",
-        supabase_client=app.state.supabase,
+        # The object stored on app.state is stateless. It creates the mutable
+        # ManagerAgent and ManagerMemory per request/invocation.
+        factory = ManagerAgentFactory(
+            supabase_client=supabase_client,
+            neo4j_driver=neo4j_driver,
+            runtime_settings=runtime,
+            market_forecast_service=market_forecast_service,
+            market_data_provider=market_data_provider,
+        )
+        # Development/production pays the heavy agent import cost before the UI
+        # becomes available, so the first analysis does not appear idle for ~20s.
+        # Tests keep imports isolated and side-effect free.
+        if runtime.APP_ENV != "test":
+            preload_started_at = time.perf_counter()
+            factory.preload()
+            log.info(
+                "agent_modules_preloaded latency_ms=%.3f",
+                (time.perf_counter() - preload_started_at) * 1000.0,
+            )
+        application.state.manager_factory = factory
+        application.state.manager_agent = factory  # Stage-10B route compatibility
+    except Exception:
+        emit_stage10a_event(
+            "api.startup.failed",
+            metadata={**startup_metadata, "status": "FAILED", "error_code": "API_STARTUP_FAILED"},
+            started_at=lifecycle_started_at,
+            sink=sink,
+        )
+        log.error("api_startup_failed code=API_STARTUP_FAILED")
+        raise
+    emit_stage10a_event(
+        "api.startup.completed",
+        metadata={**startup_metadata, "status": "READY"},
+        started_at=lifecycle_started_at,
+        sink=sink,
     )
+    log.info("api_runtime_ready")
 
-    # ── 5. Compile ManagerAgent (builds LangGraph once) ──────
-    log.info("Compiling ManagerAgent graph...")
-    app.state.manager_agent = ManagerAgent(
-        research_agent=research_agent,
-        financial_agent=financial_agent,
-        sentiment_agent=sentiment_agent,
-        memory=system_memory,
-        model=settings.ANTHROPIC_MODEL,
-        max_routing_loops=settings.MAX_ROUTING_LOOPS,
-    )
-    log.info("ManagerAgent ready.")
-
-    log.info("Alpha-Agent Node API started — env=%s", settings.APP_ENV)
-
-    yield  # ← app is running, handle requests
-
-    # ── Shutdown ─────────────────────────────────────────────
-    log.info("Alpha-Agent Node API shutting down.")
-
-
-# ─────────────────────────────────────────────────────────────
-# App
-# ─────────────────────────────────────────────────────────────
-# is_prod is evaluated inside lifespan (not at import time) so that
-# patching APP_ENV in tests takes effect without reloading the module.
-_is_prod: bool = settings.APP_ENV == "production"
-
-app = FastAPI(
-    title="Alpha-Agent Node API",
-    description=(
-        "Multi-agent market intelligence system. "
-        "Dispatches Research, Financial, and Sentiment agents "
-        "to produce structured investment analysis reports."
-    ),
-    version="1.0.0",
-    lifespan=lifespan,
-    docs_url=None if _is_prod else "/docs",
-    redoc_url=None if _is_prod else "/redoc",
-)
+    try:
+        yield
+    finally:
+        from core.observability import flush_observability
+        shutdown_started_at = time.perf_counter()
+        emit_stage10a_event(
+            "api.shutdown.started",
+            metadata={**startup_metadata, "status": "STARTED"},
+            sink=sink,
+        )
+        try:
+            close = getattr(neo4j_driver, "close", None)
+            if callable(close):
+                close()
+        except Exception:
+            emit_stage10a_event(
+                "api.shutdown.failed",
+                metadata={**startup_metadata, "status": "FAILED", "error_code": "API_SHUTDOWN_FAILED"},
+                started_at=shutdown_started_at,
+                sink=sink,
+            )
+            log.error("api_shutdown_failed code=API_SHUTDOWN_FAILED")
+        else:
+            emit_stage10a_event(
+                "api.shutdown.completed",
+                metadata={**startup_metadata, "status": "COMPLETED"},
+                started_at=shutdown_started_at,
+                sink=sink,
+            )
+            log.info("api_runtime_stopped")
+        flush_observability()
 
 
-# ─────────────────────────────────────────────────────────────
-# Middleware
-# ─────────────────────────────────────────────────────────────
-
-# CORS — W3C spec forbids allow_credentials=True with allow_origins=["*"].
-# In development: wildcard origins, credentials disabled (safe for local use).
-# In production:  explicit ALLOWED_ORIGINS list, credentials enabled.
-_dev_mode = settings.APP_ENV == "development"
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"] if _dev_mode else settings.ALLOWED_ORIGINS,
-    allow_credentials=False if _dev_mode else True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-@app.middleware("http")
-async def request_timing_middleware(request: Request, call_next):
-    """Log method, path, status, and duration for every request."""
-    start = time.monotonic()
-    response = await call_next(request)
-    duration = round(time.monotonic() - start, 3)
-    log.info(
-        "%s %s → %d (%.3fs)",
-        request.method,
-        request.url.path,
-        response.status_code,
-        duration,
-    )
-    return response
-
-
-# ─────────────────────────────────────────────────────────────
-# Global exception handler
-# ─────────────────────────────────────────────────────────────
-
-@app.exception_handler(AlphaAgentError)
 async def alpha_agent_exception_handler(
     request: Request,
     exc: AlphaAgentError,
 ) -> JSONResponse:
-    """
-    Convert any AlphaAgentError subclass into a structured JSON response.
-
-    All errors share the same shape:
-        { "error": "ERROR_CODE", "message": "...", "detail": "...", "trace_id": "..." }
-
-    trace_id appears both in the log and the response — grep it instantly:
-        grep "trace_id=a3f2c1b9" logs/api.log
-    """
-    log.error(
-        "AlphaAgentError [%s] trace_id=%s — %s | detail: %s",
-        exc.code, exc.trace_id, exc.message, exc.detail,
-    )
-    if request.app.state.sentry_ok:
-        import sentry_sdk
-        with sentry_sdk.push_scope() as scope:
-            scope.set_tag("trace_id", exc.trace_id)
-            scope.set_tag("error_code", exc.code)
-            sentry_sdk.capture_exception(exc)
-    return JSONResponse(
-        status_code=exc.http_status,
-        content=exc.to_dict(),
-    )
+    log.error("api_request_error")
+    return JSONResponse(status_code=exc.http_status, content=exc.to_dict())
 
 
-@app.exception_handler(Exception)
+async def core_contract_exception_handler(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    return await alpha_agent_exception_handler(request, map_core_exception(exc))
+
+
 async def unhandled_exception_handler(
     request: Request,
     exc: Exception,
 ) -> JSONResponse:
-    """Catch-all for any unhandled exception — return 500."""
-    log.exception("Unhandled exception on %s %s", request.method, request.url.path)
-    if request.app.state.sentry_ok:
-        import sentry_sdk
-        sentry_sdk.capture_exception(exc)
-    # In production, never leak internal exception details to the client.
-    # The trace_id lets engineers grep the server logs for the full traceback.
-    import uuid
-    trace_id = str(uuid.uuid4())[:8]
-    if settings.APP_ENV == "production":
-        content = {
-            "error":    "INTERNAL_ERROR",
-            "message":  "An unexpected error occurred.",
-            "trace_id": trace_id,
-        }
-    else:
-        content = {
-            "error":    "INTERNAL_ERROR",
-            "message":  "An unexpected error occurred.",
-            "detail":   str(exc),
-            "trace_id": trace_id,
-        }
-    return JSONResponse(status_code=500, content=content)
+    """Return a stable error envelope without leaking exception text."""
+    error = AlphaAgentError()
+    log.error("api_request_error code=INTERNAL_ERROR")
+    return JSONResponse(status_code=500, content=error.to_dict())
 
 
-# ─────────────────────────────────────────────────────────────
-# Routers
-# ─────────────────────────────────────────────────────────────
-
-app.include_router(analyze_router, prefix="/api/v1", tags=["Analysis"])
-app.include_router(progress_router, prefix="/api/v1", tags=["Progress"])
-
-
-# ─────────────────────────────────────────────────────────────
-# Health check
-# ─────────────────────────────────────────────────────────────
-
-@app.get("/health", tags=["Health"])
-async def health():
-    """
-    Liveness probe — Railway/Fly.io calls this to check the app is alive.
-    Returns 200 as long as the process is running.
-    """
-    return {"status": "ok"}
-
-
-@app.get("/readiness", tags=["Health"])
-async def readiness(request: Request):
-    """
-    Readiness probe — checks that Supabase is reachable.
-    Returns 200 only when all dependencies are healthy.
-    """
-    try:
-        # Lightweight query to verify Supabase connection
-        request.app.state.supabase.table("long_term_memory").select("user_id").limit(1).execute()
-        supabase_ok = True
-    except Exception:
-        supabase_ok = False
-
-    status = "ready" if supabase_ok else "not_ready"
-    http_code = 200 if supabase_ok else 503
-
-    return JSONResponse(
-        status_code=http_code,
-        content={
-            "status":   status,
-            "supabase": "ok" if supabase_ok else "unreachable",
-        },
+async def request_timing_middleware(request: Request, call_next):
+    started_at = time.perf_counter()
+    run_id = new_stage10a_run_id()
+    request.state.stage10a_run_id = run_id
+    sink = _telemetry_sink(request.app)
+    metadata = {
+        "run_id": run_id,
+        "component": "api_request",
+        "runtime_version": request.app.state.runtime_settings.RUNTIME_VERSION,
+        "request_method": request.method,
+    }
+    emit_stage10a_event(
+        "api.request.started",
+        metadata={**metadata, "status": "STARTED"},
+        sink=sink,
     )
-@app.get("/", include_in_schema=False)
-async def serve_index():
-    return FileResponse("frontend/alpha-agent-app.html")
+    try:
+        response = await call_next(request)
+    except Exception:
+        emit_stage10a_event(
+            "api.request.failed",
+            metadata={**metadata, "status": "FAILED", "error_code": "REQUEST_EXECUTION_FAILED"},
+            started_at=started_at,
+            sink=sink,
+        )
+        log.error("api_request_failed code=REQUEST_EXECUTION_FAILED")
+        raise
+    event = "api.request.failed" if response.status_code >= 500 else "api.request.completed"
+    terminal = {
+        **metadata,
+        "status": "FAILED" if response.status_code >= 500 else "COMPLETED",
+        "http_status": response.status_code,
+    }
+    if response.status_code >= 500:
+        terminal["error_code"] = "REQUEST_FAILED_RESPONSE"
+    emit_stage10a_event(event, metadata=terminal, started_at=started_at, sink=sink)
+    log.info("api_request_terminal status=%s", terminal["status"])
+    return response
+
+
+def register_route_skeletons(application: FastAPI) -> None:
+    """Register existing routes; Stage 10B will extend their business contract."""
+    application.include_router(analyze_router, prefix="/api/v1", tags=["Analysis"])
+    application.include_router(progress_router, prefix="/api/v1", tags=["Progress"])
+
+
+def create_app(*, runtime_settings: Settings | None = None, telemetry_sink=None) -> FastAPI:
+    runtime = runtime_settings or get_settings()
+    is_production = runtime.APP_ENV == "production"
+    application = FastAPI(
+        title="AgenticAlpha API",
+        description="Versioned monthly forecast runtime foundation.",
+        version=runtime.RUNTIME_VERSION,
+        lifespan=lifespan,
+        docs_url=None if is_production else "/docs",
+        redoc_url=None if is_production else "/redoc",
+    )
+    application.state.runtime_settings = runtime
+    application.state.telemetry_sink = telemetry_sink
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=runtime.ALLOWED_ORIGINS if is_production else ["*"],
+        allow_credentials=is_production,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    application.middleware("http")(request_timing_middleware)
+    application.middleware("http")(jwt_auth_middleware)
+    application.add_exception_handler(AlphaAgentError, alpha_agent_exception_handler)
+    for exception_type in CORE_EXCEPTION_TYPES:
+        application.add_exception_handler(exception_type, core_contract_exception_handler)
+    application.add_exception_handler(Exception, unhandled_exception_handler)
+    register_route_skeletons(application)
+
+    @application.get("/health", tags=["Health"])
+    async def health() -> dict[str, str]:
+        return {"status": "ok", "runtime_version": runtime.RUNTIME_VERSION}
+
+    @application.get("/readiness", tags=["Health"])
+    async def readiness(request: Request) -> JSONResponse:
+        try:
+            request.app.state.supabase.table("long_term_memory").select("user_id").limit(1).execute()
+            ready = True
+        except Exception:
+            ready = False
+        return JSONResponse(
+            status_code=200 if ready else 503,
+            content={
+                "status": "ready" if ready else "not_ready",
+                "supabase": "ok" if ready else "unreachable",
+                "runtime_version": runtime.RUNTIME_VERSION,
+            },
+        )
+
+    @application.get("/", include_in_schema=False)
+    async def serve_index() -> FileResponse:
+        return FileResponse(PROJECT_ROOT / "frontend" / "alpha-agent-app.html")
+
+    return application
+
+
+_is_prod = settings.APP_ENV == "production"  # compatibility for legacy tests/imports
+app = create_app(runtime_settings=settings)
+
+
+logging.basicConfig(
+    level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    stream=sys.stderr,
+)
+_harden_dependency_logging()

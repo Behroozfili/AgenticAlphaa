@@ -1,0 +1,221 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "08",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "integration",
+  "status": "IMPLEMENTED",
+  "execution_mode": "PRIMARY_FINAL",
+  "execution_phase": "PRIMARY_FINAL",
+  "implementation_mode": "QA_08_001_AND_OBS_08_003_REMEDIATION",
+  "control_revision": 148,
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "implementation_identity": {
+    "single_source": "agents/executor_helpers/monthly_forecast_helper.py::STAGE08_IMPLEMENTATION_IDENTITY",
+    "stage": "08",
+    "stage_revision": 1,
+    "attempt": 2,
+    "agent": "integration",
+    "implementation_version": "stage08-r1-a2",
+    "manager_trace_identity_derived": true,
+    "manager_progress_identity_derived": true
+  },
+  "trigger_qa": {
+    "path": ".codex/handoffs/stage-08-rev-1-attempt-1-qa.json",
+    "sha256": "8211385cdeadd90964b908f68b080dcc805a2b8d9d43d67360e7512afbe60720",
+    "blocking_issue": "QA-08-001",
+    "disposition": "RESOLVED"
+  },
+  "draft_ready_artifact": ".codex/handoffs/stage-08-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "2d28091755041bf2be0d6aa58e1c704ef63fbf585e6600484b92a327e23726c5",
+  "observability_artifact": ".codex/handoffs/stage-08-rev-1-attempt-2-observability.json",
+  "observability_sha256": "d61d18e15f6361c904fd1ffc8f356490cf9405acd135a93bcc10615fb0a1826d",
+  "change_request": ".codex/handoffs/change-request-stage-08-rev-1-attempt-2-1.json",
+  "change_request_sha256": "0f908a19e9e22d3c1ad302c6946e06e4733b6402677814f22f59a72d5f8c3617",
+  "observability_status": "CHANGES_REQUESTED_AND_RESOLVED",
+  "implementation_md": ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.md",
+  "implementation_md_sha256": "8c3e4486dbfd1eb17fe71f44ca61eac136f4d93b82712a6fe97c6d858374717d",
+  "dependency_handoffs": [
+    {"stage": "01", "path": ".codex/handoffs/stage-01-rev-1-handoff.json", "sha256": "9042aa034aa246fbc48c9ed03f5121c078925f33473c07fcbe6392e38a6a1112", "state_status": "CLOSED"},
+    {"stage": "04B", "path": ".codex/handoffs/stage-04B-rev-1-handoff.json", "sha256": "1965c02efa5c85289d0e12f790d8ba3de2c5a0e60287ba93a22eeb17b17e8049", "state_status": "CLOSED"},
+    {"stage": "05", "path": ".codex/handoffs/stage-05-rev-1-handoff.json", "sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed", "state_status": "CLOSED"},
+    {"stage": "06", "path": ".codex/handoffs/stage-06-rev-1-handoff.json", "sha256": "20f8f1900fa9cf44c21d652ede1b919a58a29a9db448f2052bfee56042331735", "state_status": "CLOSED"},
+    {"stage": "07", "path": ".codex/handoffs/stage-07-rev-1-handoff.json", "sha256": "3fb148bab21cc48cb985a866b5b02581e8d535d685ae936a3f2b2f6bb8e305fc", "state_status": "CLOSED"}
+  ],
+  "immutable_attempt_1_artifacts": [
+    {"path": ".codex/handoffs/stage-08-rev-1-attempt-1-draft-ready.json", "sha256": "1b1f6632636c4d869dfdc76bd8cbe98d5e719dd6e39c7986218515a2f68e1de6"},
+    {"path": ".codex/handoffs/stage-08-rev-1-attempt-1-observability.json", "sha256": "fb3091eaf1bbedb688fbc43baf311ff1f4658c9e8cd53de6999ff70516ff9d6c"},
+    {"path": ".codex/handoffs/change-request-stage-08-rev-1-attempt-1-1.json", "sha256": "e1c25be55da2375e09f37125357993b5be25bffcf9dd288b9c0ee8577ad7bd50"},
+    {"path": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.md", "sha256": "e01ee884bdf43c629c8c650bf9f03dd9fb4121ff71e205c5dfeec776088d81b1"},
+    {"path": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.json", "sha256": "07fd2b1b30eea050d282039717fc9717878268cad3ac087deba69b984fb5e633"},
+    {"path": ".codex/handoffs/stage-08-rev-1-attempt-1-qa.json", "sha256": "8211385cdeadd90964b908f68b080dcc805a2b8d9d43d67360e7512afbe60720"}
+  ],
+  "changed_files": [
+    "agents/executor_helpers/monthly_forecast_helper.py",
+    "agents/manager_agent.py",
+    "tests/unit_tests/test_stage8_manager_integration.py",
+    ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.md",
+    ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "QA-08-001",
+      "status": "RESOLVED",
+      "resolution": "Authoritative Quant universe_manifest_hash, model_variant and feature_materialized_at are validated and preserved byte-for-byte at the canonical forecast top level and in versions; missing, invalid or inconsistent provenance fails closed."
+    },
+    {
+      "id": "OBS-08-003",
+      "status": "RESOLVED",
+      "resolution": "The immutable Stage 08 identity is attempt 2 / stage08-r1-a2, and Manager trace and progress attribution derive from that single identity without changing payloads, lifecycle order, routing, numerics, privacy or concurrency."
+    }
+  ],
+  "preserved_findings": [
+    {"id": "OBS-08-001", "status": "PRESERVED", "evidence": "Allowlisted trace processors and recursive PRIVATE_SENTINEL redaction remain green."},
+    {"id": "OBS-08-002", "status": "PRESERVED", "evidence": "Measured payload-free lifecycle/error telemetry and per-session queue isolation remain green."}
+  ],
+  "provenance_contract": {
+    "authoritative_source": "Stage 07 quant_prediction",
+    "required_fields": ["universe_manifest_hash", "model_variant", "feature_materialized_at"],
+    "top_level_preservation": "PASS_EXACT",
+    "versions_preservation": "PASS_EXACT",
+    "canonical_synthesis_preservation": "PASS_VIA_VERSIONS",
+    "missing_or_invalid_provenance": "PASS_FAIL_CLOSED",
+    "materialization_mismatch": "PASS_FAIL_CLOSED",
+    "numeric_or_action_mutation": false
+  },
+  "source_sha256": {
+    "agents/executor_helpers/monthly_forecast_helper.py": "c08ece4602b70100298db105d376579316e691c71e98c2f0a3d587461a40a2aa",
+    "agents/manager_agent.py": "e398db4d9f11b0b22402c5494afa323d537b2313e7ecfa6d307ab06dc9d1afe0",
+    "tests/unit_tests/test_stage8_manager_integration.py": "d43d00b2cd54bd7f3e8f97225df9378c4f17b354752fb973c830d6420e83f0da",
+    ".codex/handoffs/stage-08-rev-1-attempt-2-implementation.md": "8c3e4486dbfd1eb17fe71f44ca61eac136f4d93b82712a6fe97c6d858374717d"
+  },
+  "self_tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py -q",
+      "exit_code": 0,
+      "result": "17 passed in 18.72s",
+      "coverage": "current identity, QA-08-001 provenance, privacy, lifecycle/error telemetry, numeric/action immutability and concurrent queue isolation",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "result": "67 passed in 19.84s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/test_forecast_contract.py tests/unit_tests/test_state_forecast_contract.py tests/unit_tests/test_market_features_stage7.py tests/unit_tests/market_test tests/unit_tests/test_stage8_manager_integration.py tests/unit_tests/test_agents/test_manager_agent.py tests/unit_tests/test_manager_financial_sanity.py -q",
+      "exit_code": 0,
+      "result": "188 passed in 27.63s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/unit_tests/api_test/test_api_main.py tests/unit_tests/api_test/test_analyze_cor_api.py tests/unit_tests/test_root_main.py -q",
+      "exit_code": 0,
+      "result": "47 passed in 33.38s",
+      "network_mode": "OFFLINE_FIXTURES_AND_MOCKS"
+    },
+    {
+      "command": "Offline active-state versus STAGE08_IMPLEMENTATION_IDENTITY counterprobe",
+      "exit_code": 0,
+      "result": "PASS: active revision=1 attempt=2; runtime revision=1 attempt=2; implementation_version=stage08-r1-a2; match=true",
+      "network_mode": "OFFLINE_READ_ONLY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile agents/executor_helpers/monthly_forecast_helper.py agents/manager_agent.py tests/unit_tests/test_stage8_manager_integration.py",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": "git diff --check -- exact three source/test paths",
+      "exit_code": 0,
+      "result": "PASS; existing line-ending notice only",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent integration",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 148 before final artifact creation",
+      "network_mode": "OFFLINE"
+    }
+  ],
+  "gate_evidence": {
+    "qa_08_001_provenance_top_level_exact": "PASS",
+    "qa_08_001_provenance_versions_exact": "PASS",
+    "missing_or_tampered_provenance": "PASS_FAIL_CLOSED_NULL_NUMERIC_CONFIDENCE",
+    "quant_numeric_and_action_immutable": "PASS",
+    "llm_numeric_override": "PASS_IGNORED",
+    "trace_private_payload_redaction": "PASS",
+    "success_error_lifecycle": "PASS_MEASURED_REDACTED_CURRENT_IDENTITY",
+    "manager_result_concurrency_isolation": "PASS_TWO_RUNS_NO_CROSS_TALK",
+    "manager_progress_concurrency_isolation": "PASS_TWO_SESSION_QUEUES_NO_CROSS_TALK",
+    "api_compatibility": "PASS"
+  },
+  "contract_diff": [
+    "Preserved the backward-compatible Manager constructor and legacy run path.",
+    "Preserved typed ForecastContext consumption, controlled specialist join and canonical monthly output behavior.",
+    "Preserved Quant probability, expected return, excess return, uncertainty and action as immutable; LLM synthesis remains explanation-only.",
+    "Preserved READY, DEGRADED and INSUFFICIENT_DATA behavior, prompt rename, privacy allowlists, payload-free measured lifecycle events and queue isolation.",
+    "Corrected only current-attempt implementation, trace and progress attribution to attempt 2 / stage08-r1-a2.",
+    "Did not modify central State, database schema, migrations, upstream formulas, DCF/WACC semantics, API/runtime/routes, persistence, UI or Stage 09."
+  ],
+  "schema_and_data_diff": {
+    "central_state_schema_modified": false,
+    "database_schema_modified": false,
+    "migration_application": "NOT_RUN",
+    "external_database_reads": false,
+    "external_database_writes": false,
+    "legacy_data_deleted": false
+  },
+  "privacy_checks": [
+    "PRIVATE_SENTINEL remains absent recursively from allowlisted trace processor output.",
+    "Lifecycle and fail-closed error events remain free of task text, Quant numerics, evidence IDs, narratives and exception text.",
+    "No external trace provider was contacted."
+  ],
+  "latency_instrumentation_status": "PASS_MEASURED_NON_NEGATIVE_PAYLOAD_FREE_CURRENT_ATTEMPT_IDENTITY",
+  "blocking_issues": [],
+  "known_limitations": [
+    "Validation is offline with deterministic fixtures and mocks; live providers and external trace export were not exercised.",
+    "Stage 08 implements domain integration only; request lifecycle foundation remains Stage 10A and API/persistence/progress/UI wiring remains Stage 10B.",
+    "Without injected Stage 07 market service and market-data provider, the monthly path truthfully returns INSUFFICIENT_DATA."
+  ],
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Archive the three current Attempt 2 source/test paths and current final artifacts with recorded hashes, then restore the three source/test paths to immutable Attempt 1 hashes while retaining all Attempt 1 and Attempt 2 audit artifacts.",
+    "attempt_1_source_hashes": {
+      "agents/executor_helpers/monthly_forecast_helper.py": "ad81f98a0ff8522d2a5b12bb3d26e241e4c8645992f0847977ed3e6a461a6e2a",
+      "agents/manager_agent.py": "a7c3bb838475fd77c4ec07746e4c6d54f4f2f0e46b53706541e85689ac71ceed",
+      "tests/unit_tests/test_stage8_manager_integration.py": "34897e8ab2077b41a7a0ceb9b02e92082cbcb90c900b42dddde8ea25f3f5df13"
+    },
+    "data_loss_risk": "NONE_WHEN_ARCHIVE_IS_RETAINED",
+    "rollback_tested": false
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN",
+    "api_runtime_or_route_changes": false,
+    "quant_or_action_policy_changes": false
+  },
+  "stage09_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "supersedes": ".codex/handoffs/stage-08-rev-1-attempt-1-implementation.json",
+  "implementation_ready": true,
+  "created_at": "2026-09-11T10:07:42.5810347Z"
+}

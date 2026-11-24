@@ -1,0 +1,273 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "04B",
+  "stage_revision": 1,
+  "attempt": 2,
+  "agent": "research",
+  "status": "IMPLEMENTED",
+  "execution_phase": "PRIMARY_FINAL",
+  "implementation_mode": "TEST_ONLY_REMEDIATION_AND_FULL_OFFLINE_REVALIDATION",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-04A-rev-1-handoff.json",
+  "dependency_handoff_sha256": "c8e2bd6da7095e5d23447bfb8c3900402a34b11fea19c4ae40714dd48ed4e3",
+  "draft_ready_artifact": ".codex/handoffs/stage-04B-rev-1-attempt-2-draft-ready.json",
+  "draft_ready_sha256": "0d159dc3bad94068a22f8a7ec0b0e93dcb89f9e05fed60fcdfafeef6106b7ce3",
+  "observability_artifact": ".codex/handoffs/stage-04B-rev-1-attempt-2-observability.json",
+  "observability_sha256": "ef761d3048f2dfff4ece394f0caddf0be369136ff82d82380b06f0d57e48aff9",
+  "observability_status": "AUDITED_NO_PRIMARY_CHANGES_REQUESTED",
+  "changed_files": [
+    "tests/unit_tests/search_test/test_search_server.py",
+    ".codex/handoffs/stage-04B-rev-1-attempt-2-implementation.md",
+    ".codex/handoffs/stage-04B-rev-1-attempt-2-implementation.json"
+  ],
+  "revalidated_unchanged_files": [
+    "tools/research_tools/__init__.py",
+    "tools/research_tools/research_server.py",
+    "tools/research_tools/news_search.py",
+    "tools/research_tools/sec_edgar.py",
+    "tools/research_tools/tavily_search.py",
+    "tools/research_tools/comprehensive_analysis.py",
+    "tools/research_tools/context_synthesizer.py",
+    "agents/research_agent.py",
+    "agents/executor_helpers/search_executor_helpers.py",
+    "agents/prompts/prompt_research_agent.py",
+    "agents/prompts/__init__.py",
+    "tests/unit_tests/test_agents/test_search_executor_helpers.py",
+    "tests/unit_tests/test_agents/test_research_agent.py",
+    "tests/unit_tests/search_test/test_tavily_search.py",
+    "tests/unit_tests/search_test/test_search_sec_edgar.py",
+    "tests/unit_tests/search_test/test_news_search.py",
+    "tests/integration_test_2/test_research_agent_only.py",
+    "tests/integration_tests/test_integration_search_agent.py",
+    "tests/fixtures/stage4b_research_point_in_time.json"
+  ],
+  "resolved_qa_findings": [
+    {
+      "id": "QA-04B-001",
+      "status": "RESOLVED",
+      "resolution": "The direct Research MCP unit suite now supplies mandatory ForecastContext and run_id for every valid route, exercises all eight dispatcher paths under validated identity, proves missing identity fails before provider invocation, and asserts stable privacy-safe fail-closed results and Sentry behavior. The complete offline search suite passes. Attempt1 artifacts were not rewritten; this Attempt2 implementation records the independently recomputed actual tavily_search.py hash."
+    }
+  ],
+  "resolved_observability_findings": [
+    {
+      "id": "OBS-04B-001",
+      "status": "PRESERVED_RESOLVED",
+      "resolution": "Allowlisted LangSmith processors and the privacy-safe direct MCP call path remain unchanged and audited."
+    },
+    {
+      "id": "OBS-04B-002",
+      "status": "PRESERVED_RESOLVED",
+      "resolution": "Logs, progress, Sentry and returned errors retain stable codes and compact identity/count metadata without raw query, plan, arguments, exception text, URL or evidence payload."
+    },
+    {
+      "id": "OBS-04B-003",
+      "status": "PRESERVED_RESOLVED",
+      "resolution": "Measured compact lifecycle metadata remains present across provider/search, SEC, Vector, Graph, Hybrid, comprehensive analysis, synthesis and both leakage gates."
+    },
+    {
+      "id": "OBS-04B-004",
+      "status": "PRESERVED_RESOLVED",
+      "resolution": "Shared State remains typed, compact and reference-only through ResearchFeatures and deterministic evidence/citation reference IDs."
+    }
+  ],
+  "implementation_contract": {
+    "identity": "ForecastContext and run_id are mandatory for live and historical execution; validated manager identity reaches all eight dispatcher paths.",
+    "historical_boundary": "Historical mode admits only retained allowlisted archives; unavailable history returns DATA_UNAVAILABLE and never substitutes current Tavily or NewsAPI results.",
+    "temporal_safety": "SEC filed_at and all evidence timestamps must be on/before as_of; future or unknown evidence is rejected before synthesis and again before State materialization.",
+    "features": "Typed compact ResearchFeatures retain catalysts, risks, timestamps, deterministic evidence/citation reference IDs, source diversity, Vector/Graph coverage, missing/degraded flags, dataset version and run identity.",
+    "privacy": "Trace, logs, progress, Sentry, MCP failures and State expose only stable codes, allowlisted identities, measured latency and compact counts.",
+    "prompt_rename": "prompt_research_agent.py remains the direct import/export path; zero old propt_search_agent runtime or test references remain."
+  },
+  "dispatcher_remediation": {
+    "routes_exercised": [
+      "tavily_search",
+      "news_search",
+      "sec_edgar_search",
+      "sec_edgar_filing",
+      "rag_vector_search",
+      "rag_graph_traverse",
+      "rag_hybrid_query",
+      "comprehensive_analysis"
+    ],
+    "mandatory_identity": ["forecast_context", "run_id"],
+    "missing_identity_provider_calls": 0,
+    "fail_closed_error_code": "RESEARCH_TOOL_FAIL_CLOSED",
+    "raw_query_or_exception_in_result_log_or_sentry": false,
+    "production_source_modified_in_attempt2": false,
+    "privacy_assertions_weakened": false
+  },
+  "final_self_tests": [
+    {
+      "command": "python -m pytest tests/unit_tests/search_test/test_search_server.py -q",
+      "exit_code": 0,
+      "result": "15 passed",
+      "network_mode": "OFFLINE_MOCKS"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/search_test -q",
+      "exit_code": 0,
+      "result": "66 passed",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_agents/test_search_executor_helpers.py tests/unit_tests/test_agents/test_research_agent.py tests/unit_tests/search_test/test_tavily_search.py tests/unit_tests/search_test/test_news_search.py tests/unit_tests/search_test/test_search_sec_edgar.py tests/unit_tests/search_test/test_search_server.py -q",
+      "exit_code": 0,
+      "result": "119 passed",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest tests/unit_tests/test_rag -q",
+      "exit_code": 0,
+      "result": "333 passed",
+      "network_mode": "OFFLINE_MOCKS_AND_FIXTURES"
+    },
+    {
+      "command": "python -m pytest --collect-only -q tests/unit_tests tests/integration_tests tests/integration_test_2/test_research_agent_only.py",
+      "exit_code": 0,
+      "result": "1311 tests collected; zero collection errors; integration tests were collected only and not executed"
+    },
+    {
+      "command": "scoped compileall; git diff --check; static privacy scan; old prompt reference scan; SHA-256 verification; control, lock and artifact validation",
+      "exit_code": 0,
+      "result": "PASS; all 20 source/test hashes match; Attempt1 artifacts immutable; CONTROL VALID; line-ending notices only"
+    }
+  ],
+  "self_tests_run": [
+    {
+      "command": "Direct Research MCP dispatcher offline suite",
+      "exit_code": 0,
+      "result": "15 passed; all eight routes under mandatory identity"
+    },
+    {
+      "command": "Complete offline Research search unit suite",
+      "exit_code": 0,
+      "result": "66 passed"
+    },
+    {
+      "command": "Focused Stage04B unit, privacy and lifecycle gate",
+      "exit_code": 0,
+      "result": "119 passed"
+    },
+    {
+      "command": "Graph/RAG regression",
+      "exit_code": 0,
+      "result": "333 passed"
+    },
+    {
+      "command": "Collection-only, compile, diff, privacy, rename, hash, control and lock gates",
+      "exit_code": 0,
+      "result": "1311 collected; zero errors; all 20 hashes match; CONTROL VALID"
+    }
+  ],
+  "source_sha256": {
+    "tools/research_tools/__init__.py": "62e9569d612ae95f05e9f4ccffb33584faa7b7224948ec557ea1e25ae702e22d",
+    "tools/research_tools/research_server.py": "5aced92c330415ca2d658ec82aa5c1e2f9c258b16d753f1874df344892908579",
+    "tools/research_tools/news_search.py": "109aa3dfb278604f30042d9cfe2d2ff019596befde96191d92a41e026a5c9877",
+    "tools/research_tools/sec_edgar.py": "1f704ce85b02f9974cfe2f6d5858735e82f7b815130786da27ae4d9c8452ff59",
+    "tools/research_tools/tavily_search.py": "3c40e9638aa23f1c1544e715cdb3760c32b83eafffe790cbeff8b130c11350e1",
+    "tools/research_tools/comprehensive_analysis.py": "292cf821290032f8f54fcfa0c148eb8070e6abf7f0797009a4e2189cc38b8046",
+    "tools/research_tools/context_synthesizer.py": "7635d5b3e77da076ef62688c6f25b96257d301b2abb927086ff0802bd1123a5e",
+    "agents/research_agent.py": "fb53d188161b81781599bbd3dde9006b93b25be18f32ba5b49d98488794f87b1",
+    "agents/executor_helpers/search_executor_helpers.py": "9ae3b32f7ea7913bc597d32ea20c30a2cf6ade30ea1bafb5ddd1da51cea9b17d",
+    "agents/prompts/prompt_research_agent.py": "ce7e2b03d38e80a93d1da8e4e33245bae3418aba7b6308f11a5a63c056acada7",
+    "agents/prompts/__init__.py": "0f5b66c87c4e60dec7c67267e12a13b983cea56b3cb1007e2484d2bbf38944a2",
+    "tests/unit_tests/test_agents/test_search_executor_helpers.py": "956f2fd202f60b478d7a631e56c808d02d62c0a7c7c2cdf9247e0423923e28b3",
+    "tests/unit_tests/test_agents/test_research_agent.py": "d6a4e9154b576647f76d7bf58e772e5e79e2f3fc10e769b25c90c3c8b081d9e7",
+    "tests/unit_tests/search_test/test_tavily_search.py": "83251090d48a23d420f2b77384212de7b37e485f61520e7ed475ec9c06836bcd",
+    "tests/unit_tests/search_test/test_search_sec_edgar.py": "fd9bf2fba97102de7b5b1e70524914c45076dcc219db3135398ddcf2bf7d7b78",
+    "tests/unit_tests/search_test/test_news_search.py": "b6a24b0d43f9707ad7723cbef197b2f3f1f2aab245132fb73bb38368febefd7a",
+    "tests/unit_tests/search_test/test_search_server.py": "29434950869c6f1c33cf31163f471af87a6967c32be3130c47661a11b532fabd",
+    "tests/integration_test_2/test_research_agent_only.py": "9c9ffe9ebb6a3622bc957c1dc77ee009ad99761b949a10f233b6ba26b71aa506",
+    "tests/integration_tests/test_integration_search_agent.py": "f311591429b546d21e4f938a0014a3f7adda76f862bc3452a5bb6156613bb256",
+    "tests/fixtures/stage4b_research_point_in_time.json": "eb6e64300e625d6c7f640ce02c49013b2b3ab022b0521e0dbc862b0f7a609f17"
+  },
+  "source_integrity": {
+    "recorded_paths": 20,
+    "matching_paths": 20,
+    "mismatches": 0,
+    "tavily_search_sha256_reconciled": "3c40e9638aa23f1c1544e715cdb3760c32b83eafffe790cbeff8b130c11350e1",
+    "test_search_server_sha256": "29434950869c6f1c33cf31163f471af87a6967c32be3130c47661a11b532fabd"
+  },
+  "same_attempt_artifact_chain": {
+    "draft_ready": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-draft-ready.json",
+      "sha256": "0d159dc3bad94068a22f8a7ec0b0e93dcb89f9e05fed60fcdfafeef6106b7ce3"
+    },
+    "observability": {
+      "path": ".codex/handoffs/stage-04B-rev-1-attempt-2-observability.json",
+      "sha256": "ef761d3048f2dfff4ece394f0caddf0be369136ff82d82380b06f0d57e48aff9",
+      "status": "AUDITED",
+      "requested_primary_changes": 0
+    },
+    "identity_valid": true
+  },
+  "attempt1_artifact_immutability": {
+    "status": "PASS",
+    "artifacts_modified": false,
+    "draft_ready_sha256": "1a1c585620b89810533c8e89520001a5e3fb58a0a83bcf8927651634998f45f9",
+    "observability_sha256": "0014612f1a1bf736a0b9b42e09a7573e0dc20c2445e8c3e4a05cba58d72f48d8",
+    "implementation_json_sha256": "0af0f3e55511db380a7b9ff3b47d524fb705eef50495d2f8a20dafc64136fe8b",
+    "implementation_md_sha256": "1050da5f558e15091ec3012626ac8fb534852544b18718ea8147c17d1fa713d1",
+    "qa_sha256": "861856bbc7b8c5c95cec4b1c5aaee34efcecde464838f55c49e950be5d28b64b"
+  },
+  "leakage_and_privacy_result": {
+    "status": "PASS",
+    "temporal": "Future, unknown, outside-lookback, wrong-ticker, wrong-version and forbidden historical-provider evidence remains fail closed before synthesis and State.",
+    "trace_and_persistence": "OBS-04B-001..004 remain resolved: raw query, plan, arguments, exception, evidence, citation, URL, synthesis and rejection payloads are excluded from processed traces, logs, progress, Sentry, tool errors and State.",
+    "dispatcher": "All eight paths require validated ForecastContext/run_id; missing identity makes zero provider calls and private query/provider exception text is absent from result, log and Sentry."
+  },
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "database_reads": false,
+    "database_writes": false,
+    "legacy_data_deleted": false,
+    "route_switched": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the pre-Attempt2 tests/unit_tests/search_test/test_search_server.py bytes. No product source rollback is required for Attempt2.",
+    "artifact_action": "Keep immutable Attempt1 evidence and remove only the Attempt2 implementation artifacts if the control plane rejects this attempt.",
+    "data_loss_risk": "NONE_FROM_THIS_ATTEMPT"
+  },
+  "rollback_documented": true,
+  "operational_incident_retained": {
+    "type": "ACCIDENTAL_READ_ONLY_LEGACY_LIVE_TEST",
+    "disclosed_reads": ["News", "SEC"],
+    "stopped_immediately": true,
+    "external_writes": false,
+    "attempt2_rerun": false,
+    "rerun_forbidden": true,
+    "used_as_attempt2_evidence": false
+  },
+  "external_execution": {
+    "network_access_by_attempt2": false,
+    "database_reads": false,
+    "database_writes": false,
+    "live_provider_tests": "NOT_RUN_AND_RERUN_FORBIDDEN",
+    "archive_download": "NOT_RUN",
+    "migrations": "NOT_APPLIED",
+    "seed_execution": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "blocking_issues": [],
+  "limitations": [
+    "Historical behavior is proven with deterministic local fixtures; no external archive was acquired or queried.",
+    "No live/provider integration was authorized or used as Attempt2 evidence.",
+    "The disclosed Attempt1 read-only legacy probe remains retained as a no-write safety incident and was not rerun.",
+    "Stage05 remains PENDING/NOT_STARTED and was not modified."
+  ],
+  "stage05_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "revision": 0,
+    "attempt": 0,
+    "activated": false
+  },
+  "supersedes": ".codex/handoffs/stage-04B-rev-1-attempt-1-implementation.json",
+  "implementation_ready": true,
+  "created_at": "2026-09-01T14:18:00.0000000Z"
+}

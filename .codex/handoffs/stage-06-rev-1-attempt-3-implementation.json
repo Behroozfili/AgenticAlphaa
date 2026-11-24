@@ -1,0 +1,197 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "implementation",
+  "stage": "06",
+  "stage_revision": 1,
+  "attempt": 3,
+  "agent": "sentiment",
+  "status": "IMPLEMENTED",
+  "execution_phase": "PRIMARY_FINAL",
+  "control_revision": 113,
+  "implementation_mode": "REVIEW_REMEDIATION_AND_OBSERVABILITY_PRIVACY_HARDENING",
+  "base_git_commit": "c3cda2144c63b6e69252ca64b93d90bbe39f24b4",
+  "dependency_handoff": ".codex/handoffs/stage-05-rev-1-handoff.json",
+  "dependency_handoff_sha256": "9a3cb94e71fbb77c8e6bb56fdc5a3b690da8c736ec6f2e5c68e373c9c84f79ed",
+  "prior_review": ".codex/handoffs/stage-06-rev-1-attempt-2-review.json",
+  "prior_review_sha256": "7bf7f3eeb707511953aa4b8d046e16dc7808f0264d1839819df3d10fb55b14a7",
+  "draft_ready_artifact": ".codex/handoffs/stage-06-rev-1-attempt-3-draft-ready.json",
+  "draft_ready_sha256": "6bab5babbe9176eee5742a1916f678eab52ca47b4623f67dbab9b12faafd2a0e",
+  "observability_artifact": ".codex/handoffs/stage-06-rev-1-attempt-3-observability.json",
+  "observability_sha256": "3216f0227ef88264ebebad5437c22dc6f1a02c8390df37ace949592c35ea8663",
+  "change_request": ".codex/handoffs/change-request-stage-06-rev-1-attempt-3-1.json",
+  "change_request_sha256": "fdc57ba19d5b70e1744848f381c0886ebad23206daacf17eceb7cbf6c477328d",
+  "observability_status": "CHANGES_REQUESTED_AND_RESOLVED",
+  "implementation_md": ".codex/handoffs/stage-06-rev-1-attempt-3-implementation.md",
+  "implementation_md_sha256": "3452da2f37c81020eb329e93a8edd172509643aa6071abbfd2c1f3eec05acb80",
+  "changed_files": [
+    "agents/executor_helpers/sentiment_helper.py",
+    "agents/sentiment_agent.py",
+    "tests/unit_tests/test_sentiment_phase4.py",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py",
+    ".codex/handoffs/stage-06-rev-1-attempt-3-implementation.md",
+    ".codex/handoffs/stage-06-rev-1-attempt-3-implementation.json"
+  ],
+  "resolved_findings": [
+    {
+      "id": "REVIEW-06-A2-B-001",
+      "status": "RESOLVED",
+      "resolution": "Typed sentiment_features now derives missing/degraded state, availability and contributor-only provenance from eligible FinBERT/VADER contributions, the validated fusion result, and selected-attempt quality and coverage. Partial aggregates remain usable but cannot appear healthy after a required-model/fusion failure or low coverage."
+    },
+    {
+      "id": "OBS-06-A3-001",
+      "status": "RESOLVED",
+      "resolution": "Persisted model and selected-attempt statuses use finite allowlists. Unknown, overlong, malformed or non-string values become fixed UNKNOWN, exclude stale chunks and provenance, set availability false, and produce fixed missing/degraded flags. Polarity is limited to BULLISH/BEARISH/NEUTRAL; otherwise it becomes None with fixed degradation. PRIVATE_SENTINEL values are absent from typed State and every tested telemetry boundary."
+    }
+  ],
+  "typed_status_contract": {
+    "model_status_allowlist": [
+      "VALID", "LOW_COVERAGE", "ERROR", "FAILED", "NO_DATA",
+      "DATA_UNAVAILABLE", "UNAVAILABLE", "MISSING"
+    ],
+    "selected_attempt_status_allowlist": [
+      "VALID", "LOW_COVERAGE", "ERROR", "NO_DATA"
+    ],
+    "unknown_status": "UNKNOWN",
+    "polarity_allowlist": ["BULLISH", "BEARISH", "NEUTRAL"],
+    "invalid_polarity": null,
+    "stale_unknown_model_chunks_scored": false,
+    "unavailable_model_provenance_emitted": false,
+    "partial_aggregate_can_remain_available": true,
+    "partial_or_failed_slot_can_be_healthy": false
+  },
+  "implementation_identity": {
+    "single_source": "agents/executor_helpers/sentiment_helper.py::SENTIMENT_IMPLEMENTATION_IDENTITY",
+    "stage": "06",
+    "stage_revision": 1,
+    "attempt": 3,
+    "agent": "sentiment",
+    "implementation_version": "stage06-r1-a3"
+  },
+  "preserved_contracts": {
+    "findings": [
+      "REVIEW-06-B-001", "REVIEW-06-B-002", "REVIEW-06-B-003",
+      "REVIEW-06-NB-001", "OBS-06-001", "OBS-06-002",
+      "OBS-06-003", "OBS-06-004", "OBS-06-A2-001"
+    ],
+    "measured_lifecycle_boundaries": 8,
+    "fixed_windows_calendar_days": [7, 14, 30],
+    "raw_query_or_error_text_in_telemetry": false,
+    "raw_exception_crosses_child_span": false,
+    "immutable_model_provenance": true,
+    "reference_only_shared_state": true,
+    "all_present_temporal_fields_validated": true,
+    "future_chunk_filter_before_grouping": true,
+    "mcp_forecast_identity_required": true
+  },
+  "privacy_verification": {
+    "private_marker": "PRIVATE_SENTINEL",
+    "typed_slot_contains_marker": false,
+    "compact_summary_contains_marker": false,
+    "logs_contain_marker": false,
+    "progress_contains_marker": false,
+    "trace_contains_marker": false,
+    "sentry_serialization_contains_marker": false,
+    "slot_degraded": true
+  },
+  "source_sha256": {
+    "agents/executor_helpers/sentiment_helper.py": "273e50ec89aa78a72f49e8a28f7929153036dd872531d5e0b22027e6eab4087d",
+    "agents/sentiment_agent.py": "b2babc90a29426dc860fc704cda3c7139327a9eca2c34fab470a7aedc913afa8",
+    "tests/unit_tests/test_sentiment_phase4.py": "4ccf5eee7ce5b50117e4337029937bc344735a8a37e831faef867e6fb8e8c9ad",
+    "tests/unit_tests/test_agents/test_sentiments_agent.py": "87a0cf8ccf29cd9352473fe5b92848b88a077a3ec98058bdd4971b26e7454a61"
+  },
+  "final_self_tests": [
+    {
+      "command": "exact direct-helper and full-agent OBS-06-A3-001 PRIVATE_SENTINEL tests",
+      "exit_code": 0,
+      "result": "2 passed; all model/selected statuses and polarity canonicalized; marker absent from slot, compact summary, logs, progress, trace and Sentry serialization"
+    },
+    {
+      "command": "six one-model/fusion/low-coverage helper and full-agent sentinels",
+      "exit_code": 0,
+      "result": "6 passed"
+    },
+    {
+      "command": "both complete locked helper/agent unit files",
+      "exit_code": 0,
+      "result": "53 passed"
+    },
+    {
+      "command": "complete offline Stage06 suite with not-live/not-slow/not-database markers",
+      "exit_code": 0,
+      "result": "177 passed, 3 deselected, 1 deprecation warning"
+    },
+    {
+      "command": "three prior reviewer counterexamples plus complete Attempt3 observability sentinel class",
+      "exit_code": 0,
+      "result": "6 passed; temporal isolation, MCP identity, payload privacy and stage06-r1-a3 identity preserved"
+    },
+    {
+      "command": "py_compile, git diff --check, stale identity and official control/lock validation",
+      "exit_code": 0,
+      "result": "PASS; CONTROL VALID; line-ending notices only; no Attempt2 runtime identity remained"
+    }
+  ],
+  "self_tests_run": [
+    {
+      "command": "OBS-06-A3-001 privacy/status sentinels",
+      "exit_code": 0,
+      "result": "2 passed"
+    },
+    {
+      "command": "one-model/fusion/coverage sentinels",
+      "exit_code": 0,
+      "result": "6 passed"
+    },
+    {
+      "command": "complete offline Stage06 suite",
+      "exit_code": 0,
+      "result": "177 passed, 3 deselected"
+    }
+  ],
+  "schema_and_data_diff": {
+    "schema_files_modified": false,
+    "migration_application": "NOT_RUN",
+    "database_reads": false,
+    "database_writes": false,
+    "legacy_data_deleted": false
+  },
+  "rollback": {
+    "database_action": "NONE_REQUIRED_NO_EXTERNAL_WRITE",
+    "runtime": "Restore the four Attempt3 source/test paths to their recorded Attempt2 hashes while retaining all Attempt1, Attempt2 and Attempt3 audit artifacts.",
+    "attempt2_source_sha256": {
+      "agents/executor_helpers/sentiment_helper.py": "a6f6dee3c63dcee45f9436f55d042252fe71cec9aa9eaae51c68f7be2720e8b1",
+      "agents/sentiment_agent.py": "a33efc5cf81d494f04b4b53b35fc90d0a014fe10abe8de77995bcfb77d6a5670",
+      "tests/unit_tests/test_sentiment_phase4.py": "db3ced4b20b170b0d2b6de16db808e0360cbe8c36bf3176c1d2f85081de2e748",
+      "tests/unit_tests/test_agents/test_sentiments_agent.py": "4c1061e45f3a64237daf6b2e42f328414e6c58c8d76dd2b132082c9743453d5a"
+    },
+    "data_loss_risk": "NONE"
+  },
+  "rollback_documented": true,
+  "external_execution": {
+    "network_acquisition": "NOT_RUN",
+    "live_provider_tests": "NOT_RUN",
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deploy": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "stage07_gate": {
+    "status": "PENDING",
+    "phase": "NOT_STARTED",
+    "activated": false
+  },
+  "blocking_issues": [],
+  "limitations": [
+    "Validation is offline; no live provider or external trace service was contacted intentionally.",
+    "Full repository collection and the known five out-of-scope unit failures were not rerun in PRIMARY_FINAL; QA should independently revalidate them.",
+    "Stage07 remains PENDING/NOT_STARTED."
+  ],
+  "implementation_ready": true,
+  "supersedes": ".codex/handoffs/stage-06-rev-1-attempt-2-implementation.json",
+  "created_at": "2026-09-04T13:52:38.1115129Z"
+}

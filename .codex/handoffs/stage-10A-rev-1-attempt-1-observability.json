@@ -1,0 +1,206 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "observability",
+  "stage": "10A",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 165,
+  "status": "CHANGES_REQUESTED",
+  "changed_files": [
+    "langsmith_trace.py",
+    ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json",
+    ".codex/handoffs/stage-10A-rev-1-attempt-1-observability.json"
+  ],
+  "draft_ready_artifact": ".codex/handoffs/stage-10A-rev-1-attempt-1-draft-ready.json",
+  "draft_ready_sha256": "10cb19dd94d64f18ba1e88c86a1b5fa5116c83f3ba8c3424575fc096c17b1a06",
+  "requested_primary_changes": [
+    {
+      "id": "OBS-10A-001",
+      "blocking": true,
+      "owner": "core",
+      "requested_paths": [
+        "api/main.py",
+        "api/dependencies.py",
+        "tests/unit_tests/api_test/test_api_main.py",
+        "tests/unit_tests/api_test/test_dependencies_api.py",
+        "tests/unit_tests/test_stage10a_runtime_foundation.py"
+      ],
+      "reason": "The Stage 10A API currently has only unstructured timing logs. It does not assign one opaque run_id per request or emit the required immutable 10A/r1/a1/core identity at startup, shutdown, request, Manager factory and memory boundaries. Error requests bypass the timing completion log because call_next raises. Wire the safe helper added to langsmith_trace.py with an injectable local sink, monotonic latency and sink-failure isolation.",
+      "change_request": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json"
+    },
+    {
+      "id": "OBS-10A-002",
+      "blocking": true,
+      "owner": "core",
+      "requested_paths": [
+        "api/main.py",
+        "api/routes/analyze.py",
+        "memory/manager_memory.py",
+        "tests/unit_tests/api_test/test_api_main.py",
+        "tests/unit_tests/api_test/test_analyze_cor_api.py",
+        "tests/unit_tests/test_memory/test_manager_memory.py",
+        "tests/unit_tests/test_stage10a_runtime_foundation.py"
+      ],
+      "reason": "Current registered runtime paths log or persist raw request query, user identity, preference values and exception text, and enabled Sentry paths capture raw exceptions. Replace them with compact allowlisted event fields and stable error codes; do not serialize request/query/preferences/Manager state/memory values/credentials/exception text/stack traces/secrets/reasoning/raw evidence.",
+      "change_request": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json"
+    },
+    {
+      "id": "OBS-10A-003",
+      "blocking": true,
+      "owner": "observability_or_orchestrator_assigned_core",
+      "requested_paths": [
+        "core/observability.py",
+        "api/main.py",
+        "tests/unit_tests/api_test/test_api_main.py",
+        "tests/unit_tests/test_stage10a_runtime_foundation.py"
+      ],
+      "reason": "Optional exporters are gated off by default, but initialization failure logs raw exception text and api/main.py calls sentry_sdk.capture_exception on application errors. Preserve opt-in gating while making initializer and runtime failures payload-free and non-fatal. No external exporter may be contacted by tests.",
+      "change_request": ".codex/handoffs/change-request-stage-10A-rev-1-attempt-1-1.json"
+    }
+  ],
+  "privacy_checks": [
+    {
+      "check": "The newly owned Stage 10A event builder uses a closed allowlist and immutable runtime identity.",
+      "status": "PASS",
+      "evidence": "Independent PRIVATE_SENTINEL probe retained only event, 10A/r1/a1/core identity, opaque run_id, runtime version, request method, status and measured latency. task_query, user_preferences and exception keys were dropped. Text is bounded and newline-free; counts, horizon, status and degraded flags are bounded by type and size."
+    },
+    {
+      "check": "Telemetry sink failure cannot alter API/Manager/seed behavior.",
+      "status": "PASS_HELPER_NOT_YET_WIRED",
+      "evidence": "An injected sink raising RuntimeError(PRIVATE_SENTINEL) was swallowed and the same safe event was returned. No default sink and no external export exists in the helper. Core call-sites still need wiring and tests."
+    },
+    {
+      "check": "Registered API, Manager memory and error paths contain no private/raw values.",
+      "status": "FAIL_BLOCKING",
+      "evidence": "api/routes/analyze.py logs req.user_id and req.query and persists str(exc); memory/manager_memory.py logs task_query, preference values and exception text; api/main.py uses log.exception and captures raw exceptions to Sentry when enabled."
+    },
+    {
+      "check": "LangSmith validation module is optional at import time.",
+      "status": "PASS_CHANGED",
+      "evidence": "langsmith_trace.py no longer loads .env, requires a key or constructs Client during import. Credential loading and Client construction occur only when get_langsmith_client is explicitly invoked by validation CLI/parse use."
+    }
+  ],
+  "latency_instrumentation_status": "HELPER_PASS_FINITE_NONNEGATIVE_MONOTONIC_CORE_BOUNDARIES_NOT_YET_WIRED",
+  "runtime_identity_audit": {
+    "required": "10A/r1/a1/core",
+    "helper_identity": "10A/r1/a1/core",
+    "implementation_version": "stage10a-r1-a1",
+    "identity_immutable": true,
+    "request_correlation_helper": "OPAQUE_UUID4_HEX",
+    "core_request_correlation_wired": false,
+    "status": "FAIL_BLOCKING_UNTIL_CORE_WIRING"
+  },
+  "lifecycle_matrix": [
+    {"boundary": "startup", "helper_event": "AVAILABLE", "core_call_site": "MISSING", "status": "FAIL_BLOCKING"},
+    {"boundary": "shutdown", "helper_event": "AVAILABLE", "core_call_site": "MISSING", "status": "FAIL_BLOCKING"},
+    {"boundary": "request_success", "helper_event": "AVAILABLE", "core_call_site": "MISSING_RUN_ID", "status": "FAIL_BLOCKING"},
+    {"boundary": "request_error", "helper_event": "AVAILABLE", "core_call_site": "RAW_EXCEPTION_LOGGING_AND_NO_COMPLETION_EVENT", "status": "FAIL_BLOCKING"},
+    {"boundary": "manager_factory", "helper_event": "AVAILABLE", "core_call_site": "MISSING", "status": "FAIL_BLOCKING"},
+    {"boundary": "manager_memory", "helper_event": "AVAILABLE", "core_call_site": "MISSING_AND_RAW_LOG_VALUES", "status": "FAIL_BLOCKING"},
+    {"boundary": "seed_command_selection", "helper_event": "AVAILABLE", "core_call_site": "OPTIONAL", "status": "PASS_EXPLICIT_ONLY"}
+  ],
+  "optional_exporter_audit": {
+    "settings_default_observability_enabled": false,
+    "settings_default_sentry_enabled": false,
+    "settings_default_langsmith_enabled": false,
+    "three_part_flag_and_credential_gate": true,
+    "api_lifespan_skips_initializers_when_disabled": true,
+    "langsmith_trace_import_side_effect_free_after_change": true,
+    "initializer_failure_payload_safe": false,
+    "raw_sentry_exception_capture_absent": false,
+    "external_export_contacted": false,
+    "status": "FAIL_BLOCKING_RUNTIME_FAILURE_PATHS"
+  },
+  "request_and_memory_isolation_audit": {
+    "stateless_factory_on_app_state": true,
+    "manager_created_per_invocation": true,
+    "memory_created_per_request_or_invocation": true,
+    "mutable_manager_or_memory_retained_by_factory": false,
+    "concurrent_two_invocation_test": "PASS_ZERO_CROSSTALK",
+    "two_memory_short_and_monthly_test": "PASS_ZERO_CROSSTALK",
+    "shared_objects": ["Supabase client", "Neo4j driver", "immutable settings"],
+    "status": "PASS"
+  },
+  "startup_and_seed_audit": {
+    "normal_server_start_auto_seeds": false,
+    "cli_default_auto_seeds": false,
+    "explicit_seed_command": "python main.py seed-rag",
+    "seed_executed": false,
+    "external_system_contacted_by_tests": false,
+    "status": "PASS"
+  },
+  "source_integrity": {
+    "draft_recorded_hashes_checked": 13,
+    "draft_recorded_hash_mismatches": [],
+    "stage09_dependency_handoff_sha256": "0d6467cbe0e117409d93ab4b9be6c2d0176253a0f74d34be4f3a2ad098116925",
+    "stage09_dependency_hash_match": true,
+    "langsmith_trace_sha256_after_observability_change": "e348fae4ac31277fa8c1a2483a225797eb13dc3969b0d47c9dfbfad45043b691",
+    "stage10b_status": "PENDING_NOT_STARTED"
+  },
+  "tests_run": [
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider <seven exact Stage10A focused modules> -q",
+      "exit_code": 0,
+      "result": "149 passed in 12.75s",
+      "network_mode": "OFFLINE_MOCKED_CLIENTS"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m pytest -p no:cacheprovider tests/integration_tests/test_integration_sentiment_agent.py::TestSentimentValidationExport -q",
+      "exit_code": 0,
+      "result": "4 passed in 0.06s; lazy client remains compatible with injected validation client",
+      "network_mode": "OFFLINE_INJECTED_CLIENT"
+    },
+    {
+      "command": "Independent Stage 10A allowlist, immutable identity, monotonic latency, unknown-private-field and always-failing-sink probe",
+      "exit_code": 0,
+      "result": "PASS: identity=10A/r1/a1/core; finite nonnegative measured latency; PRIVATE_SENTINEL absent; failing sink isolated; invalid NaN legacy latency normalized to 0.0",
+      "network_mode": "OFFLINE_IN_MEMORY"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B -m py_compile langsmith_trace.py and git diff --check -- langsmith_trace.py",
+      "exit_code": 0,
+      "result": "PASS",
+      "network_mode": "OFFLINE"
+    },
+    {
+      "command": ".venv\\Scripts\\python.exe -B .codex/scripts/validate_refactor_control.py --check-control --check-locks --agent observability",
+      "exit_code": 0,
+      "result": "CONTROL VALID at control_revision 165 before observability artifact creation",
+      "network_mode": "OFFLINE_READ_ONLY"
+    }
+  ],
+  "blocking_issues": [
+    "OBS-10A-001: Required request/lifecycle/factory/memory events and per-request run correlation are not wired to Core call-sites.",
+    "OBS-10A-002: Registered API/memory/error paths log or persist raw request/private/exception values and enabled Sentry captures raw exceptions.",
+    "OBS-10A-003: Optional exporter initialization/runtime failure paths are not uniformly payload-free and non-fatal."
+  ],
+  "stage_boundary": {
+    "feature_behavior_changed_by_observability": false,
+    "core_source_or_test_files_changed_by_observability": false,
+    "observability_source_files_changed": true,
+    "change_request_created": true,
+    "primary_reactivation_required": true,
+    "state_or_qa_or_review_changed": false,
+    "stage10b_work_performed": false
+  },
+  "external_execution": {
+    "network_access": false,
+    "external_trace_provider": "NOT_CONTACTED",
+    "database_reads": false,
+    "database_writes": false,
+    "migration_application": "NOT_RUN",
+    "seed_execution": "NOT_RUN",
+    "deletion": "NOT_RUN",
+    "deployment": "NOT_RUN",
+    "commit": "NOT_RUN",
+    "push": "NOT_RUN"
+  },
+  "limitations": [
+    "The safe helper exists only in the separately locked observability path until Core resolves the exact call-site change request.",
+    "Legacy deep agent trace processors and Stage 10B business behavior were not modified or externally exercised in this Stage 10A audit.",
+    "No live provider, database, exporter, migration, seed, deployment, commit or push was executed."
+  ],
+  "created_at": "2026-09-12T09:44:19.9036702Z"
+}

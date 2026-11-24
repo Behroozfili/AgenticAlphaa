@@ -19,6 +19,7 @@ from mcp.types import CallToolResult, ListToolsResult, TextContent, Tool
 import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from core.observability import init_sentry, sentry_enabled
+from core.forecast_contract import AnalysisMode
 
 from tools.sentiment_tools.fear_greed_calculator import FearGreedIndexCalculator
 from tools.sentiment_tools.finbert_analyzer import FinBertSentimentAnalyzer
@@ -26,6 +27,12 @@ from tools.sentiment_tools.vader_scorer import VaderLexiconScorer
 from rag.retriever import AlphaRetriever
 from rag.vector_store import AlphaVectorStore
 from rag.embedding_manager import get_embedder
+from agents.executor_helpers.sentiment_helper import (
+    SENTIMENT_FEATURE_VERSION,
+    SENTIMENT_WINDOWS,
+    require_sentiment_context,
+    select_point_in_time_evidence,
+)
 
 # ---------------------------------------------------------------------------
 # Bootstrap
@@ -199,6 +206,9 @@ def _retrieve_social_data(
     query:     str,
     ticker:    str | None,
     days_back: int,
+    *,
+    forecast_context: dict[str, Any] | None = None,
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """
     Fetch chunks from the RAG pipeline via AlphaRetriever.retrieve_raw().
@@ -222,21 +232,56 @@ def _retrieve_social_data(
         sources_metadata : list[dict]  — parallel document metadata
         total_retrieved  : int         — unique document count
     """
-    raw_chunks: list[dict] = _get_retriever().retrieve_raw(
-        query=query,
-        ticker=ticker,
-        days_back=days_back,
-    )
+    retrieve_kwargs: dict[str, Any] = {
+        "query": query, "ticker": ticker, "days_back": days_back,
+    }
+    context = None
+    identity = None
+    if forecast_context is not None or run_id is not None:
+        context, identity = require_sentiment_context(
+            forecast_context, run_id, ticker=ticker,
+        )
+        if days_back not in SENTIMENT_WINDOWS:
+            raise ValueError("sentiment days_back must be one of 7, 14, or 30")
+        retrieve_kwargs.update(
+            as_of=context.as_of,
+            dataset_version=context.dataset_version,
+            historical=context.analysis_mode is AnalysisMode.HISTORICAL_BACKTEST,
+        )
+    raw_chunks: list[dict] = _get_retriever().retrieve_raw(**retrieve_kwargs)
 
     documents: dict[str, dict[str, Any]] = {}
     raw_chunk_count = 0
     duplicate_text_chunks_removed = 0
+    temporal_rejections: list[str] = []
+    eligible_chunks: list[dict[str, Any]] = []
 
     for chunk in raw_chunks:
         text = chunk.get("text", "").strip()
         if not text:
             continue
         raw_chunk_count += 1
+        if context is not None and identity is not None:
+            eligible, rejection_codes = select_point_in_time_evidence(
+                texts=[text],
+                metadata=[chunk],
+                forecast_context=context,
+                run_id=identity,
+            )
+            temporal_rejections.extend(rejection_codes)
+            if not eligible:
+                continue
+            checked = eligible[0]
+            chunk = {
+                **chunk,
+                "text": str(checked["text"]),
+                "published_at": checked["published_at"].isoformat(),
+                "evidence_id": checked["evidence_id"],
+            }
+        eligible_chunks.append(chunk)
+
+    for chunk in eligible_chunks:
+        text = chunk.get("text", "").strip()
         document_key, canonical_url, content_identifier = _document_identity(chunk, text)
         document = documents.setdefault(document_key, {
             "texts": [],
@@ -245,6 +290,8 @@ def _retrieve_social_data(
                 "ticker":       chunk.get("ticker"),
                 "source_type":  chunk.get("source_type"),
                 "published_at": chunk.get("published_at"),
+                "effective_from": chunk.get("effective_from"),
+                "effective_to": chunk.get("effective_to"),
                 "url":          canonical_url or chunk.get("url"),
                 "title":        chunk.get("title"),
                 "rrf_score":    chunk.get("rrf_score", chunk.get("freshness_score", 0.0)),
@@ -268,6 +315,21 @@ def _retrieve_social_data(
 
     chunks = ["\n\n".join(document["texts"]) for document in documents.values()]
     metadata = [document["metadata"] for document in documents.values()]
+    if context is not None and identity is not None:
+        eligible, grouped_rejections = select_point_in_time_evidence(
+            texts=chunks, metadata=metadata,
+            forecast_context=context, run_id=identity,
+        )
+        temporal_rejections.extend(grouped_rejections)
+        chunks = [str(item["text"]) for item in eligible]
+        metadata = [
+            {
+                **metadata[int(item["index"])],
+                "evidence_id": item["evidence_id"],
+                "published_at": item["published_at"].isoformat(),
+            }
+            for item in eligible
+        ]
     domains = {item["domain"] for item in metadata if item.get("domain")}
     unique_document_count = len(chunks)
     evidence_independence = (
@@ -281,9 +343,14 @@ def _retrieve_social_data(
         "raw_chunk_count": raw_chunk_count,
         "unique_document_count": unique_document_count,
         "unique_domain_count": len(domains),
-        "chunks_collapsed_to_documents": raw_chunk_count - unique_document_count,
+        "chunks_collapsed_to_documents": len(eligible_chunks) - unique_document_count,
         "duplicate_text_chunks_removed": duplicate_text_chunks_removed,
         "evidence_independence": round(evidence_independence, 4),
+        "temporal_rejections": temporal_rejections,
+        "contract_version": SENTIMENT_FEATURE_VERSION,
+        "run_id": identity,
+        "as_of": context.as_of.isoformat() if context is not None else None,
+        "dataset_version": context.dataset_version if context is not None else None,
     }
 
 
@@ -331,7 +398,7 @@ async def list_tools() -> ListToolsResult:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["query"],
+                "required": ["query", "forecast_context", "run_id"],
                 "properties": {
                     "query": {
                         "type": "string",
@@ -357,6 +424,8 @@ async def list_tools() -> ListToolsResult:
                         "minimum": 1,
                         "maximum": 90,
                     },
+                    "forecast_context": {"type": "object"},
+                    "run_id": {"type": "string", "minLength": 1},
                 },
             },
         ),
@@ -373,7 +442,7 @@ async def list_tools() -> ListToolsResult:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["texts"],
+                "required": ["texts", "forecast_context", "run_id"],
                 "properties": {
                     "texts": {
                         "type": "array",
@@ -392,6 +461,8 @@ async def list_tools() -> ListToolsResult:
                         "minimum": 1,
                         "maximum": 64,
                     },
+                    "forecast_context": {"type": "object"},
+                    "run_id": {"type": "string", "minLength": 1},
                 },
             },
         ),
@@ -407,7 +478,7 @@ async def list_tools() -> ListToolsResult:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["texts"],
+                "required": ["texts", "forecast_context", "run_id"],
                 "properties": {
                     "texts": {
                         "type": "array",
@@ -419,6 +490,8 @@ async def list_tools() -> ListToolsResult:
                         ),
                         "minItems": 1,
                     },
+                    "forecast_context": {"type": "object"},
+                    "run_id": {"type": "string", "minLength": 1},
                 },
             },
         ),
@@ -435,7 +508,7 @@ async def list_tools() -> ListToolsResult:
             ),
             inputSchema={
                 "type": "object",
-                "required": ["finbert_result", "vader_result"],
+                "required": ["finbert_result", "vader_result", "forecast_context", "run_id"],
                 "properties": {
                     "finbert_result": {
                         "type": "object",
@@ -486,6 +559,8 @@ async def list_tools() -> ListToolsResult:
                         "minimum": 0.0,
                         "maximum": 1.0,
                     },
+                    "forecast_context": {"type": "object"},
+                    "run_id": {"type": "string", "minLength": 1},
                 },
             },
         ),
@@ -506,18 +581,28 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
     AlphaRetriever.retrieve_raw() is synchronous (network I/O to Supabase).
     All other tools also run in threads as they involve heavy model inference.
     """
-    log.info("→ tool=%s args=%s", name, json.dumps(arguments, ensure_ascii=False))
+    log.info("sentiment tool=%s input_count=%d", name, len(arguments))
 
     try:
+        context, identity = require_sentiment_context(
+            arguments.get("forecast_context"), arguments.get("run_id"),
+            ticker=arguments.get("ticker"),
+        )
         match name:
 
             # ── 1. retrieve_social_data ────────────────────────────
             case "retrieve_social_data":
+                retrieval_arguments: dict[str, Any] = {
+                    "query": arguments["query"],
+                    "ticker": arguments.get("ticker"),
+                    "days_back": int(arguments.get("days_back", 30)),
+                }
+                retrieval_arguments.update(
+                    forecast_context=context.to_dict(), run_id=identity,
+                )
                 result = await asyncio.to_thread(
                     _retrieve_social_data,
-                    query=arguments["query"],
-                    ticker=arguments.get("ticker"),
-                    days_back=int(arguments.get("days_back", 30)),
+                    **retrieval_arguments,
                 )
 
             # ── 2. analyze_finbert ─────────────────────────────────
@@ -527,8 +612,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
                 analyzer   = _get_finbert()
                 original_bs         = analyzer.batch_size
                 analyzer.batch_size = batch_size
-                result_obj = await asyncio.to_thread(analyzer.analyze, texts)
-                analyzer.batch_size = original_bs
+                try:
+                    result_obj = await asyncio.to_thread(analyzer.analyze, texts)
+                finally:
+                    analyzer.batch_size = original_bs
                 result = _to_dict(result_obj)
 
             # ── 3. score_vader ─────────────────────────────────────
@@ -571,6 +658,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             case _:
                 raise ValueError(f"Unknown tool: '{name}'")
 
+        if isinstance(result, dict) and context is not None and identity is not None:
+            result.setdefault("contract_version", SENTIMENT_FEATURE_VERSION)
+            result.setdefault("run_id", identity)
+            result.setdefault("as_of", context.as_of.isoformat())
+            result.setdefault("dataset_version", context.dataset_version)
         return CallToolResult(
             content=[
                 TextContent(
@@ -581,14 +673,28 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         )
 
     except Exception as exc:
-        log.exception("Tool '%s' raised an exception.", name)
+        error_type = type(exc).__name__
+        log.error("sentiment tool=%s outcome=error error_type=%s", name, error_type)
         if sentry_enabled():
             import sentry_sdk
             with sentry_sdk.push_scope() as scope:
                 scope.set_tag("tool", name)
                 scope.set_tag("server", "sentiment-agent-mcp")
-                sentry_sdk.capture_exception(exc)
-        error_payload = {"error": str(exc), "tool": name, "arguments": arguments}
+                scope.set_tag("error_type", error_type)
+                sentry_sdk.capture_exception(
+                    RuntimeError("SENTIMENT_TOOL_FAIL_CLOSED")
+                )
+        if isinstance(exc, ValueError) and str(exc).startswith("Unknown tool:"):
+            safe_error = str(exc)
+        elif isinstance(exc, (KeyError, TypeError, ValueError)):
+            safe_error = "Invalid or incomplete sentiment tool input."
+        else:
+            safe_error = "Sentiment tool execution failed."
+        error_payload = {
+            "error": safe_error,
+            "error_code": "SENTIMENT_TOOL_FAIL_CLOSED",
+            "tool": name,
+        }
         return CallToolResult(
             content=[
                 TextContent(
@@ -605,7 +711,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 # ══════════════════════════════════════════════════════════════════
 
 async def main() -> None:
-    init_sentry()
+    from core.observability import configure_process_observability
+    configure_process_observability()
     log.info("Sentiment Agent MCP Server starting (stdio mode)...")
     async with stdio_server() as (read_stream, write_stream):
         await app.run(

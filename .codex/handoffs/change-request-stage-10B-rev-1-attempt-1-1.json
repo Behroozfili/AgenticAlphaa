@@ -1,0 +1,59 @@
+{
+  "schema_version": "1.0",
+  "artifact_type": "change_request",
+  "stage": "10B",
+  "stage_revision": 1,
+  "attempt": 1,
+  "agent": "observability",
+  "execution_phase": "OBSERVABILITY",
+  "control_revision": 184,
+  "status": "CHANGES_REQUESTED",
+  "target_agent": "integration",
+  "changed_files": [
+    ".codex/handoffs/change-request-stage-10B-rev-1-attempt-1-1.json"
+  ],
+  "reason": "Stage 10B has an allowlisted local lifecycle builder, but the owned analyze and asynchronous backtest feature paths do not yet emit Stage 10B request, persistence and job lifecycle events to the injected local sink. Existing Stage 08 progress events and Stage 10A HTTP middleware do not provide the Stage 10B route/persistence identity and outcome metadata required for this stage.",
+  "blocking": true,
+  "requested_paths": [
+    "api/routes/analyze.py",
+    "api/routes/backtest.py",
+    "tests/unit_tests/test_stage10b_end_to_end.py",
+    "tests/unit_tests/api_test/test_backtest_api.py",
+    "tests/integration_tests/test_monthly_pipeline.py"
+  ],
+  "requested_changes": [
+    {
+      "id": "OBS-10B-001",
+      "blocking": true,
+      "request": "Wire emit_stage10b_event into monthly analyze start and terminal paths using forecast_run_id, the canonical ForecastContext mapping, the injected callable request.app.state.telemetry_sink when present, time.perf_counter() latency, compact evidence count and stable degraded flags. Emit stable error codes only; never pass query, user id/preferences, final report, full Manager state, raw evidence, exception objects or exception text."
+    },
+    {
+      "id": "OBS-10B-002",
+      "blocking": true,
+      "request": "Record monthly persistence completion/failure with the same run_id and canonical context without changing persistence semantics or making persistence failure fatal. The persistence helper may return a boolean or emit internally, but API response/status behavior and idempotent upsert keys must remain unchanged."
+    },
+    {
+      "id": "OBS-10B-003",
+      "blocking": true,
+      "request": "Wire Stage 10B backtest start/completion/failure lifecycle events to the injected application telemetry sink. Completion may derive only allowlisted dataset/feature/model/schema version metadata available from the compact report manifest or locked constants; failure must expose only BACKTEST_EXECUTION_FAILED. Keep the app-scoped job registry, asynchronous execution, progress wire shape and artifact response unchanged."
+    },
+    {
+      "id": "OBS-10B-004",
+      "blocking": true,
+      "request": "Add exact tests proving current Stage 10B identity, finite nonnegative measured latency, stable failure codes, persistence event disposition, absence of private/raw payloads, nonfatal raising sinks, and zero run_id/ticker/as_of cross-talk across two concurrent API requests."
+    }
+  ],
+  "evidence": [
+    "The new local Stage 10B telemetry contract passed with the existing Stage 10A and Core observability regressions: 39 passed in 8.04s.",
+    "api/routes/analyze.py currently has no Stage 10B lifecycle callsite; its request timing is only generic Stage 10A middleware telemetry.",
+    "api/routes/backtest.py currently publishes safe progress events but has no injected local telemetry sink call and its progress metadata omits available version identity.",
+    "Existing Stage 08 forecast progress remains payload-safe and should be preserved, not relabeled."
+  ],
+  "scope_constraints": [
+    "Edit only the requested integration-owned source/test paths during PRIMARY_FINAL.",
+    "Use langsmith_trace.emit_stage10b_event; do not duplicate or loosen its allowlist.",
+    "Do not alter forecast formulas, temporal rules, persistence keys, API response schemas, route URLs, UI behavior, Stage 08/09/10A artifacts or external exporter gates.",
+    "Do not contact network providers or databases; do not migrate, seed, install dependencies, delete, deploy, commit or push."
+  ],
+  "created_at": "2026-09-14T13:32:31.0017677Z"
+}
